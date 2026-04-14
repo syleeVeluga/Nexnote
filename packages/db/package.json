@@ -1,0 +1,31 @@
+{
+  "name": "@nexnote/db",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": { "import": "./dist/index.js", "types": "./dist/index.d.ts" },
+    "./client": { "import": "./dist/client.js", "types": "./dist/client.d.ts" }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "migrate": "drizzle-kit migrate",
+    "migrate:create": "drizzle-kit generate",
+    "seed": "tsx src/seed.ts",
+    "studio": "drizzle-kit studio",
+    "lint": "echo 'no linter configured yet'"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.41.0",
+    "postgres": "^3.4.0",
+    "@nexnote/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "drizzle-kit": "^0.31.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}
