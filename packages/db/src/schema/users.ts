@@ -10,6 +10,7 @@ import {
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
   email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
   avatarUrl: text("avatar_url"),
   createdAt: timestamp("created_at", { withTimezone: true })
