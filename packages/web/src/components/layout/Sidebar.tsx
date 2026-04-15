@@ -121,10 +121,11 @@ export function Sidebar({
             folder={folder}
             folderChildrenMap={folderChildrenMap}
             pagesByFolderMap={pagesByFolderMap}
+            untitled={t("untitled")}
           />
         ))}
         {rootPages.map((page) => (
-          <PageLink key={page.id} page={page} />
+          <PageLink key={page.id} page={page} untitled={t("untitled")} />
         ))}
         {folderList.length === 0 && pageList.length === 0 && (
           <p className="sidebar-empty">{t("noPagesYet")}</p>
@@ -146,10 +147,12 @@ function FolderNode({
   folder,
   folderChildrenMap,
   pagesByFolderMap,
+  untitled,
 }: {
   folder: Folder;
   folderChildrenMap: Map<string | null, Folder[]>;
   pagesByFolderMap: Map<string | null, Page[]>;
+  untitled: string;
 }) {
   const [open, setOpen] = useState(true);
   const children = folderChildrenMap.get(folder.id) ?? [];
@@ -169,10 +172,11 @@ function FolderNode({
               folder={child}
               folderChildrenMap={folderChildrenMap}
               pagesByFolderMap={pagesByFolderMap}
+              untitled={untitled}
             />
           ))}
           {folderPageList.map((page) => (
-            <PageLink key={page.id} page={page} />
+            <PageLink key={page.id} page={page} untitled={untitled} />
           ))}
         </div>
       )}
@@ -180,8 +184,7 @@ function FolderNode({
   );
 }
 
-function PageLink({ page }: { page: Page }) {
-  const { t } = useTranslation("common");
+function PageLink({ page, untitled }: { page: Page; untitled: string }) {
   return (
     <NavLink
       to={`/pages/${page.id}`}
@@ -189,7 +192,7 @@ function PageLink({ page }: { page: Page }) {
         `page-link${isActive ? " active" : ""}`
       }
     >
-      {page.title || t("untitled")}
+      {page.title || untitled}
     </NavLink>
   );
 }

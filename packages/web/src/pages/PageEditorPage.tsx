@@ -16,8 +16,7 @@ import { RevisionHistoryPanel } from "../components/revisions/RevisionHistoryPan
 type EditorMode = "block" | "source";
 
 export function PageEditorPage() {
-  const { t } = useTranslation("editor");
-  const { t: tc } = useTranslation("common");
+  const { t } = useTranslation(["editor", "common"]);
   const { pageId } = useParams<{ pageId: string }>();
   const { current: workspace } = useWorkspace();
   const navigate = useNavigate();
@@ -134,7 +133,7 @@ export function PageEditorPage() {
   }, []);
 
   if (loading) {
-    return <div className="page-editor loading">{tc("loading")}</div>;
+    return <div className="page-editor loading">{t("common:loading")}</div>;
   }
 
   if (!page) {
@@ -198,7 +197,7 @@ export function PageEditorPage() {
           <span>
             {revision
               ? t("lastSaved", { date: new Date(revision.createdAt).toLocaleString() })
-              : t("newPage")}
+              : t("newPageStatus")}
           </span>
           {dirty && <span className="unsaved-indicator">{t("unsavedChanges")}</span>}
         </div>

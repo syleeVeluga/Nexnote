@@ -5,8 +5,7 @@ import { useWorkspace } from "../hooks/use-workspace.js";
 import { pages as pagesApi, type Page } from "../lib/api-client.js";
 
 export function PageListPage() {
-  const { t } = useTranslation("pages");
-  const { t: tc } = useTranslation("common");
+  const { t } = useTranslation(["pages", "common"]);
   const { current } = useWorkspace();
   const navigate = useNavigate();
   const [pageList, setPageList] = useState<Page[]>([]);
@@ -41,11 +40,11 @@ export function PageListPage() {
           className="btn-primary"
           onClick={() => navigate("/pages/new")}
         >
-          {tc("newPage")}
+          {t("common:newPage")}
         </button>
       </div>
       {loading ? (
-        <p className="loading">{tc("loading")}</p>
+        <p className="loading">{t("common:loading")}</p>
       ) : pageList.length === 0 ? (
         <div className="empty-state">
           <p>{t("emptyState")}</p>
@@ -69,7 +68,7 @@ export function PageListPage() {
                 >
                   <td>
                     <Link to={`/pages/${page.id}`} className="page-title-link">
-                      {page.title || tc("untitled")}
+                      {page.title || t("common:untitled")}
                     </Link>
                   </td>
                   <td>

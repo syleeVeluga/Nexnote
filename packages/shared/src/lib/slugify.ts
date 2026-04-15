@@ -8,7 +8,7 @@ export function slugify(title: string, maxLength = 200): string {
     title
       .toLowerCase()
       .replace(/[^\p{L}\p{N}]+/gu, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, maxLength) || "untitled"
+      .slice(0, maxLength)
+      .replace(/^-+|-+$/g, "") || "untitled"
   );
 }

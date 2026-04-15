@@ -15,17 +15,17 @@ interface RevisionHistoryPanelProps {
   onRollback: () => void;
 }
 
-function timeAgo(dateStr: string): string {
+function timeAgo(dateStr: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const now = Date.now();
   const then = new Date(dateStr).getTime();
   const diff = now - then;
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return t("justNow");
+  if (mins < 60) return t("minutesAgo", { count: mins });
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return t("hoursAgo", { count: hours });
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
+  if (days < 30) return t("daysAgo", { count: days });
   return new Date(dateStr).toLocaleDateString();
 }
 
@@ -36,8 +36,7 @@ export function RevisionHistoryPanel({
   onClose,
   onRollback,
 }: RevisionHistoryPanelProps) {
-  const { t } = useTranslation("editor");
-  const { t: tc } = useTranslation("common");
+  const { t } = useTranslation(["editor", "common"]);
   const [revisions, setRevisions] = useState<RevisionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -108,7 +107,7 @@ export function RevisionHistoryPanel({
 
         <div className="revision-list">
           {loading ? (
-            <div className="revision-list-loading">{tc("loading")}</div>
+            <div className="revision-list-loading">{t("common:loading")}</div>
           ) : revisions.length === 0 ? (
             <div className="revision-list-empty">{t("noRevisions")}</div>
           ) : (
@@ -123,7 +122,7 @@ export function RevisionHistoryPanel({
                 >
                   <div className="revision-entry-header">
                     <span className="revision-time">
-                      {timeAgo(rev.createdAt)}
+                      {timeAgo(rev.createdAt, t)}
                       {isCurrent ? ` ${t("current")}` : ""}
                     </span>
                     <div className="revision-badges">
