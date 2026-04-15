@@ -6,6 +6,7 @@ import {
   updateFolderSchema,
   paginationSchema,
   uuidSchema,
+  ERROR_CODES,
 } from "@nexnote/shared";
 import { z } from "zod";
 import {
@@ -99,7 +100,7 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
         if (isUniqueViolation(err)) {
           return reply.code(409).send({
             error: "A folder with this slug already exists in the same parent",
-            code: "SLUG_CONFLICT",
+            code: ERROR_CODES.SLUG_CONFLICT,
           });
         }
         throw err;
@@ -189,7 +190,7 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
       if (!folder) {
         return reply.code(404).send({
           error: "Folder not found",
-          code: "FOLDER_NOT_FOUND",
+          code: ERROR_CODES.FOLDER_NOT_FOUND,
         });
       }
 
@@ -222,7 +223,7 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
       if (Object.keys(updates).length === 0) {
         return reply.code(400).send({
           error: "No fields to update",
-          code: "EMPTY_UPDATE",
+          code: ERROR_CODES.EMPTY_UPDATE,
         });
       }
 
@@ -238,7 +239,7 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
         if (!folder) {
           return reply.code(404).send({
             error: "Folder not found",
-            code: "FOLDER_NOT_FOUND",
+            code: ERROR_CODES.FOLDER_NOT_FOUND,
           });
         }
 
@@ -247,7 +248,7 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
         if (isUniqueViolation(err)) {
           return reply.code(409).send({
             error: "A folder with this slug already exists in the same parent",
-            code: "SLUG_CONFLICT",
+            code: ERROR_CODES.SLUG_CONFLICT,
           });
         }
         throw err;
@@ -281,7 +282,7 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
       if (deleted.length === 0) {
         return reply.code(404).send({
           error: "Folder not found",
-          code: "FOLDER_NOT_FOUND",
+          code: ERROR_CODES.FOLDER_NOT_FOUND,
         });
       }
 
@@ -323,7 +324,7 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
       if (!folder) {
         return reply.code(404).send({
           error: "Folder not found",
-          code: "FOLDER_NOT_FOUND",
+          code: ERROR_CODES.FOLDER_NOT_FOUND,
         });
       }
 

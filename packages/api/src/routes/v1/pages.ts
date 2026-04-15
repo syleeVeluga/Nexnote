@@ -18,6 +18,7 @@ import {
   PAGE_STATUSES,
   JOB_NAMES,
   DEFAULT_JOB_OPTIONS,
+  ERROR_CODES,
   computeDiff,
 } from "@nexnote/shared";
 import type { PublishRendererJobData } from "@nexnote/shared";
@@ -180,7 +181,7 @@ async function findPageInWorkspace(
 function pageNotFound(reply: FastifyReply) {
   return reply.code(404).send({
     error: "Page not found",
-    code: "PAGE_NOT_FOUND",
+    code: ERROR_CODES.PAGE_NOT_FOUND,
   });
 }
 
@@ -313,7 +314,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         if (isUniqueViolation(err)) {
           return reply.code(409).send({
             error: "A page with this slug already exists in the same folder",
-            code: "SLUG_CONFLICT",
+            code: ERROR_CODES.SLUG_CONFLICT,
           });
         }
         throw err;
@@ -447,10 +448,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         .limit(1);
 
       if (rows.length === 0) {
-        return reply.code(404).send({
-          error: "Page not found",
-          code: "PAGE_NOT_FOUND",
-        });
+        return pageNotFound(reply);
       }
 
       const { page, revision } = rows[0];
@@ -491,7 +489,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       if (Object.keys(body).length === 0) {
         return reply.code(400).send({
           error: "No fields to update",
-          code: "EMPTY_UPDATE",
+          code: ERROR_CODES.EMPTY_UPDATE,
         });
       }
 
@@ -505,10 +503,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         .limit(1);
 
       if (!existing) {
-        return reply.code(404).send({
-          error: "Page not found",
-          code: "PAGE_NOT_FOUND",
-        });
+        return pageNotFound(reply);
       }
 
       const userId = request.user.sub;
@@ -577,7 +572,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         if (isUniqueViolation(err)) {
           return reply.code(409).send({
             error: "A page with this slug already exists in the same folder",
-            code: "SLUG_CONFLICT",
+            code: ERROR_CODES.SLUG_CONFLICT,
           });
         }
         throw err;
@@ -806,7 +801,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       if (!fromRevision || !toRevision) {
         return reply.code(404).send({
           error: "One or both revisions not found",
-          code: "REVISION_NOT_FOUND",
+          code: ERROR_CODES.REVISION_NOT_FOUND,
         });
       }
 
@@ -863,7 +858,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       if (!revision) {
         return reply.code(404).send({
           error: "Revision not found",
-          code: "REVISION_NOT_FOUND",
+          code: ERROR_CODES.REVISION_NOT_FOUND,
         });
       }
 
@@ -919,7 +914,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       if (rows.length === 0) {
         return reply.code(404).send({
           error: "Diff not found (may be the initial revision)",
-          code: "DIFF_NOT_FOUND",
+          code: ERROR_CODES.DIFF_NOT_FOUND,
         });
       }
 
@@ -973,7 +968,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       if (!targetRevision) {
         return reply.code(404).send({
           error: "Revision not found",
-          code: "REVISION_NOT_FOUND",
+          code: ERROR_CODES.REVISION_NOT_FOUND,
         });
       }
 
@@ -993,7 +988,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           .limit(1);
 
         if (!page) {
-          throw new Error("PAGE_NOT_FOUND");
+          throw new Error(ERROR_CODES.PAGE_NOT_FOUND);
         }
 
         const [newRevision] = await tx
@@ -1045,7 +1040,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         return newRevision;
       });
       } catch (err: unknown) {
-        if (err instanceof Error && err.message === "PAGE_NOT_FOUND") {
+        if (err instanceof Error && err.message === ERROR_CODES.PAGE_NOT_FOUND) {
           return pageNotFound(reply);
         }
         throw err;
@@ -1089,7 +1084,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       if (!existing) {
         return reply.code(404).send({
           error: "Page not found",
-          code: "PAGE_NOT_FOUND",
+          code: ERROR_CODES.PAGE_NOT_FOUND,
         });
       }
 
@@ -1166,7 +1161,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       if (!revisionId) {
         return reply.code(400).send({
           error: "No revision to publish — page has no content",
-          code: "NO_REVISION",
+          code: ERROR_CODES.NO_REVISION,
         });
       }
 
@@ -1188,7 +1183,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       if (!revision) {
         return reply.code(404).send({
           error: "Revision not found",
-          code: "REVISION_NOT_FOUND",
+          code: ERROR_CODES.REVISION_NOT_FOUND,
         });
       }
 
@@ -1275,7 +1270,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         if (isUniqueViolation(err)) {
           return reply.code(409).send({
             error: "A live snapshot already exists (concurrent publish)",
-            code: "PUBLISH_CONFLICT",
+            code: ERROR_CODES.PUBLISH_CONFLICT,
           });
         }
         throw err;

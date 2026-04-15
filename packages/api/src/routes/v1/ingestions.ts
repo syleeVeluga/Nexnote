@@ -11,6 +11,7 @@ import {
   INGESTION_STATUSES,
   JOB_NAMES,
   DEFAULT_JOB_OPTIONS,
+  ERROR_CODES,
 } from "@nexnote/shared";
 import type { RouteClassifierJobData, TripleExtractorJobData } from "@nexnote/shared";
 import {
@@ -138,7 +139,7 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
       if (!token) {
         return reply.code(400).send({
           error: "No API token",
-          code: "NO_API_TOKEN",
+          code: ERROR_CODES.NO_API_TOKEN,
           details:
             "You need at least one active API token in this workspace to submit ingestions",
         });
@@ -291,7 +292,7 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
       if (!row) {
         return reply.code(404).send({
           error: "Not found",
-          code: "NOT_FOUND",
+          code: ERROR_CODES.NOT_FOUND,
           details: "Ingestion not found",
         });
       }
@@ -363,14 +364,14 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
       if (!ingestion) {
         return reply.code(404).send({
           error: "Not found",
-          code: "NOT_FOUND",
+          code: ERROR_CODES.NOT_FOUND,
           details: "Ingestion not found",
         });
       }
       if (!decision) {
         return reply.code(404).send({
           error: "Not found",
-          code: "NOT_FOUND",
+          code: ERROR_CODES.NOT_FOUND,
           details: "Decision not found",
         });
       }
@@ -466,7 +467,7 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
         if (!decision.targetPageId) {
           return reply.code(400).send({
             error: "Missing target",
-            code: "MISSING_TARGET_PAGE",
+            code: ERROR_CODES.MISSING_TARGET_PAGE,
             details: "Decision requires a targetPageId for update/append",
           });
         }

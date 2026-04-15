@@ -4,7 +4,7 @@ import type {
   FastifyReply,
 } from "fastify";
 import { eq, and } from "drizzle-orm";
-import { publicDocParamsSchema } from "@nexnote/shared";
+import { publicDocParamsSchema, ERROR_CODES } from "@nexnote/shared";
 import { publishedSnapshots, workspaces, pages } from "@nexnote/db";
 import { sendValidationError } from "../../lib/reply-helpers.js";
 
@@ -57,7 +57,7 @@ const docRoutes: FastifyPluginAsync = async (fastify) => {
       if (rows.length === 0) {
         return reply.code(404).send({
           error: "Published document not found",
-          code: "DOC_NOT_FOUND",
+          code: ERROR_CODES.DOC_NOT_FOUND,
         });
       }
 
@@ -119,7 +119,7 @@ const docRoutes: FastifyPluginAsync = async (fastify) => {
       if (rows.length === 0) {
         return reply.code(404).send({
           error: "Workspace not found",
-          code: "WORKSPACE_NOT_FOUND",
+          code: ERROR_CODES.WORKSPACE_NOT_FOUND,
         });
       }
 
