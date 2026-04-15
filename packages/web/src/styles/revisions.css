@@ -33,20 +33,6 @@
   font-weight: 600;
 }
 
-.btn-close-panel {
-  background: transparent;
-  border: none;
-  font-size: 18px;
-  color: #6b7280;
-  padding: 2px 6px;
-  line-height: 1;
-}
-
-.btn-close-panel:hover {
-  color: #1a1a1a;
-  background: transparent;
-}
-
 /* ── Revision List ── */
 .revision-list {
   flex: 1;

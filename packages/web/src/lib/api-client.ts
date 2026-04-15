@@ -7,6 +7,9 @@ import type {
   RevisionSource,
   WorkspaceRole,
   RevisionDiffDto,
+  GraphNode,
+  GraphEdge,
+  GraphData,
 } from "@nexnote/shared";
 
 const BASE_URL = "/api/v1";
@@ -240,38 +243,8 @@ export interface CompareResultDto {
   changedBlocks: number;
 }
 
-// ---------------------------------------------------------------------------
-// Graph
-// ---------------------------------------------------------------------------
-
-export interface GraphNode {
-  id: string;
-  label: string;
-  type: string;
-  isCenter: boolean;
-  pageCount: number;
-}
-
-export interface GraphEdge {
-  id: string;
-  source: string;
-  target: string;
-  predicate: string;
-  confidence: number;
-  sourcePageId: string;
-}
-
-export interface GraphData {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  meta: {
-    pageId: string;
-    depth: number;
-    totalNodes: number;
-    totalEdges: number;
-    truncated: boolean;
-  };
-}
+// Re-export shared graph types for consumers importing from api-client
+export type { GraphNode, GraphEdge, GraphData } from "@nexnote/shared";
 
 export const pages = {
   list(workspaceId: string, params?: { folderId?: string; status?: string; limit?: number; offset?: number }) {

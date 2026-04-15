@@ -13,6 +13,7 @@ import {
   createRevisionSchema,
   rollbackRevisionSchema,
   compareRevisionsQuerySchema,
+  graphQuerySchema,
   PAGE_STATUSES,
   computeDiff,
 } from "@nexnote/shared";
@@ -65,12 +66,6 @@ const createRevisionBodySchema = createRevisionSchema
     revisionNote: true,
   })
   .extend({ contentMd: z.string().min(1, "contentMd is required") });
-
-const graphQuerySchema = z.object({
-  depth: z.coerce.number().int().min(1).max(2).default(1),
-  limit: z.coerce.number().int().min(1).max(200).default(60),
-  minConfidence: z.coerce.number().min(0).max(1).default(0),
-});
 
 // ---------------------------------------------------------------------------
 // DTO mappers — never return raw DB rows
@@ -1149,9 +1144,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
 
       const db = fastify.db;
 
-      // ------------------------------------------------------------------
-      // Step 1: Find center entity IDs — entities appearing in active
-      //         triples sourced from this page (as subject or entity-object)
+      // Center entities seed the BFS — without them we have no graph to show
       // ------------------------------------------------------------------
       const baseConditions = [
         eq(triples.sourcePageId, pageId),
@@ -1192,16 +1185,16 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      // BFS expansion — discover neighbors so depth > 1 reveals context
       // ------------------------------------------------------------------
-      // Step 2: Expand by depth — collect neighbor entity IDs
-      // ------------------------------------------------------------------
-      // allEntityIds accumulates every entity we want in the graph
       const allEntityIds = new Set(centerEntityIds);
-      // frontier holds the IDs we need to expand from in the current hop
       let frontier = new Set(centerEntityIds);
 
+      // Cap BFS to avoid oversized IN clauses in dense graphs
+      const maxBfsNodes = limit * 5;
+
       for (let hop = 1; hop <= depth; hop++) {
-        if (frontier.size === 0) break;
+        if (frontier.size === 0 || allEntityIds.size >= maxBfsNodes) break;
 
         const frontierArr = [...frontier];
 
@@ -1242,9 +1235,8 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         frontier = nextFrontier;
       }
 
-      // ------------------------------------------------------------------
-      // Step 3: Apply node limit — keep center nodes first, then by
-      //         connection count
+      // Prioritise center nodes when truncating to keep the page's own
+      // entities visible regardless of graph density
       // ------------------------------------------------------------------
       let truncated = false;
       let finalEntityIds: string[];
@@ -1309,88 +1301,72 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         truncated = true;
       }
 
-      // ------------------------------------------------------------------
-      // Step 4: Fetch entity details
-      // ------------------------------------------------------------------
-      const entityRows = await db
-        .select({
-          id: entities.id,
-          canonicalName: entities.canonicalName,
-          entityType: entities.entityType,
-        })
-        .from(entities)
-        .where(inArray(entities.id, finalEntityIds));
+      // Entity details, page-counts, and edges are independent — parallelise
+      const [entityRows, pageCountRows, edgeRows] = await Promise.all([
+        db
+          .select({
+            id: entities.id,
+            canonicalName: entities.canonicalName,
+            entityType: entities.entityType,
+          })
+          .from(entities)
+          .where(inArray(entities.id, finalEntityIds)),
 
-      // ------------------------------------------------------------------
-      // Step 5: Count pages referencing each entity (via triples)
-      // ------------------------------------------------------------------
-      const pageCountRows = await db
-        .select({
-          entityId: sql<string>`entity_id`,
-          pageCount: sql<number>`count(DISTINCT source_page_id)`,
-        })
-        .from(
-          sql`(
-            SELECT ${triples.subjectEntityId} AS entity_id, ${triples.sourcePageId} AS source_page_id
-            FROM ${triples}
-            WHERE ${triples.workspaceId} = ${workspaceId}
-              AND ${triples.status} = 'active'
-              AND ${inArray(triples.subjectEntityId, finalEntityIds)}
-            UNION
-            SELECT ${triples.objectEntityId} AS entity_id, ${triples.sourcePageId} AS source_page_id
-            FROM ${triples}
-            WHERE ${triples.workspaceId} = ${workspaceId}
-              AND ${triples.status} = 'active'
-              AND ${isNotNull(triples.objectEntityId)}
-              AND ${inArray(triples.objectEntityId, finalEntityIds)}
-          ) AS pc`,
-        )
-        .groupBy(sql`entity_id`);
+        db
+          .select({
+            entityId: sql<string>`entity_id`,
+            pageCount: sql<number>`count(DISTINCT source_page_id)`,
+          })
+          .from(
+            sql`(
+              SELECT ${triples.subjectEntityId} AS entity_id, ${triples.sourcePageId} AS source_page_id
+              FROM ${triples}
+              WHERE ${triples.workspaceId} = ${workspaceId}
+                AND ${triples.status} = 'active'
+                AND ${inArray(triples.subjectEntityId, finalEntityIds)}
+              UNION
+              SELECT ${triples.objectEntityId} AS entity_id, ${triples.sourcePageId} AS source_page_id
+              FROM ${triples}
+              WHERE ${triples.workspaceId} = ${workspaceId}
+                AND ${triples.status} = 'active'
+                AND ${isNotNull(triples.objectEntityId)}
+                AND ${inArray(triples.objectEntityId, finalEntityIds)}
+            ) AS pc`,
+          )
+          .groupBy(sql`entity_id`),
+
+        db
+          .select({
+            id: triples.id,
+            subjectEntityId: triples.subjectEntityId,
+            objectEntityId: triples.objectEntityId,
+            predicate: triples.predicate,
+            confidence: triples.confidence,
+            sourcePageId: triples.sourcePageId,
+          })
+          .from(triples)
+          .where(
+            and(
+              eq(triples.workspaceId, workspaceId),
+              eq(triples.status, "active"),
+              isNotNull(triples.objectEntityId),
+              inArray(triples.subjectEntityId, finalEntityIds),
+              inArray(triples.objectEntityId, finalEntityIds),
+              ...(minConfidence > 0
+                ? [gte(triples.confidence, minConfidence)]
+                : []),
+            ),
+          ),
+      ]);
 
       const pageCountMap = new Map<string, number>();
       for (const r of pageCountRows) {
         pageCountMap.set(r.entityId, Number(r.pageCount));
       }
 
-      // ------------------------------------------------------------------
-      // Step 6: Fetch edges — only entity-object triples where both
-      //         endpoints are in the final node set
-      // ------------------------------------------------------------------
-      const finalIdSet = new Set(finalEntityIds);
-
-      const edgeRows = await db
-        .select({
-          id: triples.id,
-          subjectEntityId: triples.subjectEntityId,
-          objectEntityId: triples.objectEntityId,
-          predicate: triples.predicate,
-          confidence: triples.confidence,
-          sourcePageId: triples.sourcePageId,
-        })
-        .from(triples)
-        .where(
-          and(
-            eq(triples.workspaceId, workspaceId),
-            eq(triples.status, "active"),
-            isNotNull(triples.objectEntityId),
-            inArray(triples.subjectEntityId, finalEntityIds),
-            inArray(triples.objectEntityId, finalEntityIds),
-            ...(minConfidence > 0
-              ? [gte(triples.confidence, minConfidence)]
-              : []),
-          ),
-        );
-
-      // Filter edges: both endpoints must be in finalIdSet (double-check
-      // since inArray already ensures this, but the objectEntityId column
-      // is nullable in the type system)
+      // Narrow objectEntityId from nullable type for the DTO mapping
       const edges = edgeRows
-        .filter(
-          (e) =>
-            e.objectEntityId !== null &&
-            finalIdSet.has(e.subjectEntityId) &&
-            finalIdSet.has(e.objectEntityId),
-        )
+        .filter((e) => e.objectEntityId !== null)
         .map((e) => ({
           id: e.id,
           source: e.subjectEntityId,
@@ -1399,10 +1375,6 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           confidence: e.confidence,
           sourcePageId: e.sourcePageId,
         }));
-
-      // ------------------------------------------------------------------
-      // Step 7: Build nodes DTO
-      // ------------------------------------------------------------------
       const nodes = entityRows.map((e) => ({
         id: e.id,
         label: e.canonicalName,

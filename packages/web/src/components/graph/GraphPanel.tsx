@@ -2,12 +2,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import ForceGraph2D from "react-force-graph-2d";
 import type { NodeObject, LinkObject } from "react-force-graph-2d";
-import {
-  pages as pagesApi,
-  type GraphNode,
-  type GraphEdge,
-  type GraphData,
-} from "../../lib/api-client.js";
+import type { EntityType, GraphNode, GraphEdge, GraphData } from "@nexnote/shared";
+import { pages as pagesApi } from "../../lib/api-client.js";
 
 interface GraphPanelProps {
   workspaceId: string;
@@ -15,7 +11,7 @@ interface GraphPanelProps {
   onClose: () => void;
 }
 
-const NODE_COLORS: Record<string, string> = {
+const NODE_COLORS: Record<EntityType, string> = {
   person: "#4f46e5",
   organization: "#059669",
   concept: "#d97706",
@@ -39,7 +35,7 @@ type GLink = LinkObject<
 >;
 
 function getNodeColor(type: string): string {
-  return NODE_COLORS[type.toLowerCase()] ?? NODE_COLORS.other;
+  return (NODE_COLORS as Record<string, string>)[type.toLowerCase()] ?? NODE_COLORS.other;
 }
 
 export function GraphPanel({
@@ -55,7 +51,6 @@ export function GraphPanel({
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 380, height: 400 });
 
-  // Observe container size for responsive rendering
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -64,7 +59,10 @@ export function GraphPanel({
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         if (width > 0 && height > 0) {
-          setDimensions({ width, height });
+          setDimensions((prev) => {
+            if (prev.width === width && prev.height === height) return prev;
+            return { width, height };
+          });
         }
       }
     });
@@ -73,7 +71,6 @@ export function GraphPanel({
     return () => observer.disconnect();
   }, []);
 
-  // Fetch graph data
   useEffect(() => {
     setLoading(true);
     setError(null);
@@ -84,13 +81,12 @@ export function GraphPanel({
         setGraphData(res);
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to load graph");
+        setError(err instanceof Error ? err.message : t("noGraphData"));
         setGraphData(null);
       })
       .finally(() => setLoading(false));
   }, [workspaceId, pageId, depth]);
 
-  // Transform API data into force-graph format
   const forceGraphData = useMemo(() => {
     if (!graphData) return { nodes: [] as GNode[], links: [] as GLink[] };
 
@@ -112,7 +108,6 @@ export function GraphPanel({
     return { nodes, links };
   }, [graphData]);
 
-  // Custom node rendering: draw circle + label
   const paintNode = useCallback(
     (node: GNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
       const label = node.label ?? "";
@@ -120,7 +115,6 @@ export function GraphPanel({
       const size = Math.sqrt(node.val ?? 1) * 3;
       const color = getNodeColor(node.type ?? "other");
 
-      // Circle
       ctx.beginPath();
       ctx.arc(node.x ?? 0, node.y ?? 0, size, 0, 2 * Math.PI);
       ctx.fillStyle = node.isCenter ? "#1d4ed8" : color;
@@ -132,7 +126,6 @@ export function GraphPanel({
         ctx.stroke();
       }
 
-      // Label
       ctx.font = `${node.isCenter ? "bold " : ""}${fontSize}px sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
@@ -142,7 +135,6 @@ export function GraphPanel({
     [],
   );
 
-  // Custom link label rendering
   const paintLink = useCallback(
     (link: GLink, ctx: CanvasRenderingContext2D, globalScale: number) => {
       const fontSize = Math.max(8 / globalScale, 1);
@@ -218,9 +210,7 @@ export function GraphPanel({
               linkDirectionalArrowRelPos={1}
               linkCanvasObjectMode={() => "after" as const}
               linkCanvasObject={paintLink}
-              cooldownTicks={80}
-              enableZoomInteraction={true}
-              enablePanInteraction={true}
+              cooldownTicks={200}
             />
             {graphData.meta.truncated && (
               <div className="graph-truncated-notice">

@@ -27,7 +27,14 @@ export const createFolderSchema = z.object({
 
 export const updateFolderSchema = createFolderSchema.partial();
 
+export const graphQuerySchema = z.object({
+  depth: z.coerce.number().int().min(1).max(2).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(60),
+  minConfidence: z.coerce.number().min(0).max(1).default(0),
+});
+
 export type CreatePage = z.infer<typeof createPageSchema>;
 export type UpdatePage = z.infer<typeof updatePageSchema>;
 export type CreateFolder = z.infer<typeof createFolderSchema>;
 export type UpdateFolder = z.infer<typeof updateFolderSchema>;
+export type GraphQuery = z.infer<typeof graphQuerySchema>;
