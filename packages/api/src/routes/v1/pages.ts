@@ -448,10 +448,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         .limit(1);
 
       if (rows.length === 0) {
-        return reply.code(404).send({
-          error: "Page not found",
-          code: ERROR_CODES.PAGE_NOT_FOUND,
-        });
+        return pageNotFound(reply);
       }
 
       const { page, revision } = rows[0];
@@ -506,10 +503,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         .limit(1);
 
       if (!existing) {
-        return reply.code(404).send({
-          error: "Page not found",
-          code: ERROR_CODES.PAGE_NOT_FOUND,
-        });
+        return pageNotFound(reply);
       }
 
       const userId = request.user.sub;
