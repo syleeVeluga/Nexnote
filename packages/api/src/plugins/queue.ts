@@ -10,6 +10,7 @@ declare module "fastify" {
       ingestion: Queue;
       extraction: Queue;
       publish: Queue;
+      search: Queue;
     };
     redis: Redis;
   }
@@ -32,12 +33,16 @@ async function queuePluginImpl(fastify: FastifyInstance) {
   const publishQueue = new Queue(QUEUE_NAMES.PUBLISH, {
     connection: createConnection(),
   });
+  const searchQueue = new Queue(QUEUE_NAMES.SEARCH, {
+    connection: createConnection(),
+  });
 
   fastify.decorate("redis", sharedRedis);
   fastify.decorate("queues", {
     ingestion: ingestionQueue,
     extraction: extractionQueue,
     publish: publishQueue,
+    search: searchQueue,
   });
 
   fastify.addHook("onClose", async () => {
@@ -45,6 +50,7 @@ async function queuePluginImpl(fastify: FastifyInstance) {
       ingestionQueue.close(),
       extractionQueue.close(),
       publishQueue.close(),
+      searchQueue.close(),
       sharedRedis.quit(),
     ]);
   });

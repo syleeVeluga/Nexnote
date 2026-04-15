@@ -4,6 +4,7 @@ import {
   createPatchGeneratorWorker,
   createTripleExtractorWorker,
   createPublishRendererWorker,
+  createSearchIndexUpdaterWorker,
 } from "./workers/index.js";
 import { closeAllQueues } from "./queues.js";
 import { logger } from "./logger.js";
@@ -16,6 +17,7 @@ function startWorkers(): void {
   workers.push(createPatchGeneratorWorker());
   workers.push(createTripleExtractorWorker());
   workers.push(createPublishRendererWorker());
+  workers.push(createSearchIndexUpdaterWorker());
   logger.info({ count: workers.length }, "Workers running");
 }
 

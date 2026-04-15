@@ -27,6 +27,36 @@ export const createFolderSchema = z.object({
 
 export const updateFolderSchema = createFolderSchema.partial();
 
+export const AI_EDIT_MODES = [
+  "selection-rewrite",
+  "section-expand",
+  "summarize",
+  "tone-formal",
+  "tone-casual",
+  "extract-action-items",
+] as const;
+export type AiEditMode = (typeof AI_EDIT_MODES)[number];
+
+export const aiEditSchema = z.object({
+  mode: z.enum(AI_EDIT_MODES),
+  instruction: z.string().min(1).max(2000),
+  selection: z
+    .object({
+      from: z.number().int().nonnegative(),
+      to: z.number().int().nonnegative(),
+      text: z.string(),
+    })
+    .optional(),
+});
+export type AiEdit = z.infer<typeof aiEditSchema>;
+
+export const searchQuerySchema = z.object({
+  q: z.string().min(1).max(300),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  offset: z.coerce.number().int().nonnegative().default(0),
+});
+export type SearchQuery = z.infer<typeof searchQuerySchema>;
+
 export const graphQuerySchema = z.object({
   depth: z.coerce.number().int().min(1).max(2).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(60),

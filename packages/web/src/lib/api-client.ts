@@ -348,6 +348,68 @@ export const pages = {
       { method: "POST", body: JSON.stringify(data ?? {}) },
     );
   },
+
+  search(workspaceId: string, params: { q: string; limit?: number; offset?: number }) {
+    const q = buildQuery({ q: params.q, limit: params.limit, offset: params.offset });
+    return request<{ data: Page[]; total: number; q: string }>(
+      `/workspaces/${workspaceId}/pages/search${q}`,
+    );
+  },
+
+  async aiEdit(
+    workspaceId: string,
+    pageId: string,
+    data: {
+      mode: string;
+      instruction: string;
+      selection?: { from: number; to: number; text: string };
+    },
+    onChunk: (text: string) => void,
+    onDone: (result: string, baseRevisionId: string) => void,
+    onError: (message: string) => void,
+  ): Promise<void> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Accept": "text/event-stream",
+    };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const res = await fetch(
+      `${BASE_URL}/workspaces/${workspaceId}/pages/${pageId}/ai-edit`,
+      { method: "POST", headers, body: JSON.stringify(data) },
+    );
+
+    if (!res.ok || !res.body) {
+      onError(`HTTP ${res.status}`);
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop() ?? "";
+
+      for (const part of parts) {
+        const eventMatch = /^event: (\S+)/.exec(part);
+        const dataMatch = /^data: (.+)$/m.exec(part);
+        if (!eventMatch || !dataMatch) continue;
+        const event = eventMatch[1];
+        let payload: Record<string, unknown>;
+        try { payload = JSON.parse(dataMatch[1]); } catch { continue; }
+
+        if (event === "chunk") onChunk((payload.text as string) ?? "");
+        else if (event === "done") onDone((payload.result as string) ?? "", (payload.baseRevisionId as string) ?? "");
+        else if (event === "error") onError((payload.message as string) ?? "Unknown error");
+      }
+    }
+  },
 };
 
 // ---------------------------------------------------------------------------

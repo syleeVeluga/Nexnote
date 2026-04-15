@@ -42,6 +42,7 @@ export function PageEditorPage() {
 
   const editorRef = useRef<TiptapEditorHandle>(null);
   const saveRef = useRef<() => void>(() => {});
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!workspace || !pageId) return;
@@ -66,17 +67,24 @@ export function PageEditorPage() {
     return () => { cancelled = true; };
   }, [workspace, pageId, navigate]);
 
+  const scheduleAutosave = useCallback(() => {
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => saveRef.current(), 2000);
+  }, []);
+
   const handleEditorChange = useCallback((md: string) => {
     setMarkdown(md);
     setDirty(true);
-  }, []);
+    scheduleAutosave();
+  }, [scheduleAutosave]);
 
   const handleSourceChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       setMarkdown(e.target.value);
       setDirty(true);
+      scheduleAutosave();
     },
-    [],
+    [scheduleAutosave],
   );
 
   const toggleMode = useCallback(() => {
@@ -150,6 +158,13 @@ export function PageEditorPage() {
   }, [workspace, pageId, publishing]);
 
   saveRef.current = save;
+
+  // Cancel pending autosave on unmount
+  useEffect(() => {
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {

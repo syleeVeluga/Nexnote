@@ -15,13 +15,15 @@ import {
   compareRevisionsQuerySchema,
   graphQuerySchema,
   publishPageSchema,
+  aiEditSchema,
+  searchQuerySchema,
   PAGE_STATUSES,
   JOB_NAMES,
   DEFAULT_JOB_OPTIONS,
   ERROR_CODES,
   computeDiff,
 } from "@nexnote/shared";
-import type { PublishRendererJobData, TripleExtractorJobData } from "@nexnote/shared";
+import type { PublishRendererJobData, TripleExtractorJobData, SearchIndexUpdaterJobData } from "@nexnote/shared";
 import {
   pages,
   pageRevisions,
@@ -314,6 +316,17 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         await fastify.queues.extraction.add(
           JOB_NAMES.TRIPLE_EXTRACTOR,
           tripleData,
+          DEFAULT_JOB_OPTIONS,
+        );
+
+        const searchData: SearchIndexUpdaterJobData = {
+          pageId: result.page.id,
+          revisionId: result.revision.id,
+          workspaceId,
+        };
+        await fastify.queues.search.add(
+          JOB_NAMES.SEARCH_INDEX_UPDATER,
+          searchData,
           DEFAULT_JOB_OPTIONS,
         );
 
@@ -684,6 +697,17 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       await fastify.queues.extraction.add(
         JOB_NAMES.TRIPLE_EXTRACTOR,
         tripleData,
+        DEFAULT_JOB_OPTIONS,
+      );
+
+      const searchData: SearchIndexUpdaterJobData = {
+        pageId,
+        revisionId: result.id,
+        workspaceId,
+      };
+      await fastify.queues.search.add(
+        JOB_NAMES.SEARCH_INDEX_UPDATER,
+        searchData,
         DEFAULT_JOB_OPTIONS,
       );
 
@@ -1076,6 +1100,17 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       await fastify.queues.extraction.add(
         JOB_NAMES.TRIPLE_EXTRACTOR,
         tripleData,
+        DEFAULT_JOB_OPTIONS,
+      );
+
+      const searchData: SearchIndexUpdaterJobData = {
+        pageId,
+        revisionId: result.id,
+        workspaceId,
+      };
+      await fastify.queues.search.add(
+        JOB_NAMES.SEARCH_INDEX_UPDATER,
+        searchData,
         DEFAULT_JOB_OPTIONS,
       );
 
@@ -1592,6 +1627,187 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           truncated,
         },
       });
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // POST /:pageId/ai-edit — AI-assisted streaming edit (SSE)
+  // -----------------------------------------------------------------------
+  fastify.post(
+    "/:pageId/ai-edit",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const paramsResult = pageParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return sendValidationError(reply, paramsResult.error.issues);
+      }
+      const { workspaceId, pageId } = paramsResult.data;
+
+      const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
+      if (!role) return forbidden(reply);
+      if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
+
+      const bodyResult = aiEditSchema.safeParse(request.body);
+      if (!bodyResult.success) {
+        return sendValidationError(reply, bodyResult.error.issues);
+      }
+      const { mode, instruction, selection } = bodyResult.data;
+
+      const [pageRow] = await fastify.db
+        .select({ id: pages.id, currentRevisionId: pages.currentRevisionId })
+        .from(pages)
+        .where(and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)))
+        .limit(1);
+
+      if (!pageRow) return pageNotFound(reply);
+      if (!pageRow.currentRevisionId) {
+        return reply.code(400).send({
+          error: "No revision to edit — page has no content",
+          code: ERROR_CODES.NO_REVISION,
+        });
+      }
+
+      const [revision] = await fastify.db
+        .select({ contentMd: pageRevisions.contentMd })
+        .from(pageRevisions)
+        .where(eq(pageRevisions.id, pageRow.currentRevisionId))
+        .limit(1);
+
+      if (!revision) return pageNotFound(reply);
+
+      const contextMd = selection?.text ?? revision.contentMd;
+
+      // Build the prompt
+      const modeInstructions: Record<string, string> = {
+        "selection-rewrite": "Rewrite the provided text based on the instruction. Return only the rewritten content, no commentary.",
+        "section-expand": "Expand the provided text with more detail. Return only the expanded content.",
+        "summarize": "Summarize the provided text concisely. Return only the summary.",
+        "tone-formal": "Rewrite the provided text in a formal, professional tone. Return only the rewritten text.",
+        "tone-casual": "Rewrite the provided text in a casual, friendly tone. Return only the rewritten text.",
+        "extract-action-items": "Extract all action items from the provided text as a markdown task list. Return only the task list.",
+      };
+
+      const systemPrompt = modeInstructions[mode] ?? "Edit the text based on the instruction.";
+
+      reply.raw.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+
+      const sendEvent = (event: string, data: unknown) => {
+        reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      };
+
+      try {
+        const adapter = (fastify as unknown as { aiAdapter?: { streamChat?: (req: unknown) => AsyncIterable<string> } }).aiAdapter;
+        if (!adapter?.streamChat) {
+          // Fallback: non-streaming single-shot response via the queue's AI gateway
+          sendEvent("error", { message: "Streaming not available — submit via ingest API" });
+          reply.raw.end();
+          return;
+        }
+
+        sendEvent("start", { mode, pageId, baseRevisionId: pageRow.currentRevisionId });
+
+        let accumulated = "";
+        for await (const chunk of adapter.streamChat({
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `Instruction: ${instruction}\n\nText:\n${contextMd.slice(0, 8000)}` },
+          ],
+        })) {
+          accumulated += chunk;
+          sendEvent("chunk", { text: chunk });
+        }
+
+        sendEvent("done", { result: accumulated, baseRevisionId: pageRow.currentRevisionId });
+      } catch (err) {
+        fastify.log.error(err, "ai-edit stream error");
+        sendEvent("error", { message: "AI edit failed" });
+      } finally {
+        reply.raw.end();
+      }
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // GET /search — Full-text search across pages in a workspace
+  // -----------------------------------------------------------------------
+  fastify.get(
+    "/search",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const paramsResult = workspaceParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return sendValidationError(reply, paramsResult.error.issues);
+      }
+      const { workspaceId } = paramsResult.data;
+
+      const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
+      if (!role) return forbidden(reply);
+
+      const queryResult = searchQuerySchema.safeParse(request.query);
+      if (!queryResult.success) {
+        return sendValidationError(reply, queryResult.error.issues);
+      }
+      const { q, limit, offset } = queryResult.data;
+
+      // PostgreSQL full-text + trigram search across page title and latest revision content
+      const rows = await fastify.db.execute(sql`
+        SELECT
+          p.id,
+          p.workspace_id    AS "workspaceId",
+          p.folder_id       AS "folderId",
+          p.title,
+          p.slug,
+          p.status,
+          p.sort_order      AS "sortOrder",
+          p.current_revision_id AS "currentRevisionId",
+          p.created_at      AS "createdAt",
+          p.updated_at      AS "updatedAt",
+          ts_rank(
+            to_tsvector('simple', coalesce(p.title, '') || ' ' || coalesce(r.content_md, '')),
+            plainto_tsquery('simple', ${q})
+          ) AS rank
+        FROM pages p
+        LEFT JOIN page_revisions r ON r.id = p.current_revision_id
+        WHERE
+          p.workspace_id = ${workspaceId}
+          AND p.status != 'archived'
+          AND (
+            to_tsvector('simple', coalesce(p.title, '') || ' ' || coalesce(r.content_md, ''))
+              @@ plainto_tsquery('simple', ${q})
+            OR p.title ILIKE ${'%' + q + '%'}
+          )
+        ORDER BY rank DESC, p.updated_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `);
+
+      const data = (rows as unknown as Array<{
+        id: string;
+        workspaceId: string;
+        folderId: string | null;
+        title: string;
+        slug: string;
+        status: string;
+        sortOrder: number;
+        currentRevisionId: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+      }>).map((row) => ({
+        id: row.id,
+        workspaceId: row.workspaceId,
+        folderId: row.folderId,
+        title: row.title,
+        slug: row.slug,
+        status: row.status,
+        sortOrder: row.sortOrder,
+        currentRevisionId: row.currentRevisionId,
+        createdAt: new Date(row.createdAt).toISOString(),
+        updatedAt: new Date(row.updatedAt).toISOString(),
+      }));
+
+      return reply.code(200).send({ data, total: data.length, q });
     },
   );
 };
