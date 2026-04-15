@@ -87,7 +87,7 @@ export function EditorToolbar({ editor }: ToolbarProps) {
 
       <div className="toolbar-group">
         <ToolbarBtn
-          label="&ldquo;"
+          label={"\u201C"}
           title={t("blockquote")}
           active={editor.isActive("blockquote")}
           onClick={() => editor.chain().focus().toggleBlockquote().run()}
@@ -126,7 +126,8 @@ function ToolbarBtn({
       className={`toolbar-btn${active ? " active" : ""}`}
       title={title}
       onClick={onClick}
-      dangerouslySetInnerHTML={{ __html: label }}
-    />
+    >
+      {label}
+    </button>
   );
 }

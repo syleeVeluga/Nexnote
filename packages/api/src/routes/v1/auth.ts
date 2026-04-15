@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcrypt";
-import { registerSchema, loginSchema } from "@nexnote/shared";
+import { registerSchema, loginSchema, ERROR_CODES } from "@nexnote/shared";
 import { users } from "@nexnote/db";
 import { sendValidationError, isUniqueViolation } from "../../lib/reply-helpers.js";
 
@@ -32,7 +32,7 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
       if (isUniqueViolation(err)) {
         return reply.code(409).send({
           error: "A user with this email already exists",
-          code: "EMAIL_CONFLICT",
+          code: ERROR_CODES.EMAIL_CONFLICT,
         });
       }
       throw err;
@@ -68,7 +68,7 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
     if (!user) {
       return reply.code(401).send({
         error: "Invalid email or password",
-        code: "INVALID_CREDENTIALS",
+        code: ERROR_CODES.INVALID_CREDENTIALS,
       });
     }
 
@@ -76,7 +76,7 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
     if (!valid) {
       return reply.code(401).send({
         error: "Invalid email or password",
-        code: "INVALID_CREDENTIALS",
+        code: ERROR_CODES.INVALID_CREDENTIALS,
       });
     }
 
@@ -109,7 +109,7 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
       if (!user) {
         return reply.code(404).send({
           error: "User not found",
-          code: "USER_NOT_FOUND",
+          code: ERROR_CODES.USER_NOT_FOUND,
         });
       }
 

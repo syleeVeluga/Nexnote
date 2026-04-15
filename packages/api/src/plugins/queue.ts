@@ -14,18 +14,20 @@ declare module "fastify" {
   }
 }
 
-async function queuePluginImpl(fastify: FastifyInstance) {
-  const redisUrl = process.env["REDIS_URL"] ?? "redis://localhost:6379";
-  const redisOpts = { maxRetriesPerRequest: null };
+function createConnection(): Redis {
+  const url = process.env["REDIS_URL"] ?? "redis://localhost:6379";
+  return new Redis(url, { maxRetriesPerRequest: null });
+}
 
+async function queuePluginImpl(fastify: FastifyInstance) {
   const ingestionQueue = new Queue(QUEUE_NAMES.INGESTION, {
-    connection: new Redis(redisUrl, redisOpts),
+    connection: createConnection(),
   });
   const extractionQueue = new Queue(QUEUE_NAMES.EXTRACTION, {
-    connection: new Redis(redisUrl, redisOpts),
+    connection: createConnection(),
   });
   const publishQueue = new Queue(QUEUE_NAMES.PUBLISH, {
-    connection: new Redis(redisUrl, redisOpts),
+    connection: createConnection(),
   });
 
   fastify.decorate("queues", {
