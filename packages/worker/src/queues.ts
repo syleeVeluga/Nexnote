@@ -3,15 +3,18 @@ import { createRedisConnection } from "./connection.js";
 
 export { QUEUE_NAMES, JOB_NAMES } from "@nexnote/shared";
 
-const queues: Queue[] = [];
+const queueCache = new Map<string, Queue>();
 
 export function getQueue(name: string): Queue {
-  const q = new Queue(name, { connection: createRedisConnection() });
-  queues.push(q);
+  let q = queueCache.get(name);
+  if (!q) {
+    q = new Queue(name, { connection: createRedisConnection() });
+    queueCache.set(name, q);
+  }
   return q;
 }
 
 export async function closeAllQueues(): Promise<void> {
-  await Promise.all(queues.map((q) => q.close()));
-  queues.length = 0;
+  await Promise.all([...queueCache.values()].map((q) => q.close()));
+  queueCache.clear();
 }

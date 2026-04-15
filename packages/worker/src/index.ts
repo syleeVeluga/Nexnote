@@ -1,5 +1,9 @@
 import type { Worker } from "bullmq";
-import { createRouteClassifierWorker } from "./workers/index.js";
+import {
+  createRouteClassifierWorker,
+  createPatchGeneratorWorker,
+  createTripleExtractorWorker,
+} from "./workers/index.js";
 import { closeAllQueues } from "./queues.js";
 
 const workers: Worker[] = [];
@@ -7,6 +11,8 @@ const workers: Worker[] = [];
 function startWorkers(): void {
   console.log("[worker] Starting NexNote workers...");
   workers.push(createRouteClassifierWorker());
+  workers.push(createPatchGeneratorWorker());
+  workers.push(createTripleExtractorWorker());
   console.log(`[worker] ${workers.length} worker(s) running.`);
 }
 

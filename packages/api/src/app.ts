@@ -4,6 +4,7 @@ import sensible from "@fastify/sensible";
 import { routes } from "./routes/index.js";
 import { dbPlugin } from "./plugins/db.js";
 import { authPlugin } from "./plugins/auth.js";
+import { queuePlugin } from "./plugins/queue.js";
 
 export async function buildApp() {
   const app = Fastify({
@@ -14,6 +15,7 @@ export async function buildApp() {
   await app.register(sensible);
   await app.register(dbPlugin);
   await app.register(authPlugin);
+  await app.register(queuePlugin);
   await app.register(routes);
 
   return app;

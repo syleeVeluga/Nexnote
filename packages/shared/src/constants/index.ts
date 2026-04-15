@@ -35,6 +35,11 @@ export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
 export const AI_PROVIDERS = ["openai", "gemini"] as const;
 export type AIProvider = (typeof AI_PROVIDERS)[number];
 
+export const AI_MODELS = {
+  OPENAI_DEFAULT: "gpt-5.4",
+  GEMINI_DEFAULT: "gemini-3.1-pro",
+} as const;
+
 export const MODEL_RUN_MODES = [
   "route_decision",
   "patch_generation",
@@ -73,8 +78,14 @@ export const CONFIDENCE = {
   SUGGESTION_MIN: 0.6,
 } as const;
 
+export const DEFAULT_JOB_OPTIONS = {
+  attempts: 3,
+  backoff: { type: "exponential" as const, delay: 5000 },
+} as const;
+
 export const QUEUE_NAMES = {
   INGESTION: "ingestion",
+  PATCH: "patch",
   EXTRACTION: "extraction",
   PUBLISH: "publish",
   SEARCH: "search",

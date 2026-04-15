@@ -14,6 +14,7 @@
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:node": "node --import tsx --test src/lib/ingestion-text.test.ts src/schemas/ingestion.test.ts",
     "lint": "echo 'no linter configured yet'"
   },
   "dependencies": {
@@ -22,6 +23,8 @@
   },
   "devDependencies": {
     "@types/diff": "^8.0.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.8.0",
     "vitest": "^4.1.4"
   }

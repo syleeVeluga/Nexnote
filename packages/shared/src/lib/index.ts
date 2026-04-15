@@ -7,3 +7,6 @@ export {
   type BlockDiffResult,
   type DiffResult,
 } from "./diff-engine.js";
+export { extractIngestionText } from "./ingestion-text.js";
+export { normalizeKey } from "./normalize-key.js";
+export { slugify } from "./slugify.js";
