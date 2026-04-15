@@ -18,6 +18,7 @@ import TableHeader from "@tiptap/extension-table-header";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { Markdown } from "tiptap-markdown";
 import { common, createLowlight } from "lowlight";
+import { SlashCommandExtension } from "../components/editor/SlashCommand.js";
 
 export const lowlight = createLowlight(common);
 
@@ -42,6 +43,7 @@ export function getEditorExtensions() {
       transformPastedText: true,
       transformCopiedText: true,
     }),
+    SlashCommandExtension,
   ];
 }
 

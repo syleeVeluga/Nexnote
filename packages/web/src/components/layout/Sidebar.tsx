@@ -11,6 +11,66 @@ import {
 } from "../../lib/api-client.js";
 import { LanguageSwitcher } from "./LanguageSwitcher.js";
 
+// ---------------------------------------------------------------------------
+// Context menu
+// ---------------------------------------------------------------------------
+
+interface ContextMenuState {
+  x: number;
+  y: number;
+  type: "folder" | "page";
+  id: string;
+  currentName: string;
+}
+
+function ContextMenu({
+  menu,
+  onRename,
+  onDelete,
+  onClose,
+}: {
+  menu: ContextMenuState;
+  onRename: (id: string, type: "folder" | "page", currentName: string) => void;
+  onDelete: (id: string, type: "folder" | "page") => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation("common");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={ref}
+      className="context-menu"
+      style={{ position: "fixed", top: menu.y, left: menu.x, zIndex: 9999 }}
+    >
+      <button
+        className="context-menu-item"
+        onClick={() => { onRename(menu.id, menu.type, menu.currentName); onClose(); }}
+      >
+        {t("rename")}
+      </button>
+      <button
+        className="context-menu-item context-menu-item-danger"
+        onClick={() => { onDelete(menu.id, menu.type); onClose(); }}
+      >
+        {t("delete")}
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar
+// ---------------------------------------------------------------------------
+
 interface SidebarProps {
   workspace: Workspace;
   workspaceList: Workspace[];
@@ -30,11 +90,17 @@ export function Sidebar({
   const [folderList, setFolderList] = useState<Folder[]>([]);
   const [pageList, setPageList] = useState<Page[]>([]);
   const [wsDropdown, setWsDropdown] = useState(false);
-  // inline folder creation state: null = hidden, string = parentFolderId (empty = root)
+  // inline folder creation
   const [creatingFolderParent, setCreatingFolderParent] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState("");
   const [creatingFolder, setCreatingFolder] = useState(false);
   const newFolderInputRef = useRef<HTMLInputElement | null>(null);
+  // context menu
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  // inline rename
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renamingType, setRenamingType] = useState<"folder" | "page" | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -49,15 +115,12 @@ export function Sidebar({
           setFolderList(fRes.data);
           setPageList(pRes.data);
         }
-      } catch {
-        // user may have navigated away
-      }
+      } catch { /* navigated away */ }
     }
     load();
     return () => { cancelled = true; };
   }, [workspace.id]);
 
-  // Pre-compute lookup maps to avoid O(N) scans in each FolderNode
   const folderChildrenMap = useMemo(() => {
     const map = new Map<string | null, Folder[]>();
     for (const f of folderList) {
@@ -83,6 +146,8 @@ export function Sidebar({
   const rootFolders = folderChildrenMap.get(null) ?? [];
   const rootPages = pagesByFolderMap.get(null) ?? [];
 
+  // ---- folder creation ----
+
   const openNewFolder = useCallback((parentFolderId: string) => {
     setCreatingFolderParent(parentFolderId);
     setNewFolderName("");
@@ -100,11 +165,7 @@ export function Sidebar({
     setCreatingFolder(true);
     try {
       const parentFolderId = creatingFolderParent === "" ? null : creatingFolderParent;
-      const res = await foldersApi.create(workspace.id, {
-        name,
-        slug: slugify(name),
-        parentFolderId,
-      });
+      const res = await foldersApi.create(workspace.id, { name, slug: slugify(name), parentFolderId });
       setFolderList((prev) => [...prev, res.data]);
       setCreatingFolderParent(null);
       setNewFolderName("");
@@ -113,13 +174,74 @@ export function Sidebar({
     }
   }, [newFolderName, creatingFolder, creatingFolderParent, workspace.id]);
 
+  // ---- context menu actions ----
+
+  const openContextMenu = useCallback((e: React.MouseEvent, type: "folder" | "page", id: string, currentName: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, type, id, currentName });
+  }, []);
+
+  const startRename = useCallback((id: string, type: "folder" | "page", currentName: string) => {
+    setRenamingId(id);
+    setRenamingType(type);
+    setRenameValue(currentName);
+  }, []);
+
+  const submitRename = useCallback(async () => {
+    if (!renamingId || !renamingType) return;
+    const name = renameValue.trim();
+    if (!name) { setRenamingId(null); return; }
+
+    if (renamingType === "folder") {
+      await foldersApi.patch(workspace.id, renamingId, { name });
+      setFolderList((prev) => prev.map((f) => f.id === renamingId ? { ...f, name } : f));
+    } else {
+      await pagesApi.update(workspace.id, renamingId, { title: name });
+      setPageList((prev) => prev.map((p) => p.id === renamingId ? { ...p, title: name } : p));
+    }
+    setRenamingId(null);
+    setRenamingType(null);
+  }, [renamingId, renamingType, renameValue, workspace.id]);
+
+  const handleDelete = useCallback(async (id: string, type: "folder" | "page") => {
+    if (!window.confirm(t("deleteConfirm"))) return;
+    if (type === "folder") {
+      await foldersApi.delete(workspace.id, id);
+      setFolderList((prev) => prev.filter((f) => f.id !== id));
+    } else {
+      await pagesApi.delete(workspace.id, id);
+      setPageList((prev) => prev.filter((p) => p.id !== id));
+    }
+  }, [workspace.id, t]);
+
+  const sharedFolderProps = {
+    folderChildrenMap,
+    pagesByFolderMap,
+    untitled: t("untitled"),
+    creatingFolderParent,
+    onNewFolder: openNewFolder,
+    newFolderName,
+    onNewFolderNameChange: setNewFolderName,
+    onSubmitNewFolder: submitNewFolder,
+    onCancelNewFolder: cancelNewFolder,
+    creatingFolder,
+    newFolderInputRef,
+    okLabel: t("ok"),
+    cancelLabel: t("cancel"),
+    placeholder: t("folderNamePlaceholder"),
+    onContextMenu: openContextMenu,
+    renamingId,
+    renameValue,
+    onRenameValueChange: setRenameValue,
+    onSubmitRename: submitRename,
+    onCancelRename: () => setRenamingId(null),
+  };
+
   return (
     <nav className="sidebar">
       <div className="sidebar-header">
-        <button
-          className="ws-selector"
-          onClick={() => setWsDropdown(!wsDropdown)}
-        >
+        <button className="ws-selector" onClick={() => setWsDropdown(!wsDropdown)}>
           <span className="ws-name">{workspace.name}</span>
           <span className="ws-chevron">{wsDropdown ? "\u25B2" : "\u25BC"}</span>
         </button>
@@ -129,10 +251,7 @@ export function Sidebar({
               <button
                 key={ws.id}
                 className={`ws-dropdown-item${ws.id === workspace.id ? " active" : ""}`}
-                onClick={() => {
-                  onSelectWorkspace(ws);
-                  setWsDropdown(false);
-                }}
+                onClick={() => { onSelectWorkspace(ws); setWsDropdown(false); }}
               >
                 {ws.name}
               </button>
@@ -142,44 +261,30 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-actions">
-        <button
-          className="btn-new-page"
-          onClick={() => navigate("/pages/new")}
-        >
+        <button className="btn-new-page" onClick={() => navigate("/pages/new")}>
           {t("newPage")}
         </button>
-        <button
-          className="btn-new-folder"
-          title={t("newFolder")}
-          onClick={() => openNewFolder("")}
-        >
+        <button className="btn-new-folder" title={t("newFolder")} onClick={() => openNewFolder("")}>
           +
         </button>
       </div>
 
       <div className="sidebar-content">
         {rootFolders.map((folder) => (
-          <FolderNode
-            key={folder.id}
-            folder={folder}
-            folderChildrenMap={folderChildrenMap}
-            pagesByFolderMap={pagesByFolderMap}
-            untitled={t("untitled")}
-            creatingFolderParent={creatingFolderParent}
-            onNewFolder={openNewFolder}
-            newFolderName={newFolderName}
-            onNewFolderNameChange={setNewFolderName}
-            onSubmitNewFolder={submitNewFolder}
-            onCancelNewFolder={cancelNewFolder}
-            creatingFolder={creatingFolder}
-            newFolderInputRef={newFolderInputRef}
-            okLabel={t("common:ok")}
-            cancelLabel={t("common:cancel")}
-            placeholder={t("folderNamePlaceholder")}
-          />
+          <FolderNode key={folder.id} folder={folder} {...sharedFolderProps} />
         ))}
         {rootPages.map((page) => (
-          <PageLink key={page.id} page={page} untitled={t("untitled")} />
+          <PageLink
+            key={page.id}
+            page={page}
+            untitled={t("untitled")}
+            onContextMenu={openContextMenu}
+            renamingId={renamingId}
+            renameValue={renameValue}
+            onRenameValueChange={setRenameValue}
+            onSubmitRename={submitRename}
+            onCancelRename={() => setRenamingId(null)}
+          />
         ))}
         {folderList.length === 0 && pageList.length === 0 && (
           <p className="sidebar-empty">{t("noPagesYet")}</p>
@@ -200,11 +305,9 @@ export function Sidebar({
               disabled={creatingFolder}
             />
             <button className="btn-sm btn-primary" onClick={submitNewFolder} disabled={creatingFolder || !newFolderName.trim()}>
-              {t("common:ok")}
+              {t("ok")}
             </button>
-            <button className="btn-sm" onClick={cancelNewFolder}>
-              {t("common:cancel")}
-            </button>
+            <button className="btn-sm" onClick={cancelNewFolder}>{t("cancel")}</button>
           </div>
         )}
       </div>
@@ -212,16 +315,26 @@ export function Sidebar({
       <div className="sidebar-footer">
         <span className="sidebar-user">{userName}</span>
         <LanguageSwitcher />
-        <button className="btn-logout" onClick={onLogout}>
-          {t("signOut")}
-        </button>
+        <button className="btn-logout" onClick={onLogout}>{t("signOut")}</button>
       </div>
+
+      {contextMenu && (
+        <ContextMenu
+          menu={contextMenu}
+          onRename={startRename}
+          onDelete={handleDelete}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </nav>
   );
 }
 
-interface FolderNodeProps {
-  folder: Folder;
+// ---------------------------------------------------------------------------
+// FolderNode
+// ---------------------------------------------------------------------------
+
+interface SharedFolderProps {
   folderChildrenMap: Map<string | null, Folder[]>;
   pagesByFolderMap: Map<string | null, Page[]>;
   untitled: string;
@@ -236,41 +349,46 @@ interface FolderNodeProps {
   okLabel: string;
   cancelLabel: string;
   placeholder: string;
+  onContextMenu: (e: React.MouseEvent, type: "folder" | "page", id: string, name: string) => void;
+  renamingId: string | null;
+  renameValue: string;
+  onRenameValueChange: (v: string) => void;
+  onSubmitRename: () => void;
+  onCancelRename: () => void;
 }
 
-function FolderNode({
-  folder,
-  folderChildrenMap,
-  pagesByFolderMap,
-  untitled,
-  creatingFolderParent,
-  onNewFolder,
-  newFolderName,
-  onNewFolderNameChange,
-  onSubmitNewFolder,
-  onCancelNewFolder,
-  creatingFolder,
-  newFolderInputRef,
-  okLabel,
-  cancelLabel,
-  placeholder,
-}: FolderNodeProps) {
+function FolderNode({ folder, ...shared }: { folder: Folder } & SharedFolderProps) {
   const [open, setOpen] = useState(true);
-  const children = folderChildrenMap.get(folder.id) ?? [];
-  const folderPageList = pagesByFolderMap.get(folder.id) ?? [];
-  const showCreateForm = creatingFolderParent === folder.id;
+  const children = shared.folderChildrenMap.get(folder.id) ?? [];
+  const folderPageList = shared.pagesByFolderMap.get(folder.id) ?? [];
+  const showCreateForm = shared.creatingFolderParent === folder.id;
+  const isRenaming = shared.renamingId === folder.id;
 
   return (
     <div className="folder-node">
-      <div className="folder-row">
-        <button className="folder-toggle" onClick={() => setOpen(!open)}>
-          <span className="folder-icon">{open ? "\u25BE" : "\u25B8"}</span>
-          <span className="folder-name">{folder.name}</span>
-        </button>
+      <div className="folder-row" onContextMenu={(e) => shared.onContextMenu(e, "folder", folder.id, folder.name)}>
+        {isRenaming ? (
+          <input
+            className="folder-rename-input"
+            autoFocus
+            value={shared.renameValue}
+            onChange={(e) => shared.onRenameValueChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") shared.onSubmitRename();
+              if (e.key === "Escape") shared.onCancelRename();
+            }}
+            onBlur={shared.onSubmitRename}
+          />
+        ) : (
+          <button className="folder-toggle" onClick={() => setOpen(!open)}>
+            <span className="folder-icon">{open ? "\u25BE" : "\u25B8"}</span>
+            <span className="folder-name">{folder.name}</span>
+          </button>
+        )}
         <button
           className="folder-add-btn"
           title="새 하위 폴더"
-          onClick={(e) => { e.stopPropagation(); onNewFolder(folder.id); }}
+          onClick={(e) => { e.stopPropagation(); shared.onNewFolder(folder.id); }}
         >
           +
         </button>
@@ -278,48 +396,43 @@ function FolderNode({
       {open && (
         <div className="folder-children">
           {children.map((child) => (
-            <FolderNode
-              key={child.id}
-              folder={child}
-              folderChildrenMap={folderChildrenMap}
-              pagesByFolderMap={pagesByFolderMap}
-              untitled={untitled}
-              creatingFolderParent={creatingFolderParent}
-              onNewFolder={onNewFolder}
-              newFolderName={newFolderName}
-              onNewFolderNameChange={onNewFolderNameChange}
-              onSubmitNewFolder={onSubmitNewFolder}
-              onCancelNewFolder={onCancelNewFolder}
-              creatingFolder={creatingFolder}
-              newFolderInputRef={newFolderInputRef}
-              okLabel={okLabel}
-              cancelLabel={cancelLabel}
-              placeholder={placeholder}
-            />
+            <FolderNode key={child.id} folder={child} {...shared} />
           ))}
           {folderPageList.map((page) => (
-            <PageLink key={page.id} page={page} untitled={untitled} />
+            <PageLink
+              key={page.id}
+              page={page}
+              untitled={shared.untitled}
+              onContextMenu={shared.onContextMenu}
+              renamingId={shared.renamingId}
+              renameValue={shared.renameValue}
+              onRenameValueChange={shared.onRenameValueChange}
+              onSubmitRename={shared.onSubmitRename}
+              onCancelRename={shared.onCancelRename}
+            />
           ))}
           {showCreateForm && (
             <div className="folder-create-inline">
               <input
-                ref={newFolderInputRef}
+                ref={shared.newFolderInputRef}
                 className="folder-create-input"
-                value={newFolderName}
-                onChange={(e) => onNewFolderNameChange(e.target.value)}
-                placeholder={placeholder}
+                value={shared.newFolderName}
+                onChange={(e) => shared.onNewFolderNameChange(e.target.value)}
+                placeholder={shared.placeholder}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") onSubmitNewFolder();
-                  if (e.key === "Escape") onCancelNewFolder();
+                  if (e.key === "Enter") shared.onSubmitNewFolder();
+                  if (e.key === "Escape") shared.onCancelNewFolder();
                 }}
-                disabled={creatingFolder}
+                disabled={shared.creatingFolder}
               />
-              <button className="btn-sm btn-primary" onClick={onSubmitNewFolder} disabled={creatingFolder || !newFolderName.trim()}>
-                {okLabel}
+              <button
+                className="btn-sm btn-primary"
+                onClick={shared.onSubmitNewFolder}
+                disabled={shared.creatingFolder || !shared.newFolderName.trim()}
+              >
+                {shared.okLabel}
               </button>
-              <button className="btn-sm" onClick={onCancelNewFolder}>
-                {cancelLabel}
-              </button>
+              <button className="btn-sm" onClick={shared.onCancelNewFolder}>{shared.cancelLabel}</button>
             </div>
           )}
         </div>
@@ -328,13 +441,52 @@ function FolderNode({
   );
 }
 
-function PageLink({ page, untitled }: { page: Page; untitled: string }) {
+// ---------------------------------------------------------------------------
+// PageLink
+// ---------------------------------------------------------------------------
+
+function PageLink({
+  page,
+  untitled,
+  onContextMenu,
+  renamingId,
+  renameValue,
+  onRenameValueChange,
+  onSubmitRename,
+  onCancelRename,
+}: {
+  page: Page;
+  untitled: string;
+  onContextMenu: (e: React.MouseEvent, type: "folder" | "page", id: string, name: string) => void;
+  renamingId: string | null;
+  renameValue: string;
+  onRenameValueChange: (v: string) => void;
+  onSubmitRename: () => void;
+  onCancelRename: () => void;
+}) {
+  const isRenaming = renamingId === page.id;
+
+  if (isRenaming) {
+    return (
+      <input
+        className="page-rename-input"
+        autoFocus
+        value={renameValue}
+        onChange={(e) => onRenameValueChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") onSubmitRename();
+          if (e.key === "Escape") onCancelRename();
+        }}
+        onBlur={onSubmitRename}
+      />
+    );
+  }
+
   return (
     <NavLink
       to={`/pages/${page.id}`}
-      className={({ isActive }) =>
-        `page-link${isActive ? " active" : ""}`
-      }
+      className={({ isActive }) => `page-link${isActive ? " active" : ""}`}
+      onContextMenu={(e) => onContextMenu(e, "page", page.id, page.title || untitled)}
     >
       {page.title || untitled}
     </NavLink>

@@ -189,6 +189,18 @@ export const folders = {
       { method: "POST", body: JSON.stringify(data) },
     );
   },
+  patch(workspaceId: string, folderId: string, data: { name?: string; slug?: string; parentFolderId?: string | null }) {
+    return request<{ data: Folder }>(
+      `/workspaces/${workspaceId}/folders/${folderId}`,
+      { method: "PATCH", body: JSON.stringify(data) },
+    );
+  },
+  delete(workspaceId: string, folderId: string) {
+    return request<void>(
+      `/workspaces/${workspaceId}/folders/${folderId}`,
+      { method: "DELETE" },
+    );
+  },
 };
 
 // ---------------------------------------------------------------------------

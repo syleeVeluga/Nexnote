@@ -1,9 +1,12 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import ForceGraph2D from "react-force-graph-2d";
 import type { NodeObject, LinkObject } from "react-force-graph-2d";
 import type { EntityType, GraphNode, GraphEdge, GraphData } from "@nexnote/shared";
 import { pages as pagesApi } from "../../lib/api-client.js";
+
+// Lazy-load 3D graph to avoid adding Three.js weight to the initial bundle
+const ForceGraph3D = lazy(() => import("react-force-graph-3d"));
 
 interface GraphPanelProps {
   workspaceId: string;
@@ -45,6 +48,7 @@ export function GraphPanel({
 }: GraphPanelProps) {
   const { t } = useTranslation(["editor", "common"]);
   const [depth, setDepth] = useState<1 | 2>(1);
+  const [mode, setMode] = useState<"2d" | "3d">("2d");
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,19 +58,16 @@ export function GraphPanel({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         if (width > 0 && height > 0) {
-          setDimensions((prev) => {
-            if (prev.width === width && prev.height === height) return prev;
-            return { width, height };
-          });
+          setDimensions((prev) =>
+            prev.width === width && prev.height === height ? prev : { width, height },
+          );
         }
       }
     });
-
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
@@ -74,22 +75,18 @@ export function GraphPanel({
   useEffect(() => {
     setLoading(true);
     setError(null);
-
     pagesApi
       .graph(workspaceId, pageId, { depth, limit: 60 })
-      .then((res) => {
-        setGraphData(res);
-      })
+      .then((res) => setGraphData(res))
       .catch((err) => {
         setError(err instanceof Error ? err.message : t("noGraphData"));
         setGraphData(null);
       })
       .finally(() => setLoading(false));
-  }, [workspaceId, pageId, depth]);
+  }, [workspaceId, pageId, depth, t]);
 
   const forceGraphData = useMemo(() => {
     if (!graphData) return { nodes: [] as GNode[], links: [] as GLink[] };
-
     const nodes: GNode[] = graphData.nodes.map((n: GraphNode) => ({
       id: n.id,
       label: n.label,
@@ -97,14 +94,12 @@ export function GraphPanel({
       isCenter: n.isCenter,
       val: Math.max(n.pageCount, 1),
     }));
-
     const links: GLink[] = graphData.edges.map((e: GraphEdge) => ({
       source: e.source,
       target: e.target,
       predicate: e.predicate,
       confidence: e.confidence,
     }));
-
     return { nodes, links };
   }, [graphData]);
 
@@ -141,10 +136,8 @@ export function GraphPanel({
       const src = link.source as GNode;
       const tgt = link.target as GNode;
       if (!src || !tgt || src.x == null || tgt.x == null) return;
-
       const midX = ((src.x ?? 0) + (tgt.x ?? 0)) / 2;
       const midY = ((src.y ?? 0) + (tgt.y ?? 0)) / 2;
-
       ctx.font = `${fontSize}px sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -154,41 +147,32 @@ export function GraphPanel({
     [],
   );
 
+  const hasData = graphData && graphData.nodes.length > 0;
+
   return (
     <div className="graph-panel">
       <div className="graph-panel-header">
         <h2>{t("graph")}</h2>
-        <button className="btn-close-panel" onClick={onClose}>
-          &times;
-        </button>
+        <button className="btn-close-panel" onClick={onClose}>&times;</button>
       </div>
 
       <div className="graph-controls">
         <span className="graph-controls-label">{t("graphDepth")}:</span>
-        <button
-          className={`depth-btn${depth === 1 ? " active" : ""}`}
-          onClick={() => setDepth(1)}
-        >
-          1
-        </button>
-        <button
-          className={`depth-btn${depth === 2 ? " active" : ""}`}
-          onClick={() => setDepth(2)}
-        >
-          2
-        </button>
+        <button className={`depth-btn${depth === 1 ? " active" : ""}`} onClick={() => setDepth(1)}>1</button>
+        <button className={`depth-btn${depth === 2 ? " active" : ""}`} onClick={() => setDepth(2)}>2</button>
+        <span className="graph-controls-sep" />
+        <button className={`depth-btn${mode === "2d" ? " active" : ""}`} onClick={() => setMode("2d")}>2D</button>
+        <button className={`depth-btn${mode === "3d" ? " active" : ""}`} onClick={() => setMode("3d")}>3D</button>
       </div>
 
       <div className="graph-container" ref={containerRef}>
         {loading ? (
           <div className="graph-empty">{t("common:loading")}</div>
         ) : error ? (
-          <div className="graph-empty" style={{ color: "#dc2626" }}>
-            {error}
-          </div>
-        ) : !graphData || graphData.nodes.length === 0 ? (
+          <div className="graph-empty" style={{ color: "#dc2626" }}>{error}</div>
+        ) : !hasData ? (
           <div className="graph-empty">{t("noGraphData")}</div>
-        ) : (
+        ) : mode === "2d" ? (
           <>
             <ForceGraph2D
               graphData={forceGraphData}
@@ -203,9 +187,7 @@ export function GraphPanel({
                 ctx.fill();
               }}
               linkColor={() => "#d1d5db"}
-              linkWidth={(link: GLink) =>
-                Math.max((link.confidence ?? 0.5) * 2, 0.5)
-              }
+              linkWidth={(link: GLink) => Math.max((link.confidence ?? 0.5) * 2, 0.5)}
               linkDirectionalArrowLength={3}
               linkDirectionalArrowRelPos={1}
               linkCanvasObjectMode={() => "after" as const}
@@ -214,12 +196,29 @@ export function GraphPanel({
             />
             {graphData.meta.truncated && (
               <div className="graph-truncated-notice">
-                {t("graphTruncated", {
-                  limit: graphData.meta.totalNodes,
-                })}
+                {t("graphTruncated", { limit: graphData.meta.totalNodes })}
               </div>
             )}
           </>
+        ) : (
+          <Suspense fallback={<div className="graph-empty">{t("common:loading")}</div>}>
+            <ForceGraph3D
+              graphData={forceGraphData}
+              width={dimensions.width}
+              height={dimensions.height}
+              nodeLabel="label"
+              nodeColor={(node) => {
+                const n = node as GNode;
+                return n.isCenter ? "#1d4ed8" : getNodeColor(n.type ?? "other");
+              }}
+              nodeVal={(node) => (node as GNode).val ?? 1}
+              linkColor={() => "#d1d5db"}
+              linkWidth={(link) => Math.max(((link as GLink).confidence ?? 0.5) * 2, 0.5)}
+              linkDirectionalArrowLength={4}
+              linkDirectionalArrowRelPos={1}
+              cooldownTicks={200}
+            />
+          </Suspense>
         )}
       </div>
     </div>

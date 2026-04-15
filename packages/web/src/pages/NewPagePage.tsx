@@ -1,9 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { slugify } from "@nexnote/shared";
 import { useWorkspace } from "../hooks/use-workspace.js";
-import { pages as pagesApi, ApiError } from "../lib/api-client.js";
+import { pages as pagesApi, folders as foldersApi, ApiError, type Folder } from "../lib/api-client.js";
 
 export function NewPagePage() {
   const { t } = useTranslation("pages");
@@ -12,8 +12,18 @@ export function NewPagePage() {
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
   const [slugManual, setSlugManual] = useState(false);
+  const [folderId, setFolderId] = useState<string>("");
+  const [folderList, setFolderList] = useState<Folder[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!workspace) return;
+    foldersApi
+      .list(workspace.id, { limit: 200 })
+      .then((res) => setFolderList(res.data))
+      .catch(() => {});
+  }, [workspace]);
 
   function handleTitleChange(value: string) {
     setTitle(value);
@@ -32,6 +42,7 @@ export function NewPagePage() {
       const res = await pagesApi.create(workspace.id, {
         title,
         slug: slug || slugify(title),
+        folderId: folderId || null,
         contentMd: `# ${title}\n`,
       });
       navigate(`/pages/${res.page.id}`);
@@ -70,6 +81,20 @@ export function NewPagePage() {
             required
             placeholder={t("slugPlaceholder")}
           />
+        </label>
+        <label>
+          {t("folderLabel")}
+          <select
+            value={folderId}
+            onChange={(e) => setFolderId(e.target.value)}
+          >
+            <option value="">{t("noFolder")}</option>
+            {folderList.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
         </label>
         <div className="form-actions">
           <button type="button" onClick={() => navigate(-1)}>
