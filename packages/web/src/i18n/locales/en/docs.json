@@ -1,0 +1,11 @@
+{
+  "title": "Published Documentation",
+  "notFound": "Document not found",
+  "notFoundDescription": "This page has not been published or does not exist.",
+  "backToList": "Back to docs",
+  "tableOfContents": "Table of Contents",
+  "publishedOn": "Published on {{date}}",
+  "version": "Version {{version}}",
+  "noDocs": "No published documents",
+  "loading": "Loading document..."
+}

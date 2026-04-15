@@ -14,9 +14,13 @@ import {
   rollbackRevisionSchema,
   compareRevisionsQuerySchema,
   graphQuerySchema,
+  publishPageSchema,
   PAGE_STATUSES,
+  JOB_NAMES,
+  DEFAULT_JOB_OPTIONS,
   computeDiff,
 } from "@nexnote/shared";
+import type { PublishRendererJobData } from "@nexnote/shared";
 import {
   pages,
   pageRevisions,
@@ -25,6 +29,8 @@ import {
   revisionDiffs,
   entities,
   triples,
+  publishedSnapshots,
+  workspaces,
 } from "@nexnote/db";
 import {
   getMemberRole,
@@ -1110,6 +1116,170 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       return reply.code(204).send();
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // POST /:pageId/publish — Publish a page revision as an immutable snapshot
+  // -----------------------------------------------------------------------
+  fastify.post(
+    "/:pageId/publish",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const paramsResult = pageParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return sendValidationError(reply, paramsResult.error.issues);
+      }
+      const { workspaceId, pageId } = paramsResult.data;
+
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
+      if (!role) return forbidden(reply);
+      if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
+
+      const bodyResult = publishPageSchema.safeParse(request.body ?? {});
+      if (!bodyResult.success) {
+        return sendValidationError(reply, bodyResult.error.issues);
+      }
+
+      const [pageRow] = await fastify.db
+        .select({
+          id: pages.id,
+          title: pages.title,
+          slug: pages.slug,
+          currentRevisionId: pages.currentRevisionId,
+          workspaceSlug: workspaces.slug,
+        })
+        .from(pages)
+        .innerJoin(workspaces, eq(pages.workspaceId, workspaces.id))
+        .where(
+          and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)),
+        )
+        .limit(1);
+
+      if (!pageRow) return pageNotFound(reply);
+
+      const revisionId =
+        bodyResult.data.revisionId ?? pageRow.currentRevisionId;
+      if (!revisionId) {
+        return reply.code(400).send({
+          error: "No revision to publish — page has no content",
+          code: "NO_REVISION",
+        });
+      }
+
+      const [revision] = await fastify.db
+        .select({
+          id: pageRevisions.id,
+          contentMd: pageRevisions.contentMd,
+          pageId: pageRevisions.pageId,
+        })
+        .from(pageRevisions)
+        .where(
+          and(
+            eq(pageRevisions.id, revisionId),
+            eq(pageRevisions.pageId, pageId),
+          ),
+        )
+        .limit(1);
+
+      if (!revision) {
+        return reply.code(404).send({
+          error: "Revision not found",
+          code: "REVISION_NOT_FOUND",
+        });
+      }
+
+      const userId = request.user.sub;
+      const publicPath = `/docs/${pageRow.workspaceSlug}/${pageRow.slug}`;
+
+      try {
+        const result = await fastify.db.transaction(async (tx) => {
+          const [maxVersion] = await tx
+            .select({ max: sql<number>`coalesce(max(${publishedSnapshots.versionNo}), 0)` })
+            .from(publishedSnapshots)
+            .where(eq(publishedSnapshots.pageId, pageId));
+
+          const nextVersion = Number(maxVersion.max) + 1;
+
+          await tx
+            .update(publishedSnapshots)
+            .set({ isLive: false })
+            .where(
+              and(
+                eq(publishedSnapshots.pageId, pageId),
+                eq(publishedSnapshots.isLive, true),
+              ),
+            );
+
+          // HTML is empty here — the publish-renderer worker fills it asynchronously
+          const [snapshot] = await tx
+            .insert(publishedSnapshots)
+            .values({
+              workspaceId,
+              pageId,
+              sourceRevisionId: revisionId,
+              publishedByUserId: userId,
+              versionNo: nextVersion,
+              publicPath,
+              title: pageRow.title,
+              snapshotMd: revision.contentMd,
+              snapshotHtml: "",
+              isLive: true,
+            })
+            .returning();
+
+          await tx.insert(auditLogs).values({
+            workspaceId,
+            userId,
+            entityType: "published_snapshot",
+            entityId: snapshot.id,
+            action: "publish",
+            afterJson: {
+              pageId,
+              revisionId,
+              versionNo: nextVersion,
+              publicPath,
+            },
+          });
+
+          return snapshot;
+        });
+
+        const jobData: PublishRendererJobData = {
+          snapshotId: result.id,
+          pageId,
+          revisionId,
+          workspaceId,
+        };
+        await fastify.queues.publish.add(
+          JOB_NAMES.PUBLISH_RENDERER,
+          jobData,
+          DEFAULT_JOB_OPTIONS,
+        );
+
+        return reply.code(202).send({
+          snapshot: {
+            id: result.id,
+            pageId: result.pageId,
+            versionNo: result.versionNo,
+            publicPath: result.publicPath,
+            title: result.title,
+            isLive: result.isLive,
+            publishedAt: result.publishedAt.toISOString(),
+          },
+        });
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          return reply.code(409).send({
+            error: "A live snapshot already exists (concurrent publish)",
+            code: "PUBLISH_CONFLICT",
+          });
+        }
+        throw err;
+      }
     },
   );
 

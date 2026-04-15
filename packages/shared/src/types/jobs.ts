@@ -30,6 +30,21 @@ export interface PatchGeneratorJobResult {
   pageId: string;
 }
 
+/** Data passed to the publish-renderer job */
+export interface PublishRendererJobData {
+  snapshotId: string;
+  pageId: string;
+  revisionId: string;
+  workspaceId: string;
+}
+
+/** Result returned from the publish-renderer job */
+export interface PublishRendererJobResult {
+  snapshotId: string;
+  htmlSize: number;
+  tocEntries: number;
+}
+
 /** Data passed to the triple-extractor job */
 export interface TripleExtractorJobData {
   pageId: string;

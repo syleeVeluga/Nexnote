@@ -3,6 +3,7 @@ import {
   createRouteClassifierWorker,
   createPatchGeneratorWorker,
   createTripleExtractorWorker,
+  createPublishRendererWorker,
 } from "./workers/index.js";
 import { closeAllQueues } from "./queues.js";
 
@@ -13,6 +14,7 @@ function startWorkers(): void {
   workers.push(createRouteClassifierWorker());
   workers.push(createPatchGeneratorWorker());
   workers.push(createTripleExtractorWorker());
+  workers.push(createPublishRendererWorker());
   console.log(`[worker] ${workers.length} worker(s) running.`);
 }
 

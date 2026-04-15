@@ -53,19 +53,20 @@ function buildQuery(params: Record<string, string | number | null | undefined>):
 
 async function request<T>(
   path: string,
-  options: RequestInit = {},
+  options: RequestInit & { skipAuth?: boolean } = {},
 ): Promise<T> {
+  const { skipAuth, ...fetchOptions } = options;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
+    ...(fetchOptions.headers as Record<string, string>),
   };
 
-  if (token) {
+  if (token && !skipAuth) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
   const res = await fetch(`${BASE_URL}${path}`, {
-    ...options,
+    ...fetchOptions,
     headers,
   });
 
@@ -338,6 +339,70 @@ export const pages = {
     const q = buildQuery({ depth: params?.depth, limit: params?.limit, minConfidence: params?.minConfidence });
     return request<GraphData>(
       `/workspaces/${workspaceId}/pages/${pageId}/graph${q}`,
+    );
+  },
+
+  publish(workspaceId: string, pageId: string, data?: { revisionId?: string }) {
+    return request<{ snapshot: PublishedSnapshotSummary }>(
+      `/workspaces/${workspaceId}/pages/${pageId}/publish`,
+      { method: "POST", body: JSON.stringify(data ?? {}) },
+    );
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Published Snapshots
+// ---------------------------------------------------------------------------
+
+export interface PublishedSnapshotSummary {
+  id: string;
+  pageId: string;
+  versionNo: number;
+  publicPath: string;
+  title: string;
+  isLive: boolean;
+  publishedAt: string;
+}
+
+export interface PublicDoc {
+  id: string;
+  pageId: string;
+  title: string;
+  html: string;
+  markdown: string;
+  toc: TocEntry[] | null;
+  versionNo: number;
+  publicPath: string;
+  publishedAt: string;
+  workspace: {
+    name: string;
+    slug: string;
+  };
+}
+
+export interface TocEntry {
+  id: string;
+  text: string;
+  level: number;
+}
+
+export interface PublicDocListItem {
+  id: string;
+  pageId: string;
+  title: string;
+  publicPath: string;
+  versionNo: number;
+  publishedAt: string;
+}
+
+export const docs = {
+  get(workspaceSlug: string, pagePath: string) {
+    return request<PublicDoc>(`/docs/${workspaceSlug}/${pagePath}`, { skipAuth: true });
+  },
+  list(workspaceSlug: string) {
+    return request<{ workspace: { name: string; slug: string }; docs: PublicDocListItem[] }>(
+      `/docs/${workspaceSlug}`,
+      { skipAuth: true },
     );
   },
 };

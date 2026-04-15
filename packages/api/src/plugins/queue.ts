@@ -9,6 +9,7 @@ declare module "fastify" {
     queues: {
       ingestion: Queue;
       extraction: Queue;
+      publish: Queue;
     };
   }
 }
@@ -23,14 +24,22 @@ async function queuePluginImpl(fastify: FastifyInstance) {
   const extractionQueue = new Queue(QUEUE_NAMES.EXTRACTION, {
     connection: new Redis(redisUrl, redisOpts),
   });
+  const publishQueue = new Queue(QUEUE_NAMES.PUBLISH, {
+    connection: new Redis(redisUrl, redisOpts),
+  });
 
   fastify.decorate("queues", {
     ingestion: ingestionQueue,
     extraction: extractionQueue,
+    publish: publishQueue,
   });
 
   fastify.addHook("onClose", async () => {
-    await Promise.all([ingestionQueue.close(), extractionQueue.close()]);
+    await Promise.all([
+      ingestionQueue.close(),
+      extractionQueue.close(),
+      publishQueue.close(),
+    ]);
   });
 }
 

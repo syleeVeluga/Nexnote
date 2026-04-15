@@ -8,6 +8,13 @@
       "when": 1776184740164,
       "tag": "0000_famous_titania",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776184800000,
+      "tag": "0001_add_public_path_index",
+      "breakpoints": true
     }
   ]
 }

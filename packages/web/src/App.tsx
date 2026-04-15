@@ -6,6 +6,8 @@ import { RegisterPage } from "./pages/RegisterPage.js";
 import { PageListPage } from "./pages/PageListPage.js";
 import { PageEditorPage } from "./pages/PageEditorPage.js";
 import { NewPagePage } from "./pages/NewPagePage.js";
+import { PublicDocPage } from "./pages/PublicDocPage.js";
+import { PublicDocListPage } from "./pages/PublicDocListPage.js";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -38,7 +40,11 @@ function GuestOnly({ children }: { children: React.ReactNode }) {
 export function App() {
   return (
     <Routes>
-      {/* Public routes */}
+      {/* Public docs routes — no auth required */}
+      <Route path="/docs/:workspaceSlug" element={<PublicDocListPage />} />
+      <Route path="/docs/:workspaceSlug/*" element={<PublicDocPage />} />
+
+      {/* Auth routes */}
       <Route
         path="/login"
         element={

@@ -44,6 +44,9 @@ export const publishedSnapshots = pgTable(
     uniqueIndex("published_snapshots_page_live_uk")
       .on(t.pageId)
       .where(sql`${t.isLive} = true`),
+    uniqueIndex("published_snapshots_public_path_live_uk")
+      .on(t.publicPath)
+      .where(sql`${t.isLive} = true`),
   ],
 );
 

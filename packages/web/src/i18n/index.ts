@@ -6,18 +6,20 @@ import enCommon from "./locales/en/common.json";
 import enAuth from "./locales/en/auth.json";
 import enEditor from "./locales/en/editor.json";
 import enPages from "./locales/en/pages.json";
+import enDocs from "./locales/en/docs.json";
 import koCommon from "./locales/ko/common.json";
 import koAuth from "./locales/ko/auth.json";
 import koEditor from "./locales/ko/editor.json";
 import koPages from "./locales/ko/pages.json";
+import koDocs from "./locales/ko/docs.json";
 
 i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
     resources: {
-      en: { common: enCommon, auth: enAuth, editor: enEditor, pages: enPages },
-      ko: { common: koCommon, auth: koAuth, editor: koEditor, pages: koPages },
+      en: { common: enCommon, auth: enAuth, editor: enEditor, pages: enPages, docs: enDocs },
+      ko: { common: koCommon, auth: koAuth, editor: koEditor, pages: koPages, docs: koDocs },
     },
     fallbackLng: "ko",
     defaultNS: "common",

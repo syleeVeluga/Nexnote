@@ -614,6 +614,73 @@ label {
   font-weight: 500;
 }
 
+/* ── Publish button ── */
+.btn-publish {
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  background: #059669;
+  color: #fff;
+  border-color: #059669;
+}
+
+.btn-publish:hover {
+  background: #047857;
+  border-color: #047857;
+}
+
+.btn-publish:disabled {
+  opacity: 0.5;
+}
+
+/* ── Publish success banner ── */
+.publish-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 24px;
+  background: #d1fae5;
+  color: #065f46;
+  font-size: 13px;
+  border-bottom: 1px solid #a7f3d0;
+}
+
+.publish-banner-link {
+  color: #047857;
+  font-weight: 500;
+  text-decoration: underline;
+}
+
+.publish-banner .btn-close-panel {
+  margin-left: auto;
+  color: #065f46;
+}
+
+.publish-banner-confirm {
+  background: #fef3c7;
+  color: #92400e;
+  border-bottom-color: #fde68a;
+}
+
+.publish-banner-confirm .btn-close-panel {
+  color: #92400e;
+}
+
+.publish-banner-error {
+  background: #fef2f2;
+  color: #dc2626;
+  border-bottom-color: #fecaca;
+}
+
+.publish-banner-error .btn-close-panel {
+  color: #dc2626;
+}
+
+.btn-sm {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
 /* ── Shared panel close button ── */
 .btn-close-panel {
   background: transparent;

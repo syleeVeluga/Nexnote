@@ -6,6 +6,7 @@ import {
   pages as pagesApi,
   type Page,
   type Revision,
+  type PublishedSnapshotSummary,
 } from "../lib/api-client.js";
 import {
   TiptapEditor,
@@ -31,6 +32,13 @@ export function PageEditorPage() {
   const [dirty, setDirty] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState<
+    | { status: "success"; snapshot: PublishedSnapshotSummary }
+    | { status: "error" }
+    | { status: "confirm" }
+    | null
+  >(null);
 
   const editorRef = useRef<TiptapEditorHandle>(null);
   const saveRef = useRef<() => void>(() => {});
@@ -121,6 +129,26 @@ export function PageEditorPage() {
     }
   }, [workspace, pageId]);
 
+  const handlePublishClick = useCallback(() => {
+    setPublishResult({ status: "confirm" });
+  }, []);
+
+  const handlePublishConfirm = useCallback(async () => {
+    if (!workspace || !pageId || publishing) return;
+
+    setPublishResult(null);
+    setPublishing(true);
+    try {
+      const res = await pagesApi.publish(workspace.id, pageId);
+      setPublishResult({ status: "success", snapshot: res.snapshot });
+      setPage((p) => p ? { ...p, status: "published" } : p);
+    } catch {
+      setPublishResult({ status: "error" });
+    } finally {
+      setPublishing(false);
+    }
+  }, [workspace, pageId, publishing]);
+
   saveRef.current = save;
 
   useEffect(() => {
@@ -187,8 +215,60 @@ export function PageEditorPage() {
             >
               {saving ? t("saving") : dirty ? t("save") : t("saved")}
             </button>
+            <button
+              className="btn-publish"
+              onClick={handlePublishClick}
+              disabled={publishing || dirty}
+              title={dirty ? t("save") : undefined}
+            >
+              {publishing ? t("publishing") : t("publish")}
+            </button>
           </div>
         </div>
+
+        {publishResult?.status === "confirm" && (
+          <div className="publish-banner publish-banner-confirm">
+            <span>{t("publishConfirm")}</span>
+            <button className="btn-primary btn-sm" onClick={handlePublishConfirm}>
+              {t("publish")}
+            </button>
+            <button className="btn-sm" onClick={() => setPublishResult(null)}>
+              {t("common:cancel")}
+            </button>
+          </div>
+        )}
+
+        {publishResult?.status === "success" && (
+          <div className="publish-banner">
+            <span>{t("publishSuccess")}</span>
+            <a
+              href={publishResult.snapshot.publicPath}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="publish-banner-link"
+            >
+              {t("viewPublished")}
+            </a>
+            <button
+              className="btn-close-panel"
+              onClick={() => setPublishResult(null)}
+            >
+              &times;
+            </button>
+          </div>
+        )}
+
+        {publishResult?.status === "error" && (
+          <div className="publish-banner publish-banner-error">
+            <span>{t("publishFailed")}</span>
+            <button
+              className="btn-close-panel"
+              onClick={() => setPublishResult(null)}
+            >
+              &times;
+            </button>
+          </div>
+        )}
 
         <div className="editor-area">
           {mode === "block" ? (
