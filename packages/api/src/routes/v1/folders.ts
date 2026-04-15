@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import { eq, and, isNull, count } from "drizzle-orm";
-import { folders } from "@nexnote/db";
+import { folders, auditLogs } from "@nexnote/db";
 import {
   createFolderSchema,
   updateFolderSchema,
@@ -84,16 +84,29 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
       const { name, slug, parentFolderId, sortOrder } = bodyResult.data;
 
       try {
-        const [folder] = await fastify.db
-          .insert(folders)
-          .values({
+        const folder = await fastify.db.transaction(async (tx) => {
+          const [row] = await tx
+            .insert(folders)
+            .values({
+              workspaceId,
+              parentFolderId,
+              name,
+              slug,
+              sortOrder,
+            })
+            .returning();
+
+          await tx.insert(auditLogs).values({
             workspaceId,
-            parentFolderId,
-            name,
-            slug,
-            sortOrder,
-          })
-          .returning();
+            userId: request.user.sub,
+            entityType: "folder",
+            entityId: row.id,
+            action: "folder.create",
+            afterJson: { name, slug, parentFolderId },
+          });
+
+          return row;
+        });
 
         return reply.code(201).send({ data: toFolderDto(folder) });
       } catch (err: unknown) {
@@ -228,13 +241,28 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       try {
-        const [folder] = await fastify.db
-          .update(folders)
-          .set({ ...updates, updatedAt: new Date() })
-          .where(
-            and(eq(folders.id, folderId), eq(folders.workspaceId, workspaceId)),
-          )
-          .returning();
+        const folder = await fastify.db.transaction(async (tx) => {
+          const [row] = await tx
+            .update(folders)
+            .set({ ...updates, updatedAt: new Date() })
+            .where(
+              and(eq(folders.id, folderId), eq(folders.workspaceId, workspaceId)),
+            )
+            .returning();
+
+          if (!row) return null;
+
+          await tx.insert(auditLogs).values({
+            workspaceId,
+            userId: request.user.sub,
+            entityType: "folder",
+            entityId: folderId,
+            action: "folder.update",
+            afterJson: updates,
+          });
+
+          return row;
+        });
 
         if (!folder) {
           return reply.code(404).send({
@@ -272,14 +300,28 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
       if (!role) return forbidden(reply);
       if (!ADMIN_PLUS_ROLES.includes(role)) return insufficientRole(reply);
 
-      const deleted = await fastify.db
-        .delete(folders)
-        .where(
-          and(eq(folders.id, folderId), eq(folders.workspaceId, workspaceId)),
-        )
-        .returning({ id: folders.id });
+      const deleted = await fastify.db.transaction(async (tx) => {
+        const rows = await tx
+          .delete(folders)
+          .where(
+            and(eq(folders.id, folderId), eq(folders.workspaceId, workspaceId)),
+          )
+          .returning({ id: folders.id });
 
-      if (deleted.length === 0) {
+        if (rows.length === 0) return false;
+
+        await tx.insert(auditLogs).values({
+          workspaceId,
+          userId: request.user.sub,
+          entityType: "folder",
+          entityId: folderId,
+          action: "folder.delete",
+        });
+
+        return true;
+      });
+
+      if (!deleted) {
         return reply.code(404).send({
           error: "Folder not found",
           code: ERROR_CODES.FOLDER_NOT_FOUND,
