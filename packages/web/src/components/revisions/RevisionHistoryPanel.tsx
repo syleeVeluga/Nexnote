@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import {
   pages as pagesApi,
   type RevisionSummary,
@@ -35,6 +36,8 @@ export function RevisionHistoryPanel({
   onClose,
   onRollback,
 }: RevisionHistoryPanelProps) {
+  const { t } = useTranslation("editor");
+  const { t: tc } = useTranslation("common");
   const [revisions, setRevisions] = useState<RevisionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -62,7 +65,6 @@ export function RevisionHistoryPanel({
         );
         setDiff(res.diff);
       } catch {
-        // First revision has no diff — show empty
         setDiff("empty");
       }
     },
@@ -81,14 +83,14 @@ export function RevisionHistoryPanel({
         onRollback();
       } catch (err) {
         setRollbackError(
-          err instanceof Error ? err.message : "Rollback failed",
+          err instanceof Error ? err.message : t("rollbackFailed"),
         );
       } finally {
         rollingRef.current = false;
         setRolling(false);
       }
     },
-    [workspaceId, pageId, onRollback],
+    [workspaceId, pageId, onRollback, t],
   );
 
   const diffData = diff === "empty" ? null : diff;
@@ -98,7 +100,7 @@ export function RevisionHistoryPanel({
     <>
       <div className="revision-panel">
         <div className="revision-panel-header">
-          <h2>History</h2>
+          <h2>{t("history")}</h2>
           <button className="btn-close-panel" onClick={onClose}>
             &times;
           </button>
@@ -106,9 +108,9 @@ export function RevisionHistoryPanel({
 
         <div className="revision-list">
           {loading ? (
-            <div className="revision-list-loading">Loading...</div>
+            <div className="revision-list-loading">{tc("loading")}</div>
           ) : revisions.length === 0 ? (
-            <div className="revision-list-empty">No revisions</div>
+            <div className="revision-list-empty">{t("noRevisions")}</div>
           ) : (
             revisions.map((rev, idx) => {
               const isFirst = idx === revisions.length - 1;
@@ -122,7 +124,7 @@ export function RevisionHistoryPanel({
                   <div className="revision-entry-header">
                     <span className="revision-time">
                       {timeAgo(rev.createdAt)}
-                      {isCurrent ? " (current)" : ""}
+                      {isCurrent ? ` ${t("current")}` : ""}
                     </span>
                     <div className="revision-badges">
                       <span
@@ -144,13 +146,12 @@ export function RevisionHistoryPanel({
 
                   {rev.changedBlocks != null && (
                     <div className="revision-changed">
-                      {rev.changedBlocks} block
-                      {rev.changedBlocks !== 1 ? "s" : ""} changed
+                      {t("blocksChanged", { count: rev.changedBlocks })}
                     </div>
                   )}
 
                   {isFirst && (
-                    <div className="revision-initial">Initial version</div>
+                    <div className="revision-initial">{t("initialVersion")}</div>
                   )}
 
                   {selectedId === rev.id && (
@@ -163,7 +164,7 @@ export function RevisionHistoryPanel({
                             handleViewDiff(rev.id);
                           }}
                         >
-                          View diff
+                          {t("viewDiff")}
                         </button>
                       )}
                       {!isCurrent && (
@@ -175,7 +176,7 @@ export function RevisionHistoryPanel({
                             handleRollback(rev.id);
                           }}
                         >
-                          {rolling ? "Rolling back..." : "Rollback"}
+                          {rolling ? t("rollingBack") : t("rollback")}
                         </button>
                       )}
                     </div>
@@ -196,7 +197,7 @@ export function RevisionHistoryPanel({
         <DiffViewer
           diffMd={diffData?.diffMd ?? ""}
           changedBlocks={diffData?.changedBlocks}
-          title="Revision diff"
+          title={t("revisionDiff")}
           onClose={() => setDiff(null)}
         />
       )}

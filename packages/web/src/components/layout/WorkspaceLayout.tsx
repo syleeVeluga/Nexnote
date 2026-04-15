@@ -1,9 +1,11 @@
 import { Outlet, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../../hooks/use-auth.js";
 import { useWorkspace } from "../../hooks/use-workspace.js";
 import { Sidebar } from "./Sidebar.js";
 
 export function WorkspaceLayout() {
+  const { t } = useTranslation("common");
   const { user, logout } = useAuth();
   const { current, workspaceList, select } = useWorkspace();
   const navigate = useNavigate();
@@ -11,8 +13,8 @@ export function WorkspaceLayout() {
   if (!current) {
     return (
       <div className="workspace-empty">
-        <h2>No workspace selected</h2>
-        <p>Create a workspace to get started.</p>
+        <h2>{t("noWorkspace")}</h2>
+        <p>{t("createWorkspaceHint")}</p>
       </div>
     );
   }

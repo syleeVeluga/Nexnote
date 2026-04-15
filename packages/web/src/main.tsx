@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { AuthProvider } from "./hooks/use-auth.js";
 import { WorkspaceProvider } from "./hooks/use-workspace.js";
 import { App } from "./App.js";
+import "./i18n/index.js";
 import "./styles/globals.css";
 import "./styles/editor.css";
 import "./styles/revisions.css";

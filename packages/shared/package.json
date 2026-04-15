@@ -14,7 +14,7 @@
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:node": "node --import tsx --test src/lib/ingestion-text.test.ts src/schemas/ingestion.test.ts",
+    "test:node": "node --import tsx --test src/lib/ingestion-text.test.ts src/lib/slugify.test.ts src/schemas/ingestion.test.ts",
     "lint": "echo 'no linter configured yet'"
   },
   "dependencies": {

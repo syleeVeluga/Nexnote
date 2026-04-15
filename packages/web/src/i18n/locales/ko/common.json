@@ -1,0 +1,11 @@
+{
+  "loading": "로딩 중...",
+  "cancel": "취소",
+  "signOut": "로그아웃",
+  "newPage": "+ 새 페이지",
+  "noPagesYet": "아직 페이지가 없습니다",
+  "untitled": "제목 없음",
+  "noWorkspace": "워크스페이스가 선택되지 않았습니다",
+  "createWorkspaceHint": "시작하려면 워크스페이스를 만드세요.",
+  "language": "언어"
+}

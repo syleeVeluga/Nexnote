@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { UNIFIED_DIFF_HEADER_LINES } from "@nexnote/shared";
 
 interface DiffViewerProps {
@@ -20,9 +21,11 @@ function classifyLine(line: string): string {
 export function DiffViewer({
   diffMd,
   changedBlocks,
-  title = "Diff",
+  title,
   onClose,
 }: DiffViewerProps) {
+  const { t } = useTranslation("editor");
+  const displayTitle = title ?? t("diff");
   const lines = useMemo(() => diffMd.split("\n"), [diffMd]);
 
   const handleOverlayClick = useCallback(
@@ -37,10 +40,10 @@ export function DiffViewer({
       <div className="diff-viewer-modal">
         <div className="diff-viewer-header">
           <div>
-            <h3>{title}</h3>
+            <h3>{displayTitle}</h3>
             {changedBlocks != null && (
               <span className="diff-summary">
-                {changedBlocks} block{changedBlocks !== 1 ? "s" : ""} changed
+                {t("blocksChanged", { count: changedBlocks })}
               </span>
             )}
           </div>
@@ -50,7 +53,7 @@ export function DiffViewer({
         </div>
         <div className="diff-content">
           {lines.length <= UNIFIED_DIFF_HEADER_LINES ? (
-            <div className="diff-empty">No changes</div>
+            <div className="diff-empty">{t("noChanges")}</div>
           ) : (
             <pre>
               {lines.map((line, i) => (

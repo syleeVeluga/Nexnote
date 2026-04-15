@@ -13,4 +13,4 @@ export const slugSchema = z
   .string()
   .min(1)
   .max(200)
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Invalid slug format");
+  .regex(/^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u, "Invalid slug format");

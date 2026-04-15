@@ -1,0 +1,11 @@
+{
+  "loading": "Loading...",
+  "cancel": "Cancel",
+  "signOut": "Sign out",
+  "newPage": "+ New Page",
+  "noPagesYet": "No pages yet",
+  "untitled": "Untitled",
+  "noWorkspace": "No workspace selected",
+  "createWorkspaceHint": "Create a workspace to get started.",
+  "language": "Language"
+}

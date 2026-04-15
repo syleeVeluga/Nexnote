@@ -1,9 +1,12 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../hooks/use-workspace.js";
 import { pages as pagesApi, type Page } from "../lib/api-client.js";
 
 export function PageListPage() {
+  const { t } = useTranslation("pages");
+  const { t: tc } = useTranslation("common");
   const { current } = useWorkspace();
   const navigate = useNavigate();
   const [pageList, setPageList] = useState<Page[]>([]);
@@ -33,28 +36,28 @@ export function PageListPage() {
   return (
     <div className="page-list">
       <div className="page-list-header">
-        <h1>Pages</h1>
+        <h1>{t("title")}</h1>
         <button
           className="btn-primary"
           onClick={() => navigate("/pages/new")}
         >
-          + New Page
+          {tc("newPage")}
         </button>
       </div>
       {loading ? (
-        <p className="loading">Loading...</p>
+        <p className="loading">{tc("loading")}</p>
       ) : pageList.length === 0 ? (
         <div className="empty-state">
-          <p>No pages yet. Create your first page to get started.</p>
+          <p>{t("emptyState")}</p>
         </div>
       ) : (
         <>
           <table className="page-table">
             <thead>
               <tr>
-                <th>Title</th>
-                <th>Status</th>
-                <th>Updated</th>
+                <th>{t("tableTitle")}</th>
+                <th>{t("tableStatus")}</th>
+                <th>{t("tableUpdated")}</th>
               </tr>
             </thead>
             <tbody>
@@ -66,7 +69,7 @@ export function PageListPage() {
                 >
                   <td>
                     <Link to={`/pages/${page.id}`} className="page-title-link">
-                      {page.title || "Untitled"}
+                      {page.title || tc("untitled")}
                     </Link>
                   </td>
                   <td>
@@ -83,7 +86,7 @@ export function PageListPage() {
           </table>
           {total > pageList.length && (
             <p className="page-list-total">
-              Showing {pageList.length} of {total} pages
+              {t("showingOf", { shown: pageList.length, total })}
             </p>
           )}
         </>

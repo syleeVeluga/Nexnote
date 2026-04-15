@@ -1,12 +1,13 @@
 /**
  * Generate a URL-safe slug from a title string.
+ * Supports Korean (Hangul), CJK, and all Unicode letters/numbers.
  * Output matches the `slugSchema` validation pattern.
  */
 export function slugify(title: string, maxLength = 200): string {
   return (
     title
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/[^\p{L}\p{N}]+/gu, "-")
       .replace(/^-|-$/g, "")
       .slice(0, maxLength) || "untitled"
   );

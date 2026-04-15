@@ -1,0 +1,16 @@
+{
+  "title": "페이지",
+  "emptyState": "아직 페이지가 없습니다. 첫 번째 페이지를 만들어 시작하세요.",
+  "tableTitle": "제목",
+  "tableStatus": "상태",
+  "tableUpdated": "수정일",
+  "showingOf": "{{total}}개 중 {{shown}}개 표시",
+  "newPage": "새 페이지",
+  "titleLabel": "제목",
+  "slugLabel": "슬러그",
+  "titlePlaceholder": "멋진 문서 제목",
+  "slugPlaceholder": "멋진-문서-제목",
+  "creating": "생성 중...",
+  "createPage": "페이지 만들기",
+  "createFailed": "페이지 생성에 실패했습니다"
+}

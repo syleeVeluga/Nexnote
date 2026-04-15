@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../hooks/use-workspace.js";
 import {
   pages as pagesApi,
@@ -15,6 +16,8 @@ import { RevisionHistoryPanel } from "../components/revisions/RevisionHistoryPan
 type EditorMode = "block" | "source";
 
 export function PageEditorPage() {
+  const { t } = useTranslation("editor");
+  const { t: tc } = useTranslation("common");
   const { pageId } = useParams<{ pageId: string }>();
   const { current: workspace } = useWorkspace();
   const navigate = useNavigate();
@@ -117,7 +120,6 @@ export function PageEditorPage() {
     }
   }, [workspace, pageId]);
 
-  // Keep saveRef current so the keyboard handler doesn't need to re-bind
   saveRef.current = save;
 
   useEffect(() => {
@@ -132,11 +134,11 @@ export function PageEditorPage() {
   }, []);
 
   if (loading) {
-    return <div className="page-editor loading">Loading...</div>;
+    return <div className="page-editor loading">{tc("loading")}</div>;
   }
 
   if (!page) {
-    return <div className="page-editor">Page not found</div>;
+    return <div className="page-editor">{t("pageNotFound")}</div>;
   }
 
   return (
@@ -150,27 +152,27 @@ export function PageEditorPage() {
                 className={`mode-btn${mode === "block" ? " active" : ""}`}
                 onClick={() => mode !== "block" && toggleMode()}
               >
-                Block
+                {t("block")}
               </button>
               <button
                 className={`mode-btn${mode === "source" ? " active" : ""}`}
                 onClick={() => mode !== "source" && toggleMode()}
               >
-                Source
+                {t("source")}
               </button>
             </div>
             <button
               className={`mode-btn${historyOpen ? " active" : ""}`}
               onClick={() => setHistoryOpen((o) => !o)}
             >
-              History
+              {t("history")}
             </button>
             <button
               className="btn-save"
               onClick={save}
               disabled={!dirty || saving}
             >
-              {saving ? "Saving..." : dirty ? "Save" : "Saved"}
+              {saving ? t("saving") : dirty ? t("save") : t("saved")}
             </button>
           </div>
         </div>
@@ -195,10 +197,10 @@ export function PageEditorPage() {
         <div className="editor-status">
           <span>
             {revision
-              ? `Last saved: ${new Date(revision.createdAt).toLocaleString()}`
-              : "New page"}
+              ? t("lastSaved", { date: new Date(revision.createdAt).toLocaleString() })
+              : t("newPage")}
           </span>
-          {dirty && <span className="unsaved-indicator">Unsaved changes</span>}
+          {dirty && <span className="unsaved-indicator">{t("unsavedChanges")}</span>}
         </div>
       </div>
 

@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../hooks/use-auth.js";
 import { ApiError } from "../lib/api-client.js";
 
 export function LoginPage() {
+  const { t } = useTranslation("auth");
   const { login } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -20,7 +22,7 @@ export function LoginPage() {
       navigate("/");
     } catch (err) {
       setError(
-        err instanceof ApiError ? err.message : "Login failed",
+        err instanceof ApiError ? err.message : t("loginFailed"),
       );
     } finally {
       setBusy(false);
@@ -30,10 +32,10 @@ export function LoginPage() {
   return (
     <div className="auth-page">
       <form className="auth-form" onSubmit={handleSubmit}>
-        <h1>Sign in to NexNote</h1>
+        <h1>{t("signInTitle")}</h1>
         {error && <div className="form-error">{error}</div>}
         <label>
-          Email
+          {t("email")}
           <input
             type="email"
             value={email}
@@ -43,7 +45,7 @@ export function LoginPage() {
           />
         </label>
         <label>
-          Password
+          {t("password")}
           <input
             type="password"
             value={password}
@@ -52,10 +54,10 @@ export function LoginPage() {
           />
         </label>
         <button type="submit" disabled={busy}>
-          {busy ? "Signing in..." : "Sign in"}
+          {busy ? t("signingIn") : t("signIn")}
         </button>
         <p className="auth-switch">
-          Don't have an account? <Link to="/register">Register</Link>
+          {t("noAccount")} <Link to="/register">{t("register")}</Link>
         </p>
       </form>
     </div>

@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../hooks/use-auth.js";
 import { ApiError } from "../lib/api-client.js";
 
 export function RegisterPage() {
+  const { t } = useTranslation("auth");
   const { register } = useAuth();
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -21,7 +23,7 @@ export function RegisterPage() {
       navigate("/");
     } catch (err) {
       setError(
-        err instanceof ApiError ? err.message : "Registration failed",
+        err instanceof ApiError ? err.message : t("registrationFailed"),
       );
     } finally {
       setBusy(false);
@@ -31,10 +33,10 @@ export function RegisterPage() {
   return (
     <div className="auth-page">
       <form className="auth-form" onSubmit={handleSubmit}>
-        <h1>Create an account</h1>
+        <h1>{t("createAccount")}</h1>
         {error && <div className="form-error">{error}</div>}
         <label>
-          Name
+          {t("name")}
           <input
             type="text"
             value={name}
@@ -44,7 +46,7 @@ export function RegisterPage() {
           />
         </label>
         <label>
-          Email
+          {t("email")}
           <input
             type="email"
             value={email}
@@ -53,7 +55,7 @@ export function RegisterPage() {
           />
         </label>
         <label>
-          Password
+          {t("password")}
           <input
             type="password"
             value={password}
@@ -63,10 +65,10 @@ export function RegisterPage() {
           />
         </label>
         <button type="submit" disabled={busy}>
-          {busy ? "Creating account..." : "Create account"}
+          {busy ? t("creatingAccount") : t("createAccountBtn")}
         </button>
         <p className="auth-switch">
-          Already have an account? <Link to="/login">Sign in</Link>
+          {t("hasAccount")} <Link to="/login">{t("signIn")}</Link>
         </p>
       </form>
     </div>

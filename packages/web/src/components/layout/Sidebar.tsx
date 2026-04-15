@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   folders as foldersApi,
   pages as pagesApi,
@@ -7,6 +8,7 @@ import {
   type Page,
   type Workspace,
 } from "../../lib/api-client.js";
+import { LanguageSwitcher } from "./LanguageSwitcher.js";
 
 interface SidebarProps {
   workspace: Workspace;
@@ -23,6 +25,7 @@ export function Sidebar({
   userName,
   onLogout,
 }: SidebarProps) {
+  const { t } = useTranslation("common");
   const [folderList, setFolderList] = useState<Folder[]>([]);
   const [pageList, setPageList] = useState<Page[]>([]);
   const [wsDropdown, setWsDropdown] = useState(false);
@@ -107,7 +110,7 @@ export function Sidebar({
           className="btn-new-page"
           onClick={() => navigate("/pages/new")}
         >
-          + New Page
+          {t("newPage")}
         </button>
       </div>
 
@@ -124,14 +127,15 @@ export function Sidebar({
           <PageLink key={page.id} page={page} />
         ))}
         {folderList.length === 0 && pageList.length === 0 && (
-          <p className="sidebar-empty">No pages yet</p>
+          <p className="sidebar-empty">{t("noPagesYet")}</p>
         )}
       </div>
 
       <div className="sidebar-footer">
         <span className="sidebar-user">{userName}</span>
+        <LanguageSwitcher />
         <button className="btn-logout" onClick={onLogout}>
-          Sign out
+          {t("signOut")}
         </button>
       </div>
     </nav>
@@ -177,6 +181,7 @@ function FolderNode({
 }
 
 function PageLink({ page }: { page: Page }) {
+  const { t } = useTranslation("common");
   return (
     <NavLink
       to={`/pages/${page.id}`}
@@ -184,7 +189,7 @@ function PageLink({ page }: { page: Page }) {
         `page-link${isActive ? " active" : ""}`
       }
     >
-      {page.title || "Untitled"}
+      {page.title || t("untitled")}
     </NavLink>
   );
 }

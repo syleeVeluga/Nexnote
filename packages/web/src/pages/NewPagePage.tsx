@@ -1,19 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { slugify } from "@nexnote/shared";
 import { useWorkspace } from "../hooks/use-workspace.js";
 import { pages as pagesApi, ApiError } from "../lib/api-client.js";
 
-function toSlug(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 100);
-}
-
 export function NewPagePage() {
+  const { t } = useTranslation("pages");
   const { current: workspace } = useWorkspace();
   const navigate = useNavigate();
   const [title, setTitle] = useState("");
@@ -25,7 +18,7 @@ export function NewPagePage() {
   function handleTitleChange(value: string) {
     setTitle(value);
     if (!slugManual) {
-      setSlug(toSlug(value));
+      setSlug(slugify(value));
     }
   }
 
@@ -38,12 +31,12 @@ export function NewPagePage() {
     try {
       const res = await pagesApi.create(workspace.id, {
         title,
-        slug: slug || toSlug(title),
+        slug: slug || slugify(title),
         contentMd: `# ${title}\n`,
       });
       navigate(`/pages/${res.page.id}`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to create page");
+      setError(err instanceof ApiError ? err.message : t("createFailed"));
     } finally {
       setBusy(false);
     }
@@ -52,21 +45,21 @@ export function NewPagePage() {
   return (
     <div className="new-page">
       <form className="new-page-form" onSubmit={handleSubmit}>
-        <h1>New Page</h1>
+        <h1>{t("newPage")}</h1>
         {error && <div className="form-error">{error}</div>}
         <label>
-          Title
+          {t("titleLabel")}
           <input
             type="text"
             value={title}
             onChange={(e) => handleTitleChange(e.target.value)}
             required
             autoFocus
-            placeholder="My awesome document"
+            placeholder={t("titlePlaceholder")}
           />
         </label>
         <label>
-          Slug
+          {t("slugLabel")}
           <input
             type="text"
             value={slug}
@@ -75,15 +68,15 @@ export function NewPagePage() {
               setSlugManual(true);
             }}
             required
-            placeholder="my-awesome-document"
+            placeholder={t("slugPlaceholder")}
           />
         </label>
         <div className="form-actions">
           <button type="button" onClick={() => navigate(-1)}>
-            Cancel
+            {t("common:cancel")}
           </button>
           <button type="submit" className="btn-primary" disabled={busy}>
-            {busy ? "Creating..." : "Create page"}
+            {busy ? t("creating") : t("createPage")}
           </button>
         </div>
       </form>

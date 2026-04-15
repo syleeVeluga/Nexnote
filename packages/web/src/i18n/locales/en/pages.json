@@ -1,0 +1,16 @@
+{
+  "title": "Pages",
+  "emptyState": "No pages yet. Create your first page to get started.",
+  "tableTitle": "Title",
+  "tableStatus": "Status",
+  "tableUpdated": "Updated",
+  "showingOf": "Showing {{shown}} of {{total}} pages",
+  "newPage": "New Page",
+  "titleLabel": "Title",
+  "slugLabel": "Slug",
+  "titlePlaceholder": "My awesome document",
+  "slugPlaceholder": "my-awesome-document",
+  "creating": "Creating...",
+  "createPage": "Create page",
+  "createFailed": "Failed to create page"
+}
