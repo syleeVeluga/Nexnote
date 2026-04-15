@@ -21,7 +21,7 @@ import {
   ERROR_CODES,
   computeDiff,
 } from "@nexnote/shared";
-import type { PublishRendererJobData } from "@nexnote/shared";
+import type { PublishRendererJobData, TripleExtractorJobData } from "@nexnote/shared";
 import {
   pages,
   pageRevisions,
@@ -305,6 +305,17 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
 
           return { page: updatedPage, revision };
         });
+
+        const tripleData: TripleExtractorJobData = {
+          pageId: result.page.id,
+          revisionId: result.revision.id,
+          workspaceId,
+        };
+        await fastify.queues.extraction.add(
+          JOB_NAMES.TRIPLE_EXTRACTOR,
+          tripleData,
+          DEFAULT_JOB_OPTIONS,
+        );
 
         return reply.code(201).send({
           page: mapPageDto(result.page),
@@ -664,6 +675,17 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
 
         return revision;
       });
+
+      const tripleData: TripleExtractorJobData = {
+        pageId,
+        revisionId: result.id,
+        workspaceId,
+      };
+      await fastify.queues.extraction.add(
+        JOB_NAMES.TRIPLE_EXTRACTOR,
+        tripleData,
+        DEFAULT_JOB_OPTIONS,
+      );
 
       return reply.code(201).send({
         revision: mapRevisionDto(result),
@@ -1045,6 +1067,17 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         }
         throw err;
       }
+
+      const tripleData: TripleExtractorJobData = {
+        pageId,
+        revisionId: result.id,
+        workspaceId,
+      };
+      await fastify.queues.extraction.add(
+        JOB_NAMES.TRIPLE_EXTRACTOR,
+        tripleData,
+        DEFAULT_JOB_OPTIONS,
+      );
 
       return reply.code(201).send({
         revision: mapRevisionDto(result),

@@ -37,7 +37,7 @@ export function Sidebar({
       try {
         const [fRes, pRes] = await Promise.all([
           foldersApi.list(workspace.id, { limit: 100 }),
-          pagesApi.list(workspace.id, { limit: 200 }),
+          pagesApi.list(workspace.id, { limit: 100 }),
         ]);
         if (!cancelled) {
           setFolderList(fRes.data);
