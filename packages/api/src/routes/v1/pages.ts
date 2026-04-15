@@ -64,7 +64,7 @@ const revisionParamsSchema = z.object({
 });
 
 const listPagesQuerySchema = paginationSchema.extend({
-  folderId: uuidSchema.optional(),
+  parentPageId: uuidSchema.optional(),
   status: z.enum(PAGE_STATUSES).optional(),
 });
 
@@ -83,7 +83,7 @@ const createRevisionBodySchema = createRevisionSchema
 function mapPageDto(page: {
   id: string;
   workspaceId: string;
-  folderId: string | null;
+  parentPageId: string | null;
   title: string;
   slug: string;
   status: string;
@@ -95,7 +95,7 @@ function mapPageDto(page: {
   return {
     id: page.id,
     workspaceId: page.workspaceId,
-    folderId: page.folderId,
+    parentPageId: page.parentPageId,
     title: page.title,
     slug: page.slug,
     status: page.status,
@@ -253,7 +253,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         return sendValidationError(reply, bodyResult.error.issues);
       }
 
-      const { title, slug, folderId, contentMd, contentJson } =
+      const { title, slug, parentPageId, contentMd, contentJson } =
         bodyResult.data;
       const userId = request.user.sub;
 
@@ -263,7 +263,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
             .insert(pages)
             .values({
               workspaceId,
-              folderId,
+              parentPageId,
               title,
               slug,
               status: "draft",
@@ -302,7 +302,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
             entityType: "page",
             entityId: page.id,
             action: "create",
-            afterJson: { title, slug, folderId, status: "draft" },
+            afterJson: { title, slug, parentPageId, status: "draft" },
           });
 
           return { page: updatedPage, revision };
@@ -337,7 +337,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       } catch (err: unknown) {
         if (isUniqueViolation(err)) {
           return reply.code(409).send({
-            error: "A page with this slug already exists in the same folder",
+            error: "A page with this slug already exists in this workspace",
             code: ERROR_CODES.SLUG_CONFLICT,
           });
         }
@@ -370,12 +370,12 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         return sendValidationError(reply, queryResult.error.issues);
       }
 
-      const { limit, offset, folderId, status } = queryResult.data;
+      const { limit, offset, parentPageId, status } = queryResult.data;
 
       // Build where conditions
       const conditions = [eq(pages.workspaceId, workspaceId)];
-      if (folderId) {
-        conditions.push(eq(pages.folderId, folderId));
+      if (parentPageId) {
+        conditions.push(eq(pages.parentPageId, parentPageId));
       }
       if (status) {
         conditions.push(eq(pages.status, status));
@@ -387,7 +387,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           .select({
             id: pages.id,
             workspaceId: pages.workspaceId,
-            folderId: pages.folderId,
+            parentPageId: pages.parentPageId,
             title: pages.title,
             slug: pages.slug,
             status: pages.status,
@@ -438,7 +438,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           page: {
             id: pages.id,
             workspaceId: pages.workspaceId,
-            folderId: pages.folderId,
+            parentPageId: pages.parentPageId,
             title: pages.title,
             slug: pages.slug,
             status: pages.status,
@@ -595,7 +595,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       } catch (err: unknown) {
         if (isUniqueViolation(err)) {
           return reply.code(409).send({
-            error: "A page with this slug already exists in the same folder",
+            error: "A page with this slug already exists in this workspace",
             code: ERROR_CODES.SLUG_CONFLICT,
           });
         }

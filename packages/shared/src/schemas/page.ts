@@ -5,7 +5,7 @@ import { PAGE_STATUSES } from "../constants/index.js";
 export const createPageSchema = z.object({
   title: z.string().min(1).max(500),
   slug: slugSchema,
-  folderId: uuidSchema.nullable().default(null),
+  parentPageId: uuidSchema.nullable().default(null),
   contentMd: z.string().default(""),
   contentJson: z.record(z.unknown()).optional(),
 });
@@ -13,7 +13,7 @@ export const createPageSchema = z.object({
 export const updatePageSchema = z.object({
   title: z.string().min(1).max(500).optional(),
   slug: slugSchema.optional(),
-  folderId: uuidSchema.nullable().optional(),
+  parentPageId: uuidSchema.nullable().optional(),
   status: z.enum(PAGE_STATUSES).optional(),
   sortOrder: z.number().int().optional(),
 });

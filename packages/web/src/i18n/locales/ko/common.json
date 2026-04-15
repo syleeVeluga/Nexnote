@@ -1,10 +1,15 @@
 {
   "loading": "로딩 중...",
   "cancel": "취소",
+  "ok": "확인",
   "signOut": "로그아웃",
-  "newPage": "+ 새 페이지",
+  "newPage": "새 페이지",
   "noPagesYet": "아직 페이지가 없습니다",
   "untitled": "제목 없음",
-  "noWorkspace": "워크스페이스가 선택되지 않았습니다",
-  "createWorkspaceHint": "시작하려면 워크스페이스를 만드세요."
+  "noWorkspace": "워크스페이스가 없습니다",
+  "createWorkspaceHint": "워크스페이스를 만들어 시작하세요.",
+  "renameWorkspace": "워크스페이스 이름 변경",
+  "rename": "이름 변경",
+  "delete": "삭제",
+  "deleteConfirm": "정말 삭제하시겠습니까? 하위 페이지도 함께 삭제됩니다."
 }

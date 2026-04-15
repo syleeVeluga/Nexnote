@@ -155,6 +155,12 @@ export const workspaces = {
       body: JSON.stringify(data),
     });
   },
+  update(id: string, data: { name?: string }) {
+    return request<Workspace>(`/workspaces/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -210,7 +216,7 @@ export const folders = {
 export interface Page {
   id: string;
   workspaceId: string;
-  folderId: string | null;
+  parentPageId: string | null;
   title: string;
   slug: string;
   status: PageStatus;
@@ -260,11 +266,11 @@ export interface CompareResultDto {
 export type { GraphNode, GraphEdge, GraphData } from "@nexnote/shared";
 
 export const pages = {
-  list(workspaceId: string, params?: { folderId?: string; status?: string; limit?: number; offset?: number }) {
+  list(workspaceId: string, params?: { parentPageId?: string; status?: string; limit?: number; offset?: number }) {
     const q = buildQuery({
       limit: params?.limit,
       offset: params?.offset,
-      folderId: params?.folderId,
+      parentPageId: params?.parentPageId,
       status: params?.status,
     });
     return request<Paginated<Page>>(
@@ -278,7 +284,7 @@ export const pages = {
   },
   create(
     workspaceId: string,
-    data: { title: string; slug: string; folderId?: string | null; contentMd?: string; contentJson?: Record<string, unknown> },
+    data: { title: string; slug: string; parentPageId?: string | null; contentMd?: string; contentJson?: Record<string, unknown> },
   ) {
     return request<{ page: Page; revision: Revision }>(
       `/workspaces/${workspaceId}/pages`,
