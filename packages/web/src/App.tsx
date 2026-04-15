@@ -1,30 +1,73 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
+import { useAuth } from "./hooks/use-auth.js";
+import { WorkspaceLayout } from "./components/layout/WorkspaceLayout.js";
+import { LoginPage } from "./pages/LoginPage.js";
+import { RegisterPage } from "./pages/RegisterPage.js";
+import { PageListPage } from "./pages/PageListPage.js";
+import { PageEditorPage } from "./pages/PageEditorPage.js";
+import { NewPagePage } from "./pages/NewPagePage.js";
 
-function Dashboard() {
-  return (
-    <div className="dashboard">
-      <h1>NexNote</h1>
-      <p className="subtitle">AI-assisted Markdown knowledge wiki</p>
-    </div>
-  );
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <div className="app-loading">Loading...</div>;
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+function GuestOnly({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <div className="app-loading">Loading...</div>;
+  }
+
+  if (user) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
 }
 
 export function App() {
   return (
-    <div className="app-shell">
-      <nav className="sidebar">
-        <div className="sidebar-header">
-          <span className="logo">NexNote</span>
-        </div>
-        <div className="sidebar-content">
-          {/* Folder tree will go here */}
-        </div>
-      </nav>
-      <main className="main-content">
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-        </Routes>
-      </main>
-    </div>
+    <Routes>
+      {/* Public routes */}
+      <Route
+        path="/login"
+        element={
+          <GuestOnly>
+            <LoginPage />
+          </GuestOnly>
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          <GuestOnly>
+            <RegisterPage />
+          </GuestOnly>
+        }
+      />
+
+      {/* Protected workspace routes */}
+      <Route
+        element={
+          <RequireAuth>
+            <WorkspaceLayout />
+          </RequireAuth>
+        }
+      >
+        <Route index element={<PageListPage />} />
+        <Route path="pages/new" element={<NewPagePage />} />
+        <Route path="pages/:pageId" element={<PageEditorPage />} />
+      </Route>
+    </Routes>
   );
 }

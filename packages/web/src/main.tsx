@@ -1,13 +1,20 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
-import { App } from "./App";
-import "./App.css";
+import { AuthProvider } from "./hooks/use-auth.js";
+import { WorkspaceProvider } from "./hooks/use-workspace.js";
+import { App } from "./App.js";
+import "./styles/globals.css";
+import "./styles/editor.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
-      <App />
+      <AuthProvider>
+        <WorkspaceProvider>
+          <App />
+        </WorkspaceProvider>
+      </AuthProvider>
     </BrowserRouter>
   </StrictMode>,
 );
