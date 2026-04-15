@@ -98,9 +98,7 @@ export function Sidebar({
   // context menu
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   // inline rename
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renamingType, setRenamingType] = useState<"folder" | "page" | null>(null);
-  const [renameValue, setRenameValue] = useState("");
+  const [renaming, setRenaming] = useState<{ id: string; type: "folder" | "page"; value: string } | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -183,26 +181,23 @@ export function Sidebar({
   }, []);
 
   const startRename = useCallback((id: string, type: "folder" | "page", currentName: string) => {
-    setRenamingId(id);
-    setRenamingType(type);
-    setRenameValue(currentName);
+    setRenaming({ id, type, value: currentName });
   }, []);
 
   const submitRename = useCallback(async () => {
-    if (!renamingId || !renamingType) return;
-    const name = renameValue.trim();
-    if (!name) { setRenamingId(null); return; }
+    if (!renaming) return;
+    const name = renaming.value.trim();
+    if (!name) { setRenaming(null); return; }
 
-    if (renamingType === "folder") {
-      await foldersApi.patch(workspace.id, renamingId, { name });
-      setFolderList((prev) => prev.map((f) => f.id === renamingId ? { ...f, name } : f));
+    if (renaming.type === "folder") {
+      await foldersApi.patch(workspace.id, renaming.id, { name });
+      setFolderList((prev) => prev.map((f) => f.id === renaming.id ? { ...f, name } : f));
     } else {
-      await pagesApi.update(workspace.id, renamingId, { title: name });
-      setPageList((prev) => prev.map((p) => p.id === renamingId ? { ...p, title: name } : p));
+      await pagesApi.update(workspace.id, renaming.id, { title: name });
+      setPageList((prev) => prev.map((p) => p.id === renaming.id ? { ...p, title: name } : p));
     }
-    setRenamingId(null);
-    setRenamingType(null);
-  }, [renamingId, renamingType, renameValue, workspace.id]);
+    setRenaming(null);
+  }, [renaming, workspace.id]);
 
   const handleDelete = useCallback(async (id: string, type: "folder" | "page") => {
     if (!window.confirm(t("deleteConfirm"))) return;
@@ -215,7 +210,7 @@ export function Sidebar({
     }
   }, [workspace.id, t]);
 
-  const sharedFolderProps = {
+  const sharedFolderProps = useMemo(() => ({
     folderChildrenMap,
     pagesByFolderMap,
     untitled: t("untitled"),
@@ -231,12 +226,18 @@ export function Sidebar({
     cancelLabel: t("cancel"),
     placeholder: t("folderNamePlaceholder"),
     onContextMenu: openContextMenu,
-    renamingId,
-    renameValue,
-    onRenameValueChange: setRenameValue,
+    renamingId: renaming?.id ?? null,
+    renameValue: renaming?.value ?? "",
+    onRenameValueChange: (v: string) => setRenaming((r) => r ? { ...r, value: v } : null),
     onSubmitRename: submitRename,
-    onCancelRename: () => setRenamingId(null),
-  };
+    onCancelRename: () => setRenaming(null),
+  }), [
+    folderChildrenMap, pagesByFolderMap, t,
+    creatingFolderParent, openNewFolder,
+    newFolderName, submitNewFolder, cancelNewFolder,
+    creatingFolder, newFolderInputRef,
+    openContextMenu, renaming, submitRename,
+  ]);
 
   return (
     <nav className="sidebar">
@@ -279,11 +280,11 @@ export function Sidebar({
             page={page}
             untitled={t("untitled")}
             onContextMenu={openContextMenu}
-            renamingId={renamingId}
-            renameValue={renameValue}
-            onRenameValueChange={setRenameValue}
+            renamingId={renaming?.id ?? null}
+            renameValue={renaming?.value ?? ""}
+            onRenameValueChange={(v) => setRenaming((r) => r ? { ...r, value: v } : null)}
             onSubmitRename={submitRename}
-            onCancelRename={() => setRenamingId(null)}
+            onCancelRename={() => setRenaming(null)}
           />
         ))}
         {folderList.length === 0 && pageList.length === 0 && (

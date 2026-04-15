@@ -33,26 +33,16 @@ export function createSearchIndexUpdaterWorker(): Worker {
 
       log.info({ pageId, revisionId }, "Updating search index");
 
-      // Fetch the revision content
-      const [revision] = await db
-        .select({ contentMd: pageRevisions.contentMd })
-        .from(pageRevisions)
-        .where(eq(pageRevisions.id, revisionId))
-        .limit(1);
-
-      if (!revision) {
-        log.warn({ revisionId }, "Revision not found, skipping");
-        return { pageId, indexed: false };
-      }
-
-      const [page] = await db
-        .select({ title: pages.title })
+      // Fetch page title and revision content in a single query
+      const [row] = await db
+        .select({ title: pages.title, contentMd: pageRevisions.contentMd })
         .from(pages)
+        .innerJoin(pageRevisions, eq(pageRevisions.id, revisionId))
         .where(eq(pages.id, pageId))
         .limit(1);
 
-      if (!page) {
-        log.warn({ pageId }, "Page not found, skipping");
+      if (!row) {
+        log.warn({ pageId, revisionId }, "Page or revision not found, skipping");
         return { pageId, indexed: false };
       }
 
@@ -63,7 +53,7 @@ export function createSearchIndexUpdaterWorker(): Worker {
           UPDATE pages
           SET search_vector = to_tsvector(
             'simple',
-            coalesce(${page.title}, '') || ' ' || coalesce(${revision.contentMd}, '')
+            coalesce(${row.title}, '') || ' ' || coalesce(${row.contentMd}, '')
           )
           WHERE id = ${pageId}
             AND workspace_id = ${workspaceId}

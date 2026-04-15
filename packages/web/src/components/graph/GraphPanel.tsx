@@ -83,7 +83,7 @@ export function GraphPanel({
         setGraphData(null);
       })
       .finally(() => setLoading(false));
-  }, [workspaceId, pageId, depth, t]);
+  }, [workspaceId, pageId, depth]);
 
   const forceGraphData = useMemo(() => {
     if (!graphData) return { nodes: [] as GNode[], links: [] as GLink[] };
