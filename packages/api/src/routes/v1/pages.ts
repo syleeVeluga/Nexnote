@@ -11,13 +11,17 @@ import {
   paginationSchema,
   uuidSchema,
   createRevisionSchema,
+  rollbackRevisionSchema,
+  compareRevisionsQuerySchema,
   PAGE_STATUSES,
+  computeDiff,
 } from "@nexnote/shared";
 import {
   pages,
   pageRevisions,
   pagePaths,
   auditLogs,
+  revisionDiffs,
 } from "@nexnote/db";
 import {
   getMemberRole,
@@ -127,6 +131,7 @@ function mapRevisionSummaryDto(revision: {
   source: string;
   revisionNote: string | null;
   createdAt: Date;
+  changedBlocks?: number | null;
 }) {
   return {
     id: revision.id,
@@ -137,7 +142,70 @@ function mapRevisionSummaryDto(revision: {
     source: revision.source,
     revisionNote: revision.revisionNote,
     createdAt: revision.createdAt.toISOString(),
+    changedBlocks: revision.changedBlocks ?? null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Drizzle query builder doesn't expose a clean shared interface for db/tx
+type AnyDb = any;
+
+/** Verify a page belongs to a workspace. Returns the page row or null. */
+async function findPageInWorkspace(
+  db: AnyDb,
+  workspaceId: string,
+  pageId: string,
+  columns: Record<string, unknown> = { id: pages.id },
+) {
+  const [row] = await db
+    .select(columns)
+    .from(pages)
+    .where(and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)))
+    .limit(1);
+  return row ?? null;
+}
+
+function pageNotFound(reply: FastifyReply) {
+  return reply.code(404).send({
+    error: "Page not found",
+    code: "PAGE_NOT_FOUND",
+  });
+}
+
+/** Fetch base revision content, compute diff, and insert into revisionDiffs. */
+async function insertRevisionDiff(
+  tx: AnyDb,
+  newRevisionId: string,
+  baseRevisionId: string,
+  newContentMd: string,
+  newContentJson: Record<string, unknown> | null,
+) {
+  const [baseRevision] = await tx
+    .select({
+      contentMd: pageRevisions.contentMd,
+      contentJson: pageRevisions.contentJson,
+    })
+    .from(pageRevisions)
+    .where(eq(pageRevisions.id, baseRevisionId))
+    .limit(1);
+
+  if (baseRevision) {
+    const diff = computeDiff(
+      baseRevision.contentMd,
+      newContentMd,
+      baseRevision.contentJson as Record<string, unknown> | null,
+      newContentJson,
+    );
+    await tx.insert(revisionDiffs).values({
+      revisionId: newRevisionId,
+      diffMd: diff.diffMd,
+      diffOpsJson: diff.diffOpsJson,
+      changedBlocks: diff.changedBlocks,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -536,24 +604,13 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       const { contentMd, contentJson, revisionNote } = bodyResult.data;
       const userId = request.user.sub;
 
-      // Verify the page exists in this workspace
-      const [page] = await fastify.db
-        .select({
-          id: pages.id,
-          currentRevisionId: pages.currentRevisionId,
-        })
-        .from(pages)
-        .where(
-          and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)),
-        )
-        .limit(1);
-
-      if (!page) {
-        return reply.code(404).send({
-          error: "Page not found",
-          code: "PAGE_NOT_FOUND",
-        });
-      }
+      const page = await findPageInWorkspace(
+        fastify.db,
+        workspaceId,
+        pageId,
+        { id: pages.id, currentRevisionId: pages.currentRevisionId },
+      );
+      if (!page) return pageNotFound(reply);
 
       const result = await fastify.db.transaction(async (tx) => {
         const [revision] = await tx
@@ -569,6 +626,16 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
             revisionNote: revisionNote ?? null,
           })
           .returning();
+
+        if (page.currentRevisionId) {
+          await insertRevisionDiff(
+            tx,
+            revision.id,
+            page.currentRevisionId,
+            contentMd,
+            contentJson ?? null,
+          );
+        }
 
         await tx
           .update(pages)
@@ -626,21 +693,8 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
 
       const { limit, offset } = queryResult.data;
 
-      // Verify the page exists in this workspace
-      const [page] = await fastify.db
-        .select({ id: pages.id })
-        .from(pages)
-        .where(
-          and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)),
-        )
-        .limit(1);
-
-      if (!page) {
-        return reply.code(404).send({
-          error: "Page not found",
-          code: "PAGE_NOT_FOUND",
-        });
-      }
+      const page = await findPageInWorkspace(fastify.db, workspaceId, pageId);
+      if (!page) return pageNotFound(reply);
 
       const [data, [{ total }]] = await Promise.all([
         fastify.db
@@ -653,8 +707,13 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
             source: pageRevisions.source,
             revisionNote: pageRevisions.revisionNote,
             createdAt: pageRevisions.createdAt,
+            changedBlocks: revisionDiffs.changedBlocks,
           })
           .from(pageRevisions)
+          .leftJoin(
+            revisionDiffs,
+            eq(pageRevisions.id, revisionDiffs.revisionId),
+          )
           .where(eq(pageRevisions.pageId, pageId))
           .orderBy(desc(pageRevisions.createdAt))
           .limit(limit)
@@ -668,6 +727,93 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(200).send({
         data: data.map(mapRevisionSummaryDto),
         total,
+      });
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // GET /:pageId/revisions/compare — Compare two revisions on-the-fly
+  // -----------------------------------------------------------------------
+  // Must be registered BEFORE /:revisionId to avoid "compare" matching as a UUID
+  fastify.get(
+    "/:pageId/revisions/compare",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const paramsResult = pageParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return sendValidationError(reply, paramsResult.error.issues);
+      }
+      const { workspaceId, pageId } = paramsResult.data;
+
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
+      if (!role) return forbidden(reply);
+
+      const queryResult = compareRevisionsQuerySchema.safeParse(request.query);
+      if (!queryResult.success) {
+        return sendValidationError(reply, queryResult.error.issues);
+      }
+      const { from, to } = queryResult.data;
+
+      const page = await findPageInWorkspace(fastify.db, workspaceId, pageId);
+      if (!page) return pageNotFound(reply);
+
+      // Fetch both revisions
+      const [fromRevision, toRevision] = await Promise.all([
+        fastify.db
+          .select({
+            id: pageRevisions.id,
+            contentMd: pageRevisions.contentMd,
+            contentJson: pageRevisions.contentJson,
+          })
+          .from(pageRevisions)
+          .where(
+            and(
+              eq(pageRevisions.id, from),
+              eq(pageRevisions.pageId, pageId),
+            ),
+          )
+          .limit(1)
+          .then((r) => r[0]),
+        fastify.db
+          .select({
+            id: pageRevisions.id,
+            contentMd: pageRevisions.contentMd,
+            contentJson: pageRevisions.contentJson,
+          })
+          .from(pageRevisions)
+          .where(
+            and(
+              eq(pageRevisions.id, to),
+              eq(pageRevisions.pageId, pageId),
+            ),
+          )
+          .limit(1)
+          .then((r) => r[0]),
+      ]);
+
+      if (!fromRevision || !toRevision) {
+        return reply.code(404).send({
+          error: "One or both revisions not found",
+          code: "REVISION_NOT_FOUND",
+        });
+      }
+
+      const diff = computeDiff(
+        fromRevision.contentMd,
+        toRevision.contentMd,
+        fromRevision.contentJson as Record<string, unknown> | null,
+        toRevision.contentJson as Record<string, unknown> | null,
+      );
+
+      return reply.code(200).send({
+        from,
+        to,
+        diffMd: diff.diffMd,
+        diffOpsJson: diff.diffOpsJson,
+        changedBlocks: diff.changedBlocks,
       });
     },
   );
@@ -691,21 +837,8 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       );
       if (!role) return forbidden(reply);
 
-      // Verify page belongs to workspace
-      const [page] = await fastify.db
-        .select({ id: pages.id })
-        .from(pages)
-        .where(
-          and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)),
-        )
-        .limit(1);
-
-      if (!page) {
-        return reply.code(404).send({
-          error: "Page not found",
-          code: "PAGE_NOT_FOUND",
-        });
-      }
+      const page = await findPageInWorkspace(fastify.db, workspaceId, pageId);
+      if (!page) return pageNotFound(reply);
 
       const [revision] = await fastify.db
         .select()
@@ -727,6 +860,190 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
 
       return reply.code(200).send({
         revision: mapRevisionDto(revision),
+      });
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // GET /:pageId/revisions/:revisionId/diff — Get stored diff
+  // -----------------------------------------------------------------------
+  fastify.get(
+    "/:pageId/revisions/:revisionId/diff",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const paramsResult = revisionParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return sendValidationError(reply, paramsResult.error.issues);
+      }
+      const { workspaceId, pageId, revisionId } = paramsResult.data;
+
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
+      if (!role) return forbidden(reply);
+
+      const page = await findPageInWorkspace(fastify.db, workspaceId, pageId);
+      if (!page) return pageNotFound(reply);
+
+      // Verify revision belongs to page and fetch diff
+      const rows = await fastify.db
+        .select({
+          revisionId: revisionDiffs.revisionId,
+          diffMd: revisionDiffs.diffMd,
+          diffOpsJson: revisionDiffs.diffOpsJson,
+          changedBlocks: revisionDiffs.changedBlocks,
+        })
+        .from(revisionDiffs)
+        .innerJoin(
+          pageRevisions,
+          eq(revisionDiffs.revisionId, pageRevisions.id),
+        )
+        .where(
+          and(
+            eq(revisionDiffs.revisionId, revisionId),
+            eq(pageRevisions.pageId, pageId),
+          ),
+        )
+        .limit(1);
+
+      if (rows.length === 0) {
+        return reply.code(404).send({
+          error: "Diff not found (may be the initial revision)",
+          code: "DIFF_NOT_FOUND",
+        });
+      }
+
+      return reply.code(200).send({ diff: rows[0] });
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // POST /:pageId/revisions/:revisionId/rollback — Rollback to a revision
+  // -----------------------------------------------------------------------
+  fastify.post(
+    "/:pageId/revisions/:revisionId/rollback",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const paramsResult = revisionParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return sendValidationError(reply, paramsResult.error.issues);
+      }
+      const { workspaceId, pageId, revisionId } = paramsResult.data;
+
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
+      if (!role) return forbidden(reply);
+      if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
+
+      const bodyResult = rollbackRevisionSchema.safeParse(request.body ?? {});
+      if (!bodyResult.success) {
+        return sendValidationError(reply, bodyResult.error.issues);
+      }
+      const { revisionNote } = bodyResult.data;
+      const userId = request.user.sub;
+
+      // Fetch the target revision to rollback to
+      const [targetRevision] = await fastify.db
+        .select({
+          id: pageRevisions.id,
+          contentMd: pageRevisions.contentMd,
+          contentJson: pageRevisions.contentJson,
+        })
+        .from(pageRevisions)
+        .where(
+          and(
+            eq(pageRevisions.id, revisionId),
+            eq(pageRevisions.pageId, pageId),
+          ),
+        )
+        .limit(1);
+
+      if (!targetRevision) {
+        return reply.code(404).send({
+          error: "Revision not found",
+          code: "REVISION_NOT_FOUND",
+        });
+      }
+
+      let result;
+      try {
+        result = await fastify.db.transaction(async (tx) => {
+        // Re-fetch page inside transaction to avoid race with concurrent saves
+        const [page] = await tx
+          .select({
+            id: pages.id,
+            currentRevisionId: pages.currentRevisionId,
+          })
+          .from(pages)
+          .where(
+            and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)),
+          )
+          .limit(1);
+
+        if (!page) {
+          throw new Error("PAGE_NOT_FOUND");
+        }
+
+        const [newRevision] = await tx
+          .insert(pageRevisions)
+          .values({
+            pageId,
+            baseRevisionId: page.currentRevisionId,
+            actorUserId: userId,
+            actorType: "user",
+            source: "rollback",
+            contentMd: targetRevision.contentMd,
+            contentJson: targetRevision.contentJson,
+            revisionNote:
+              revisionNote ?? `Rollback to revision ${revisionId}`,
+          })
+          .returning();
+
+        if (page.currentRevisionId) {
+          await insertRevisionDiff(
+            tx,
+            newRevision.id,
+            page.currentRevisionId,
+            targetRevision.contentMd,
+            targetRevision.contentJson as Record<string, unknown> | null,
+          );
+        }
+
+        await tx
+          .update(pages)
+          .set({
+            currentRevisionId: newRevision.id,
+            updatedAt: sql`now()`,
+          })
+          .where(eq(pages.id, pageId));
+
+        await tx.insert(auditLogs).values({
+          workspaceId,
+          userId,
+          entityType: "page_revision",
+          entityId: newRevision.id,
+          action: "rollback",
+          afterJson: {
+            pageId,
+            baseRevisionId: page.currentRevisionId,
+            rollbackTargetRevisionId: revisionId,
+          },
+        });
+
+        return newRevision;
+      });
+      } catch (err: unknown) {
+        if (err instanceof Error && err.message === "PAGE_NOT_FOUND") {
+          return pageNotFound(reply);
+        }
+        throw err;
+      }
+
+      return reply.code(201).send({
+        revision: mapRevisionDto(result),
       });
     },
   );

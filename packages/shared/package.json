@@ -13,12 +13,16 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "lint": "echo 'no linter configured yet'"
   },
   "dependencies": {
+    "diff": "^9.0.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
-    "typescript": "^5.8.0"
+    "@types/diff": "^8.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.4"
   }
 }

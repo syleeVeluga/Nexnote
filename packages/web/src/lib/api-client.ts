@@ -6,6 +6,7 @@ import type {
   ActorType,
   RevisionSource,
   WorkspaceRole,
+  RevisionDiffDto,
 } from "@nexnote/shared";
 
 const BASE_URL = "/api/v1";
@@ -226,6 +227,17 @@ export interface RevisionSummary {
   source: RevisionSource;
   revisionNote: string | null;
   createdAt: string;
+  changedBlocks: number | null;
+}
+
+export type { RevisionDiffDto };
+
+export interface CompareResultDto {
+  from: string;
+  to: string;
+  diffMd: string;
+  diffOpsJson: unknown[] | null;
+  changedBlocks: number;
 }
 
 export const pages = {
@@ -286,6 +298,33 @@ export const pages = {
   getRevision(workspaceId: string, pageId: string, revisionId: string) {
     return request<{ revision: Revision }>(
       `/workspaces/${workspaceId}/pages/${pageId}/revisions/${revisionId}`,
+    );
+  },
+  getRevisionDiff(workspaceId: string, pageId: string, revisionId: string) {
+    return request<{ diff: RevisionDiffDto }>(
+      `/workspaces/${workspaceId}/pages/${pageId}/revisions/${revisionId}/diff`,
+    );
+  },
+  rollbackRevision(
+    workspaceId: string,
+    pageId: string,
+    revisionId: string,
+    data?: { revisionNote?: string },
+  ) {
+    return request<{ revision: Revision }>(
+      `/workspaces/${workspaceId}/pages/${pageId}/revisions/${revisionId}/rollback`,
+      { method: "POST", body: JSON.stringify(data ?? {}) },
+    );
+  },
+  compareRevisions(
+    workspaceId: string,
+    pageId: string,
+    fromId: string,
+    toId: string,
+  ) {
+    const q = buildQuery({ from: fromId, to: toId });
+    return request<CompareResultDto>(
+      `/workspaces/${workspaceId}/pages/${pageId}/revisions/compare${q}`,
     );
   },
 };

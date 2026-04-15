@@ -10,6 +10,7 @@ import {
   TiptapEditor,
   type TiptapEditorHandle,
 } from "../components/editor/TiptapEditor.js";
+import { RevisionHistoryPanel } from "../components/revisions/RevisionHistoryPanel.js";
 
 type EditorMode = "block" | "source";
 
@@ -25,6 +26,7 @@ export function PageEditorPage() {
   const [mode, setMode] = useState<EditorMode>("block");
   const [markdown, setMarkdown] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const editorRef = useRef<TiptapEditorHandle>(null);
   const saveRef = useRef<() => void>(() => {});
@@ -102,6 +104,19 @@ export function PageEditorPage() {
     }
   }, [workspace, pageId, saving, markdown, mode]);
 
+  const refreshPage = useCallback(async () => {
+    if (!workspace || !pageId) return;
+    const res = await pagesApi.get(workspace.id, pageId);
+    setPage(res.page);
+    setRevision(res.currentRevision);
+    const md = res.currentRevision?.contentMd ?? "";
+    setMarkdown(md);
+    setDirty(false);
+    if (editorRef.current) {
+      editorRef.current.setMarkdown(md);
+    }
+  }, [workspace, pageId]);
+
   // Keep saveRef current so the keyboard handler doesn't need to re-bind
   saveRef.current = save;
 
@@ -125,59 +140,77 @@ export function PageEditorPage() {
   }
 
   return (
-    <div className="page-editor">
-      <div className="editor-header">
-        <h1 className="editor-title">{page.title}</h1>
-        <div className="editor-header-actions">
-          <div className="mode-toggle">
+    <div className={`page-editor${historyOpen ? " with-history" : ""}`}>
+      <div className="editor-main">
+        <div className="editor-header">
+          <h1 className="editor-title">{page.title}</h1>
+          <div className="editor-header-actions">
+            <div className="mode-toggle">
+              <button
+                className={`mode-btn${mode === "block" ? " active" : ""}`}
+                onClick={() => mode !== "block" && toggleMode()}
+              >
+                Block
+              </button>
+              <button
+                className={`mode-btn${mode === "source" ? " active" : ""}`}
+                onClick={() => mode !== "source" && toggleMode()}
+              >
+                Source
+              </button>
+            </div>
             <button
-              className={`mode-btn${mode === "block" ? " active" : ""}`}
-              onClick={() => mode !== "block" && toggleMode()}
+              className={`mode-btn${historyOpen ? " active" : ""}`}
+              onClick={() => setHistoryOpen((o) => !o)}
             >
-              Block
+              History
             </button>
             <button
-              className={`mode-btn${mode === "source" ? " active" : ""}`}
-              onClick={() => mode !== "source" && toggleMode()}
+              className="btn-save"
+              onClick={save}
+              disabled={!dirty || saving}
             >
-              Source
+              {saving ? "Saving..." : dirty ? "Save" : "Saved"}
             </button>
           </div>
-          <button
-            className="btn-save"
-            onClick={save}
-            disabled={!dirty || saving}
-          >
-            {saving ? "Saving..." : dirty ? "Save" : "Saved"}
-          </button>
+        </div>
+
+        <div className="editor-area">
+          {mode === "block" ? (
+            <TiptapEditor
+              ref={editorRef}
+              initialContent={markdown}
+              onChange={handleEditorChange}
+            />
+          ) : (
+            <textarea
+              className="source-editor"
+              value={markdown}
+              onChange={handleSourceChange}
+              spellCheck={false}
+            />
+          )}
+        </div>
+
+        <div className="editor-status">
+          <span>
+            {revision
+              ? `Last saved: ${new Date(revision.createdAt).toLocaleString()}`
+              : "New page"}
+          </span>
+          {dirty && <span className="unsaved-indicator">Unsaved changes</span>}
         </div>
       </div>
 
-      <div className="editor-area">
-        {mode === "block" ? (
-          <TiptapEditor
-            ref={editorRef}
-            initialContent={markdown}
-            onChange={handleEditorChange}
-          />
-        ) : (
-          <textarea
-            className="source-editor"
-            value={markdown}
-            onChange={handleSourceChange}
-            spellCheck={false}
-          />
-        )}
-      </div>
-
-      <div className="editor-status">
-        <span>
-          {revision
-            ? `Last saved: ${new Date(revision.createdAt).toLocaleString()}`
-            : "New page"}
-        </span>
-        {dirty && <span className="unsaved-indicator">Unsaved changes</span>}
-      </div>
+      {historyOpen && workspace && pageId && (
+        <RevisionHistoryPanel
+          workspaceId={workspace.id}
+          pageId={pageId}
+          currentRevisionId={revision?.id ?? null}
+          onClose={() => setHistoryOpen(false)}
+          onRollback={refreshPage}
+        />
+      )}
     </div>
   );
 }

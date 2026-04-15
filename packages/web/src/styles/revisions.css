@@ -1,0 +1,248 @@
+/* ── Revision History Panel ── */
+.page-editor.with-history {
+  flex-direction: row;
+}
+
+.page-editor.with-history .editor-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.revision-panel {
+  width: 380px;
+  min-width: 380px;
+  background: #fff;
+  border-left: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.revision-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.revision-panel-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.btn-close-panel {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  color: #6b7280;
+  padding: 2px 6px;
+  line-height: 1;
+}
+
+.btn-close-panel:hover {
+  color: #1a1a1a;
+  background: transparent;
+}
+
+/* ── Revision List ── */
+.revision-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.revision-entry {
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  margin-bottom: 4px;
+}
+
+.revision-entry:hover {
+  background: #f9fafb;
+}
+
+.revision-entry.selected {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.revision-entry-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.revision-time {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.revision-badges {
+  display: flex;
+  gap: 4px;
+}
+
+.badge-actor,
+.badge-source {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge-actor-user { background: #dbeafe; color: #1e40af; }
+.badge-actor-ai { background: #f3e8ff; color: #6b21a8; }
+.badge-actor-system { background: #e5e7eb; color: #4b5563; }
+
+.badge-source-editor { background: #d1fae5; color: #065f46; }
+.badge-source-rollback { background: #fef3c7; color: #92400e; }
+.badge-source-ingest_api { background: #fce7f3; color: #9d174d; }
+.badge-source-publish { background: #e0e7ff; color: #3730a3; }
+
+.revision-note {
+  font-size: 12px;
+  color: #4b5563;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.revision-changed {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+.revision-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.btn-view-diff,
+.btn-rollback {
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.btn-rollback {
+  color: #d97706;
+  border-color: #fbbf24;
+}
+
+.btn-rollback:hover {
+  background: #fffbeb;
+}
+
+.revision-initial {
+  font-size: 11px;
+  color: #9ca3af;
+  font-style: italic;
+  margin-top: 4px;
+}
+
+/* ── Diff Viewer ── */
+.diff-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.diff-viewer-modal {
+  background: #fff;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 900px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+.diff-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.diff-viewer-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.diff-summary {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.diff-content {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+}
+
+.diff-content pre {
+  margin: 0;
+  padding: 16px 20px;
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.diff-line {
+  display: block;
+  padding: 0 8px;
+  margin: 0 -8px;
+}
+
+.diff-line-add {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.diff-line-remove {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.diff-line-hunk {
+  background: #eff6ff;
+  color: #1e40af;
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.diff-line-header {
+  color: #9ca3af;
+}
+
+.diff-empty {
+  padding: 32px;
+  text-align: center;
+  color: #9ca3af;
+}
+
+.revision-list-loading,
+.revision-list-empty {
+  padding: 24px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 13px;
+}
