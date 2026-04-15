@@ -37,5 +37,9 @@
   "taskList": "Task list",
   "blockquote": "Blockquote",
   "codeBlock": "Code block",
-  "horizontalRule": "Horizontal rule"
+  "horizontalRule": "Horizontal rule",
+  "graph": "Graph",
+  "graphDepth": "Depth",
+  "noGraphData": "No graph data",
+  "graphTruncated": "Graph truncated to {{limit}} nodes"
 }

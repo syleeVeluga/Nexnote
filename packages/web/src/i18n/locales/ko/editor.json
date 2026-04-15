@@ -37,5 +37,9 @@
   "taskList": "할 일 목록",
   "blockquote": "인용문",
   "codeBlock": "코드 블록",
-  "horizontalRule": "구분선"
+  "horizontalRule": "구분선",
+  "graph": "그래프",
+  "graphDepth": "깊이",
+  "noGraphData": "그래프 데이터 없음",
+  "graphTruncated": "{{limit}}개 노드로 제한됨"
 }

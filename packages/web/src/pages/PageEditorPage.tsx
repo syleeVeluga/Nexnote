@@ -12,6 +12,7 @@ import {
   type TiptapEditorHandle,
 } from "../components/editor/TiptapEditor.js";
 import { RevisionHistoryPanel } from "../components/revisions/RevisionHistoryPanel.js";
+import { GraphPanel } from "../components/graph/GraphPanel.js";
 
 type EditorMode = "block" | "source";
 
@@ -29,6 +30,7 @@ export function PageEditorPage() {
   const [markdown, setMarkdown] = useState("");
   const [dirty, setDirty] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
 
   const editorRef = useRef<TiptapEditorHandle>(null);
   const saveRef = useRef<() => void>(() => {});
@@ -141,7 +143,7 @@ export function PageEditorPage() {
   }
 
   return (
-    <div className={`page-editor${historyOpen ? " with-history" : ""}`}>
+    <div className={`page-editor${historyOpen ? " with-history" : ""}${graphOpen ? " with-graph" : ""}`}>
       <div className="editor-main">
         <div className="editor-header">
           <h1 className="editor-title">{page.title}</h1>
@@ -161,8 +163,20 @@ export function PageEditorPage() {
               </button>
             </div>
             <button
+              className={`mode-btn${graphOpen ? " active" : ""}`}
+              onClick={() => {
+                setGraphOpen((o) => !o);
+                setHistoryOpen(false);
+              }}
+            >
+              {t("graph")}
+            </button>
+            <button
               className={`mode-btn${historyOpen ? " active" : ""}`}
-              onClick={() => setHistoryOpen((o) => !o)}
+              onClick={() => {
+                setHistoryOpen((o) => !o);
+                setGraphOpen(false);
+              }}
             >
               {t("history")}
             </button>
@@ -202,6 +216,14 @@ export function PageEditorPage() {
           {dirty && <span className="unsaved-indicator">{t("unsavedChanges")}</span>}
         </div>
       </div>
+
+      {graphOpen && workspace && pageId && (
+        <GraphPanel
+          workspaceId={workspace.id}
+          pageId={pageId}
+          onClose={() => setGraphOpen(false)}
+        />
+      )}
 
       {historyOpen && workspace && pageId && (
         <RevisionHistoryPanel

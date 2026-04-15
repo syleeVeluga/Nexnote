@@ -3,7 +3,7 @@ import type {
   FastifyRequest,
   FastifyReply,
 } from "fastify";
-import { eq, and, sql, desc, count } from "drizzle-orm";
+import { eq, and, sql, desc, count, inArray, isNotNull, gte } from "drizzle-orm";
 import { z } from "zod";
 import {
   createPageSchema,
@@ -22,6 +22,8 @@ import {
   pagePaths,
   auditLogs,
   revisionDiffs,
+  entities,
+  triples,
 } from "@nexnote/db";
 import {
   getMemberRole,
@@ -63,6 +65,12 @@ const createRevisionBodySchema = createRevisionSchema
     revisionNote: true,
   })
   .extend({ contentMd: z.string().min(1, "contentMd is required") });
+
+const graphQuerySchema = z.object({
+  depth: z.coerce.number().int().min(1).max(2).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(60),
+  minConfidence: z.coerce.number().min(0).max(1).default(0),
+});
 
 // ---------------------------------------------------------------------------
 // DTO mappers — never return raw DB rows
@@ -1107,6 +1115,313 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       return reply.code(204).send();
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // GET /:pageId/graph — Knowledge graph for a page
+  // -----------------------------------------------------------------------
+  fastify.get(
+    "/:pageId/graph",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const paramsResult = pageParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return sendValidationError(reply, paramsResult.error.issues);
+      }
+      const { workspaceId, pageId } = paramsResult.data;
+
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
+      if (!role) return forbidden(reply);
+
+      const queryResult = graphQuerySchema.safeParse(request.query);
+      if (!queryResult.success) {
+        return sendValidationError(reply, queryResult.error.issues);
+      }
+      const { depth, limit, minConfidence } = queryResult.data;
+
+      // Verify page belongs to workspace
+      const page = await findPageInWorkspace(fastify.db, workspaceId, pageId);
+      if (!page) return pageNotFound(reply);
+
+      const db = fastify.db;
+
+      // ------------------------------------------------------------------
+      // Step 1: Find center entity IDs — entities appearing in active
+      //         triples sourced from this page (as subject or entity-object)
+      // ------------------------------------------------------------------
+      const baseConditions = [
+        eq(triples.sourcePageId, pageId),
+        eq(triples.workspaceId, workspaceId),
+        eq(triples.status, "active"),
+        ...(minConfidence > 0
+          ? [gte(triples.confidence, minConfidence)]
+          : []),
+      ];
+
+      const centerTriplesRows = await db
+        .select({
+          subjectEntityId: triples.subjectEntityId,
+          objectEntityId: triples.objectEntityId,
+        })
+        .from(triples)
+        .where(and(...baseConditions));
+
+      const centerEntityIds = new Set<string>();
+      for (const row of centerTriplesRows) {
+        centerEntityIds.add(row.subjectEntityId);
+        if (row.objectEntityId) {
+          centerEntityIds.add(row.objectEntityId);
+        }
+      }
+
+      if (centerEntityIds.size === 0) {
+        return reply.code(200).send({
+          nodes: [],
+          edges: [],
+          meta: {
+            pageId,
+            depth,
+            totalNodes: 0,
+            totalEdges: 0,
+            truncated: false,
+          },
+        });
+      }
+
+      // ------------------------------------------------------------------
+      // Step 2: Expand by depth — collect neighbor entity IDs
+      // ------------------------------------------------------------------
+      // allEntityIds accumulates every entity we want in the graph
+      const allEntityIds = new Set(centerEntityIds);
+      // frontier holds the IDs we need to expand from in the current hop
+      let frontier = new Set(centerEntityIds);
+
+      for (let hop = 1; hop <= depth; hop++) {
+        if (frontier.size === 0) break;
+
+        const frontierArr = [...frontier];
+
+        // Find triples where any frontier entity is subject or entity-object.
+        // We only care about entity-object triples (objectEntityId IS NOT NULL)
+        // because literal triples cannot produce graph edges.
+        const neighborRows = await db
+          .select({
+            subjectEntityId: triples.subjectEntityId,
+            objectEntityId: triples.objectEntityId,
+          })
+          .from(triples)
+          .where(
+            and(
+              eq(triples.workspaceId, workspaceId),
+              eq(triples.status, "active"),
+              isNotNull(triples.objectEntityId),
+              ...(minConfidence > 0
+                ? [gte(triples.confidence, minConfidence)]
+                : []),
+              sql`(${inArray(triples.subjectEntityId, frontierArr)} OR ${inArray(triples.objectEntityId, frontierArr)})`,
+            ),
+          );
+
+        const nextFrontier = new Set<string>();
+        for (const row of neighborRows) {
+          if (!allEntityIds.has(row.subjectEntityId)) {
+            nextFrontier.add(row.subjectEntityId);
+          }
+          if (row.objectEntityId && !allEntityIds.has(row.objectEntityId)) {
+            nextFrontier.add(row.objectEntityId);
+          }
+        }
+
+        for (const id of nextFrontier) {
+          allEntityIds.add(id);
+        }
+        frontier = nextFrontier;
+      }
+
+      // ------------------------------------------------------------------
+      // Step 3: Apply node limit — keep center nodes first, then by
+      //         connection count
+      // ------------------------------------------------------------------
+      let truncated = false;
+      let finalEntityIds: string[];
+
+      if (allEntityIds.size <= limit) {
+        finalEntityIds = [...allEntityIds];
+      } else {
+        // We need to prioritise: center nodes first, then most-connected.
+        // Count connections for non-center nodes.
+        const nonCenterIds = [...allEntityIds].filter(
+          (id) => !centerEntityIds.has(id),
+        );
+
+        // Count how many times each non-center entity appears as subject or
+        // object in triples that involve any entity in our full set. We use
+        // a lightweight approach: count occurrences in the neighbor rows we
+        // already fetched would require storing them. Instead, run a quick
+        // count query.
+        const connectionCounts = new Map<string, number>();
+
+        if (nonCenterIds.length > 0) {
+          const countRows = await db
+            .select({
+              entityId: sql<string>`e.entity_id`,
+              cnt: sql<number>`count(*)`,
+            })
+            .from(
+              sql`(
+                SELECT ${triples.subjectEntityId} AS entity_id FROM ${triples}
+                WHERE ${triples.workspaceId} = ${workspaceId}
+                  AND ${triples.status} = 'active'
+                  AND ${inArray(triples.subjectEntityId, nonCenterIds)}
+                  AND ${isNotNull(triples.objectEntityId)}
+                  ${minConfidence > 0 ? sql`AND ${triples.confidence} >= ${minConfidence}` : sql``}
+                UNION ALL
+                SELECT ${triples.objectEntityId} AS entity_id FROM ${triples}
+                WHERE ${triples.workspaceId} = ${workspaceId}
+                  AND ${triples.status} = 'active'
+                  AND ${inArray(triples.objectEntityId, nonCenterIds)}
+                  ${minConfidence > 0 ? sql`AND ${triples.confidence} >= ${minConfidence}` : sql``}
+              ) AS e`,
+            )
+            .groupBy(sql`e.entity_id`);
+
+          for (const r of countRows) {
+            connectionCounts.set(r.entityId, Number(r.cnt));
+          }
+        }
+
+        // Sort non-center by connection count descending
+        nonCenterIds.sort(
+          (a, b) =>
+            (connectionCounts.get(b) ?? 0) - (connectionCounts.get(a) ?? 0),
+        );
+
+        const centerArr = [...centerEntityIds];
+        const remaining = limit - centerArr.length;
+        finalEntityIds = [
+          ...centerArr,
+          ...nonCenterIds.slice(0, Math.max(0, remaining)),
+        ];
+        truncated = true;
+      }
+
+      // ------------------------------------------------------------------
+      // Step 4: Fetch entity details
+      // ------------------------------------------------------------------
+      const entityRows = await db
+        .select({
+          id: entities.id,
+          canonicalName: entities.canonicalName,
+          entityType: entities.entityType,
+        })
+        .from(entities)
+        .where(inArray(entities.id, finalEntityIds));
+
+      // ------------------------------------------------------------------
+      // Step 5: Count pages referencing each entity (via triples)
+      // ------------------------------------------------------------------
+      const pageCountRows = await db
+        .select({
+          entityId: sql<string>`entity_id`,
+          pageCount: sql<number>`count(DISTINCT source_page_id)`,
+        })
+        .from(
+          sql`(
+            SELECT ${triples.subjectEntityId} AS entity_id, ${triples.sourcePageId} AS source_page_id
+            FROM ${triples}
+            WHERE ${triples.workspaceId} = ${workspaceId}
+              AND ${triples.status} = 'active'
+              AND ${inArray(triples.subjectEntityId, finalEntityIds)}
+            UNION
+            SELECT ${triples.objectEntityId} AS entity_id, ${triples.sourcePageId} AS source_page_id
+            FROM ${triples}
+            WHERE ${triples.workspaceId} = ${workspaceId}
+              AND ${triples.status} = 'active'
+              AND ${isNotNull(triples.objectEntityId)}
+              AND ${inArray(triples.objectEntityId, finalEntityIds)}
+          ) AS pc`,
+        )
+        .groupBy(sql`entity_id`);
+
+      const pageCountMap = new Map<string, number>();
+      for (const r of pageCountRows) {
+        pageCountMap.set(r.entityId, Number(r.pageCount));
+      }
+
+      // ------------------------------------------------------------------
+      // Step 6: Fetch edges — only entity-object triples where both
+      //         endpoints are in the final node set
+      // ------------------------------------------------------------------
+      const finalIdSet = new Set(finalEntityIds);
+
+      const edgeRows = await db
+        .select({
+          id: triples.id,
+          subjectEntityId: triples.subjectEntityId,
+          objectEntityId: triples.objectEntityId,
+          predicate: triples.predicate,
+          confidence: triples.confidence,
+          sourcePageId: triples.sourcePageId,
+        })
+        .from(triples)
+        .where(
+          and(
+            eq(triples.workspaceId, workspaceId),
+            eq(triples.status, "active"),
+            isNotNull(triples.objectEntityId),
+            inArray(triples.subjectEntityId, finalEntityIds),
+            inArray(triples.objectEntityId, finalEntityIds),
+            ...(minConfidence > 0
+              ? [gte(triples.confidence, minConfidence)]
+              : []),
+          ),
+        );
+
+      // Filter edges: both endpoints must be in finalIdSet (double-check
+      // since inArray already ensures this, but the objectEntityId column
+      // is nullable in the type system)
+      const edges = edgeRows
+        .filter(
+          (e) =>
+            e.objectEntityId !== null &&
+            finalIdSet.has(e.subjectEntityId) &&
+            finalIdSet.has(e.objectEntityId),
+        )
+        .map((e) => ({
+          id: e.id,
+          source: e.subjectEntityId,
+          target: e.objectEntityId!,
+          predicate: e.predicate,
+          confidence: e.confidence,
+          sourcePageId: e.sourcePageId,
+        }));
+
+      // ------------------------------------------------------------------
+      // Step 7: Build nodes DTO
+      // ------------------------------------------------------------------
+      const nodes = entityRows.map((e) => ({
+        id: e.id,
+        label: e.canonicalName,
+        type: e.entityType,
+        isCenter: centerEntityIds.has(e.id),
+        pageCount: pageCountMap.get(e.id) ?? 0,
+      }));
+
+      return reply.code(200).send({
+        nodes,
+        edges,
+        meta: {
+          pageId,
+          depth,
+          totalNodes: nodes.length,
+          totalEdges: edges.length,
+          truncated,
+        },
+      });
     },
   );
 };

@@ -240,6 +240,39 @@ export interface CompareResultDto {
   changedBlocks: number;
 }
 
+// ---------------------------------------------------------------------------
+// Graph
+// ---------------------------------------------------------------------------
+
+export interface GraphNode {
+  id: string;
+  label: string;
+  type: string;
+  isCenter: boolean;
+  pageCount: number;
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  predicate: string;
+  confidence: number;
+  sourcePageId: string;
+}
+
+export interface GraphData {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  meta: {
+    pageId: string;
+    depth: number;
+    totalNodes: number;
+    totalEdges: number;
+    truncated: boolean;
+  };
+}
+
 export const pages = {
   list(workspaceId: string, params?: { folderId?: string; status?: string; limit?: number; offset?: number }) {
     const q = buildQuery({
@@ -325,6 +358,13 @@ export const pages = {
     const q = buildQuery({ from: fromId, to: toId });
     return request<CompareResultDto>(
       `/workspaces/${workspaceId}/pages/${pageId}/revisions/compare${q}`,
+    );
+  },
+
+  graph(workspaceId: string, pageId: string, params?: { depth?: number; limit?: number; minConfidence?: number }) {
+    const q = buildQuery({ depth: params?.depth, limit: params?.limit, minConfidence: params?.minConfidence });
+    return request<GraphData>(
+      `/workspaces/${workspaceId}/pages/${pageId}/graph${q}`,
     );
   },
 };
