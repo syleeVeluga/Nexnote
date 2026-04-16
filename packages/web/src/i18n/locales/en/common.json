@@ -1,10 +1,15 @@
 {
   "loading": "Loading...",
   "cancel": "Cancel",
+  "ok": "OK",
   "signOut": "Sign out",
-  "newPage": "+ New Page",
+  "newPage": "New Page",
   "noPagesYet": "No pages yet",
   "untitled": "Untitled",
-  "noWorkspace": "No workspace selected",
-  "createWorkspaceHint": "Create a workspace to get started."
+  "noWorkspace": "No workspace yet",
+  "createWorkspaceHint": "Create a workspace to get started.",
+  "renameWorkspace": "Rename workspace",
+  "rename": "Rename",
+  "delete": "Delete",
+  "deleteConfirm": "Are you sure? Child pages will also be deleted."
 }

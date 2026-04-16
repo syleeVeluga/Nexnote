@@ -10,6 +10,7 @@ import rehypeHighlight from "rehype-highlight";
 import type { Root, Element } from "hast";
 import { createRedisConnection } from "../connection.js";
 import { QUEUE_NAMES } from "../queues.js";
+import { createJobLogger } from "../logger.js";
 import { getDb } from "@nexnote/db/client";
 import { publishedSnapshots, pages } from "@nexnote/db";
 import { slugify } from "@nexnote/shared";
@@ -116,11 +117,10 @@ export function createPublishRendererWorker(): Worker {
   const worker = new Worker<PublishRendererJobData, PublishRendererJobResult>(
     QUEUE_NAMES.PUBLISH,
     async (job: Job<PublishRendererJobData>) => {
+      const log = createJobLogger("publish-renderer", job.id);
       const { snapshotId, pageId } = job.data;
 
-      console.log(
-        `[publish-renderer] Rendering snapshot ${snapshotId} for page ${pageId}`,
-      );
+      log.info({ snapshotId, pageId }, "Rendering snapshot");
 
       const [snapshot] = await db
         .select({ snapshotMd: publishedSnapshots.snapshotMd })
@@ -154,8 +154,9 @@ export function createPublishRendererWorker(): Worker {
 
       await job.updateProgress(100);
 
-      console.log(
-        `[publish-renderer] Snapshot ${snapshotId} rendered (${html.length} bytes, ${toc.length} TOC entries)`,
+      log.info(
+        { snapshotId, htmlSize: html.length, tocEntries: toc.length },
+        "Snapshot rendered",
       );
 
       return {
@@ -171,16 +172,16 @@ export function createPublishRendererWorker(): Worker {
   );
 
   worker.on("completed", (job, result) => {
-    console.log(
-      `[publish-renderer] Job ${job.id} completed: snapshot ${result.snapshotId} (${result.htmlSize} bytes)`,
+    const log = createJobLogger("publish-renderer", job.id);
+    log.info(
+      { snapshotId: result.snapshotId, htmlSize: result.htmlSize },
+      "Job completed",
     );
   });
 
   worker.on("failed", (job, err) => {
-    console.error(
-      `[publish-renderer] Job ${job?.id ?? "unknown"} failed:`,
-      err.message,
-    );
+    const log = createJobLogger("publish-renderer", job?.id);
+    log.error({ err }, "Job failed");
   });
 
   return worker;

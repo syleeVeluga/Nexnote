@@ -12,5 +12,6 @@
   "slugPlaceholder": "my-awesome-document",
   "creating": "Creating...",
   "createPage": "Create page",
-  "createFailed": "Failed to create page"
+  "createFailed": "Failed to create page",
+  "subPageOf": "Sub-page of {{parent}}"
 }

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../hooks/use-auth.js";
@@ -7,20 +8,20 @@ import { Sidebar } from "./Sidebar.js";
 export function WorkspaceLayout() {
   const { t } = useTranslation("common");
   const { user, logout } = useAuth();
-  const { current, workspaceList, select } = useWorkspace();
+  const { current, workspaceList, select, refresh } = useWorkspace();
   const navigate = useNavigate();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   if (!current) {
     return (
       <div className="workspace-empty">
-        <h2>{t("noWorkspace")}</h2>
-        <p>{t("createWorkspaceHint")}</p>
+        <p>{t("loading")}</p>
       </div>
     );
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${sidebarOpen ? "" : " sidebar-collapsed"}`}>
       <Sidebar
         workspace={current}
         workspaceList={workspaceList}
@@ -28,10 +29,18 @@ export function WorkspaceLayout() {
           select(ws);
           navigate("/");
         }}
+        onRenameWorkspace={refresh}
+        onCollapse={() => setSidebarOpen(false)}
+        onNewPage={() => navigate("/pages/new")}
         userName={user?.name ?? ""}
         onLogout={logout}
       />
       <main className="main-content">
+        {!sidebarOpen && (
+          <button className="sidebar-expand-btn" onClick={() => setSidebarOpen(true)} title="사이드바 열기">
+            »
+          </button>
+        )}
         <Outlet />
       </main>
     </div>

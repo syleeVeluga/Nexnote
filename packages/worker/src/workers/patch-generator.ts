@@ -21,6 +21,7 @@ import type {
   TripleExtractorJobData,
   AIRequest,
 } from "@nexnote/shared";
+import { createJobLogger } from "../logger.js";
 
 const PROMPT_VERSION = "patch-generator-v1";
 
@@ -32,10 +33,9 @@ export function createPatchGeneratorWorker(): Worker {
     async (job: Job<PatchGeneratorJobData>) => {
       const { ingestionId, decisionId, workspaceId, targetPageId, action } =
         job.data;
+      const log = createJobLogger("patch-generator", job.id);
 
-      console.log(
-        `[patch-generator] Processing ingestion ${ingestionId}, action=${action}`,
-      );
+      log.info({ ingestionId, action }, "Processing ingestion");
 
       // Fetch ingestion (only needed columns) and target page in parallel
       const [[ingestion], [page]] = await Promise.all([
@@ -227,22 +227,19 @@ Produce the merged Markdown:`,
   );
 
   worker.on("completed", (job, result) => {
-    console.log(
-      `[patch-generator] Job ${job.id} completed: page=${result.pageId}, revision=${result.revisionId}`,
-    );
+    const log = createJobLogger("patch-generator", job.id);
+    log.info({ pageId: result.pageId, revisionId: result.revisionId }, "Job completed");
   });
 
   worker.on("failed", (job, err) => {
-    console.error(
-      `[patch-generator] Job ${job?.id ?? "unknown"} failed:`,
-      err.message,
-    );
+    const log = createJobLogger("patch-generator", job?.id);
+    log.error({ err, ingestionId: job?.data?.ingestionId }, "Job failed");
     if (job?.data?.ingestionId) {
       db.update(ingestions)
         .set({ status: "failed", processedAt: new Date() })
         .where(eq(ingestions.id, job.data.ingestionId))
         .catch((e) =>
-          console.error(`[patch-generator] Failed to update ingestion status:`, e),
+          log.error({ err: e, ingestionId: job.data.ingestionId }, "Failed to update ingestion status"),
         );
     }
   });

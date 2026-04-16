@@ -155,6 +155,12 @@ export const workspaces = {
       body: JSON.stringify(data),
     });
   },
+  update(id: string, data: { name?: string }) {
+    return request<Workspace>(`/workspaces/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -189,6 +195,18 @@ export const folders = {
       { method: "POST", body: JSON.stringify(data) },
     );
   },
+  patch(workspaceId: string, folderId: string, data: { name?: string; slug?: string; parentFolderId?: string | null }) {
+    return request<{ data: Folder }>(
+      `/workspaces/${workspaceId}/folders/${folderId}`,
+      { method: "PATCH", body: JSON.stringify(data) },
+    );
+  },
+  delete(workspaceId: string, folderId: string) {
+    return request<void>(
+      `/workspaces/${workspaceId}/folders/${folderId}`,
+      { method: "DELETE" },
+    );
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -198,7 +216,7 @@ export const folders = {
 export interface Page {
   id: string;
   workspaceId: string;
-  folderId: string | null;
+  parentPageId: string | null;
   title: string;
   slug: string;
   status: PageStatus;
@@ -248,11 +266,11 @@ export interface CompareResultDto {
 export type { GraphNode, GraphEdge, GraphData } from "@nexnote/shared";
 
 export const pages = {
-  list(workspaceId: string, params?: { folderId?: string; status?: string; limit?: number; offset?: number }) {
+  list(workspaceId: string, params?: { parentPageId?: string; status?: string; limit?: number; offset?: number }) {
     const q = buildQuery({
       limit: params?.limit,
       offset: params?.offset,
-      folderId: params?.folderId,
+      parentPageId: params?.parentPageId,
       status: params?.status,
     });
     return request<Paginated<Page>>(
@@ -266,7 +284,7 @@ export const pages = {
   },
   create(
     workspaceId: string,
-    data: { title: string; slug: string; folderId?: string | null; contentMd?: string; contentJson?: Record<string, unknown> },
+    data: { title: string; slug: string; parentPageId?: string | null; contentMd?: string; contentJson?: Record<string, unknown> },
   ) {
     return request<{ page: Page; revision: Revision }>(
       `/workspaces/${workspaceId}/pages`,
@@ -347,6 +365,68 @@ export const pages = {
       `/workspaces/${workspaceId}/pages/${pageId}/publish`,
       { method: "POST", body: JSON.stringify(data ?? {}) },
     );
+  },
+
+  search(workspaceId: string, params: { q: string; limit?: number; offset?: number }) {
+    const q = buildQuery({ q: params.q, limit: params.limit, offset: params.offset });
+    return request<{ data: Page[]; total: number; q: string }>(
+      `/workspaces/${workspaceId}/pages/search${q}`,
+    );
+  },
+
+  async aiEdit(
+    workspaceId: string,
+    pageId: string,
+    data: {
+      mode: string;
+      instruction: string;
+      selection?: { from: number; to: number; text: string };
+    },
+    onChunk: (text: string) => void,
+    onDone: (result: string, baseRevisionId: string) => void,
+    onError: (message: string) => void,
+  ): Promise<void> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Accept": "text/event-stream",
+    };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const res = await fetch(
+      `${BASE_URL}/workspaces/${workspaceId}/pages/${pageId}/ai-edit`,
+      { method: "POST", headers, body: JSON.stringify(data) },
+    );
+
+    if (!res.ok || !res.body) {
+      onError(`HTTP ${res.status}`);
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop() ?? "";
+
+      for (const part of parts) {
+        const eventMatch = /^event: (\S+)/.exec(part);
+        const dataMatch = /^data: (.+)$/m.exec(part);
+        if (!eventMatch || !dataMatch) continue;
+        const event = eventMatch[1];
+        let payload: Record<string, unknown>;
+        try { payload = JSON.parse(dataMatch[1]); } catch { continue; }
+
+        if (event === "chunk") onChunk((payload.text as string) ?? "");
+        else if (event === "done") onDone((payload.result as string) ?? "", (payload.baseRevisionId as string) ?? "");
+        else if (event === "error") onError((payload.message as string) ?? "Unknown error");
+      }
+    }
   },
 };
 

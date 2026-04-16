@@ -4,25 +4,28 @@ import {
   createPatchGeneratorWorker,
   createTripleExtractorWorker,
   createPublishRendererWorker,
+  createSearchIndexUpdaterWorker,
 } from "./workers/index.js";
 import { closeAllQueues } from "./queues.js";
+import { logger } from "./logger.js";
 
 const workers: Worker[] = [];
 
 function startWorkers(): void {
-  console.log("[worker] Starting NexNote workers...");
+  logger.info("Starting NexNote workers...");
   workers.push(createRouteClassifierWorker());
   workers.push(createPatchGeneratorWorker());
   workers.push(createTripleExtractorWorker());
   workers.push(createPublishRendererWorker());
-  console.log(`[worker] ${workers.length} worker(s) running.`);
+  workers.push(createSearchIndexUpdaterWorker());
+  logger.info({ count: workers.length }, "Workers running");
 }
 
 async function shutdown(signal: string): Promise<void> {
-  console.log(`[worker] Received ${signal}, shutting down...`);
+  logger.info({ signal }, "Shutting down...");
   await Promise.all(workers.map((w) => w.close()));
   await closeAllQueues();
-  console.log("[worker] All workers stopped.");
+  logger.info("All workers stopped");
   process.exit(0);
 }
 

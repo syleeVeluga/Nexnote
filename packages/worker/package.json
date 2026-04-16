@@ -17,6 +17,7 @@
     "bullmq": "^5.0.0",
     "drizzle-orm": "^0.41.0",
     "ioredis": "^5.6.0",
+    "pino": "^9.0.0",
     "rehype-highlight": "^7.0.2",
     "rehype-sanitize": "^6.0.0",
     "rehype-stringify": "^10.0.1",

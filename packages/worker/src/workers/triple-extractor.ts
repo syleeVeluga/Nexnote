@@ -4,6 +4,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { createRedisConnection } from "../connection.js";
 import { QUEUE_NAMES } from "../queues.js";
 import { getAIAdapter, getDefaultProvider } from "../ai-gateway.js";
+import { createJobLogger } from "../logger.js";
 import { getDb } from "@nexnote/db/client";
 import {
   entities,
@@ -28,10 +29,9 @@ export function createTripleExtractorWorker(): Worker {
     QUEUE_NAMES.EXTRACTION,
     async (job: Job<TripleExtractorJobData>) => {
       const { pageId, revisionId, workspaceId } = job.data;
+      const log = createJobLogger("triple-extractor", job.id);
 
-      console.log(
-        `[triple-extractor] Processing page ${pageId}, revision ${revisionId}`,
-      );
+      log.info({ pageId, revisionId }, "Processing page");
 
       const [revision] = await db
         .select({ contentMd: pageRevisions.contentMd })
@@ -103,10 +103,7 @@ ${revision.contentMd.slice(0, 6000)}
         const raw = JSON.parse(aiResponse.content);
         extracted = tripleExtractionSchema.parse(raw);
       } catch (err) {
-        console.error(
-          `[triple-extractor] Failed to parse LLM response for revision ${revisionId}:`,
-          err,
-        );
+        log.error({ err, revisionId }, "Failed to parse LLM response");
         parseFailed = true;
         extracted = { triples: [] };
       }
@@ -268,9 +265,7 @@ ${revision.contentMd.slice(0, 6000)}
 
       await job.updateProgress(100);
 
-      console.log(
-        `[triple-extractor] Extracted ${triplesCreated} triples for page ${pageId}`,
-      );
+      log.info({ pageId, triplesCreated }, "Extraction complete");
 
       return { pageId, triplesCreated };
     },
@@ -281,16 +276,16 @@ ${revision.contentMd.slice(0, 6000)}
   );
 
   worker.on("completed", (job, result) => {
-    console.log(
-      `[triple-extractor] Job ${job.id} completed: ${result.triplesCreated} triples for page ${result.pageId}`,
+    const log = createJobLogger("triple-extractor", job.id);
+    log.info(
+      { pageId: result.pageId, triplesCreated: result.triplesCreated },
+      "Job completed",
     );
   });
 
   worker.on("failed", (job, err) => {
-    console.error(
-      `[triple-extractor] Job ${job?.id ?? "unknown"} failed:`,
-      err.message,
-    );
+    const log = createJobLogger("triple-extractor", job?.id);
+    log.error({ err }, "Job failed");
   });
 
   return worker;

@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyReply } from "fastify";
 import { eq, and, count } from "drizzle-orm";
-import { workspaces, workspaceMembers, users } from "@nexnote/db";
+import { workspaces, workspaceMembers, users, auditLogs } from "@nexnote/db";
 import {
   createWorkspaceSchema,
   updateWorkspaceSchema,
@@ -121,6 +121,15 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
             role: "owner",
           });
 
+          await tx.insert(auditLogs).values({
+            workspaceId: ws.id,
+            userId,
+            entityType: "workspace",
+            entityId: ws.id,
+            action: "workspace.create",
+            afterJson: { name: ws.name, slug: ws.slug },
+          });
+
           return ws;
         });
 
@@ -237,14 +246,29 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
       ]);
 
       try {
-        const [updated] = await fastify.db
-          .update(workspaces)
-          .set({
-            ...body,
-            updatedAt: new Date(),
-          })
-          .where(eq(workspaces.id, workspaceId))
-          .returning();
+        const updated = await fastify.db.transaction(async (tx) => {
+          const [row] = await tx
+            .update(workspaces)
+            .set({
+              ...body,
+              updatedAt: new Date(),
+            })
+            .where(eq(workspaces.id, workspaceId))
+            .returning();
+
+          if (!row) return null;
+
+          await tx.insert(auditLogs).values({
+            workspaceId,
+            userId,
+            entityType: "workspace",
+            entityId: workspaceId,
+            action: "workspace.update",
+            afterJson: body,
+          });
+
+          return row;
+        });
 
         if (!updated) {
           throw fastify.httpErrors.notFound("Workspace not found");
@@ -286,25 +310,38 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
       ]);
 
       try {
-        const [member] = await fastify.db
-          .insert(workspaceMembers)
-          .values({
-            workspaceId,
-            userId: body.userId,
-            role: body.role,
-          })
-          .returning();
+        const { member, user } = await fastify.db.transaction(async (tx) => {
+          const [m] = await tx
+            .insert(workspaceMembers)
+            .values({
+              workspaceId,
+              userId: body.userId,
+              role: body.role,
+            })
+            .returning();
 
-        const [user] = await fastify.db
-          .select({
-            id: users.id,
-            email: users.email,
-            name: users.name,
-            avatarUrl: users.avatarUrl,
-          })
-          .from(users)
-          .where(eq(users.id, body.userId))
-          .limit(1);
+          const [u] = await tx
+            .select({
+              id: users.id,
+              email: users.email,
+              name: users.name,
+              avatarUrl: users.avatarUrl,
+            })
+            .from(users)
+            .where(eq(users.id, body.userId))
+            .limit(1);
+
+          await tx.insert(auditLogs).values({
+            workspaceId,
+            userId,
+            entityType: "workspace_member",
+            entityId: workspaceId,
+            action: "member.add",
+            afterJson: { targetUserId: body.userId, role: body.role },
+          });
+
+          return { member: m, user: u };
+        });
 
         return reply.code(201).send(toMemberDto(member, user));
       } catch (err: unknown) {

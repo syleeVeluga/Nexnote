@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { slugify } from "@nexnote/shared";
 import { useWorkspace } from "../hooks/use-workspace.js";
@@ -9,6 +9,10 @@ export function NewPagePage() {
   const { t } = useTranslation("pages");
   const { current: workspace } = useWorkspace();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const parentId = searchParams.get("parentId") ?? null;
+  const parentTitle = searchParams.get("parentTitle") ?? null;
+
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
   const [slugManual, setSlugManual] = useState(false);
@@ -32,6 +36,7 @@ export function NewPagePage() {
       const res = await pagesApi.create(workspace.id, {
         title,
         slug: slug || slugify(title),
+        parentPageId: parentId,
         contentMd: `# ${title}\n`,
       });
       navigate(`/pages/${res.page.id}`);
@@ -46,6 +51,11 @@ export function NewPagePage() {
     <div className="new-page">
       <form className="new-page-form" onSubmit={handleSubmit}>
         <h1>{t("newPage")}</h1>
+        {parentTitle && (
+          <p className="new-page-parent-hint">
+            {t("subPageOf", { parent: parentTitle })}
+          </p>
+        )}
         {error && <div className="form-error">{error}</div>}
         <label>
           {t("titleLabel")}

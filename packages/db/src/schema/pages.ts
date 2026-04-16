@@ -49,9 +49,10 @@ export const pages = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
-    folderId: uuid("folder_id").references(() => folders.id, {
-      onDelete: "set null",
-    }),
+    parentPageId: uuid("parent_page_id").references(
+      (): AnyPgColumn => pages.id,
+      { onDelete: "set null" },
+    ),
     title: text("title").notNull(),
     slug: text("slug").notNull(),
     status: text("status").notNull().default("draft"),
@@ -67,14 +68,10 @@ export const pages = pgTable(
       .defaultNow(),
   },
   (t) => [
-    uniqueIndex("pages_workspace_folder_slug_uk").on(
+    uniqueIndex("pages_workspace_slug_uk").on(t.workspaceId, t.slug),
+    index("pages_workspace_parent_idx").on(
       t.workspaceId,
-      t.folderId,
-      t.slug,
-    ),
-    index("pages_workspace_folder_idx").on(
-      t.workspaceId,
-      t.folderId,
+      t.parentPageId,
       t.sortOrder,
     ),
   ],
@@ -129,10 +126,12 @@ export const pagesRelations = relations(pages, ({ one, many }) => ({
     fields: [pages.workspaceId],
     references: [workspaces.id],
   }),
-  folder: one(folders, {
-    fields: [pages.folderId],
-    references: [folders.id],
+  parentPage: one(pages, {
+    fields: [pages.parentPageId],
+    references: [pages.id],
+    relationName: "parentChild",
   }),
+  childPages: many(pages, { relationName: "parentChild" }),
   pagePaths: many(pagePaths),
 }));
 

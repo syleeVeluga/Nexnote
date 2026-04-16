@@ -57,3 +57,16 @@ export interface TripleExtractorJobResult {
   pageId: string;
   triplesCreated: number;
 }
+
+/** Data passed to the search-index-updater job */
+export interface SearchIndexUpdaterJobData {
+  pageId: string;
+  revisionId: string;
+  workspaceId: string;
+}
+
+/** Result returned from the search-index-updater job */
+export interface SearchIndexUpdaterJobResult {
+  pageId: string;
+  indexed: boolean;
+}

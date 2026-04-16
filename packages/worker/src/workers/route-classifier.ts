@@ -2,6 +2,7 @@ import { Worker } from "bullmq";
 import type { Job } from "bullmq";
 import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { createRedisConnection } from "../connection.js";
+import { createJobLogger } from "../logger.js";
 import { getQueue, QUEUE_NAMES, JOB_NAMES } from "../queues.js";
 import { getAIAdapter, getDefaultProvider } from "../ai-gateway.js";
 import { getDb } from "@nexnote/db/client";
@@ -31,6 +32,7 @@ import type {
 } from "@nexnote/shared";
 
 const PROMPT_VERSION = "route-classifier-v1";
+const moduleLog = createJobLogger("route-classifier");
 
 async function findCandidatePages(
   db: ReturnType<typeof getDb>,
@@ -123,7 +125,7 @@ async function findCandidatePages(
           });
         }
       } catch (err) {
-        console.warn("[route-classifier] FTS search failed, skipping:", err);
+        moduleLog.warn({ err }, "FTS search failed, skipping");
       }
     }
   }
@@ -161,7 +163,7 @@ async function findCandidatePages(
         });
       }
     } catch (err) {
-      console.warn("[route-classifier] Trigram search failed, skipping:", err);
+      moduleLog.warn({ err }, "Trigram search failed, skipping");
     }
   }
 
@@ -212,7 +214,7 @@ async function findCandidatePages(
         }
       }
     } catch (err) {
-      console.warn("[route-classifier] Entity overlap search failed, skipping:", err);
+      moduleLog.warn({ err }, "Entity overlap search failed, skipping");
     }
   }
 
@@ -293,9 +295,8 @@ export function createRouteClassifierWorker(): Worker {
     QUEUE_NAMES.INGESTION,
     async (job: Job<RouteClassifierJobData>) => {
       const { ingestionId, workspaceId } = job.data;
-      console.log(
-        `[route-classifier] Processing ingestion ${ingestionId}`,
-      );
+      const log = createJobLogger("route-classifier", job.id);
+      log.info({ ingestionId }, "Processing ingestion");
 
       const [ingestion] = await db
         .select()
@@ -364,10 +365,7 @@ export function createRouteClassifierWorker(): Worker {
         const raw = JSON.parse(aiResponse.content);
         parsed = routeDecisionSchema.parse(raw);
       } catch (err) {
-        console.error(
-          `[route-classifier] Failed to parse LLM response for ${ingestionId}:`,
-          err,
-        );
+        log.error({ err, ingestionId }, "Failed to parse LLM response");
         parseFailed = true;
         parsed = {
           action: "needs_review" as const,
@@ -504,22 +502,19 @@ export function createRouteClassifierWorker(): Worker {
   );
 
   worker.on("completed", (job, result) => {
-    console.log(
-      `[route-classifier] Job ${job.id} completed: action=${result.action}, confidence=${result.confidence}`,
-    );
+    const log = createJobLogger("route-classifier", job.id);
+    log.info({ action: result.action, confidence: result.confidence }, "Route classification completed");
   });
 
   worker.on("failed", (job, err) => {
-    console.error(
-      `[route-classifier] Job ${job?.id ?? "unknown"} failed:`,
-      err.message,
-    );
+    const log = createJobLogger("route-classifier", job?.id);
+    log.error({ err }, "Job failed");
     if (job?.data?.ingestionId) {
       db.update(ingestions)
         .set({ status: "failed", processedAt: new Date() })
         .where(eq(ingestions.id, job.data.ingestionId))
         .catch((e) =>
-          console.error(`[route-classifier] Failed to update ingestion status:`, e),
+          log.error({ err: e, ingestionId: job.data.ingestionId }, "Failed to update ingestion status"),
         );
     }
   });

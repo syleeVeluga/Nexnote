@@ -37,15 +37,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     try {
       const res = await wsApi.list({ limit: 100 });
-      setWorkspaceList(res.data);
+      let list = res.data;
+
+      if (list.length === 0) {
+        const slug = `my-workspace-${Math.random().toString(36).slice(2, 8)}`;
+        const ws = await wsApi.create({ name: "My Workspace", slug });
+        list = [ws];
+      }
+
+      setWorkspaceList(list);
 
       const savedId = localStorage.getItem(STORAGE_KEY);
-      const saved = res.data.find((w) => w.id === savedId);
+      const saved = list.find((w) => w.id === savedId);
       if (saved) {
         setCurrent(saved);
-      } else if (res.data.length > 0) {
-        setCurrent(res.data[0]);
-        localStorage.setItem(STORAGE_KEY, res.data[0].id);
+      } else {
+        setCurrent(list[0]);
+        localStorage.setItem(STORAGE_KEY, list[0].id);
       }
     } finally {
       setLoading(false);

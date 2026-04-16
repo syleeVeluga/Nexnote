@@ -8,6 +8,39 @@ import { publicDocParamsSchema, ERROR_CODES } from "@nexnote/shared";
 import { publishedSnapshots, workspaces, pages } from "@nexnote/db";
 import { sendValidationError } from "../../lib/reply-helpers.js";
 
+/**
+ * Minimal markdown → HTML fallback for when the publish-renderer worker
+ * has not yet filled `snapshotHtml`. Converts markdown to escaped HTML
+ * paragraphs so the content is at least readable.
+ */
+function markdownToBasicHtml(md: string): string {
+  const escape = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  return md
+    .split(/\n{2,}/)
+    .map((block) => {
+      const trimmed = block.trim();
+      if (!trimmed) return "";
+      // Headings
+      const headingMatch = /^(#{1,6})\s+(.*)$/.exec(trimmed);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        return `<h${level}>${escape(headingMatch[2])}</h${level}>`;
+      }
+      // Code blocks
+      if (trimmed.startsWith("```")) {
+        const lines = trimmed.split("\n");
+        const code = lines.slice(1, -1).join("\n");
+        return `<pre><code>${escape(code)}</code></pre>`;
+      }
+      // Default paragraph
+      return `<p>${escape(trimmed)}</p>`;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 // ---------------------------------------------------------------------------
 // Public docs — no authentication required
 // ---------------------------------------------------------------------------
@@ -63,11 +96,15 @@ const docRoutes: FastifyPluginAsync = async (fastify) => {
 
       const doc = rows[0];
 
+      // If the publish-renderer worker hasn't processed the snapshot yet,
+      // produce a basic HTML rendering so the content is still readable.
+      const html = doc.snapshotHtml || markdownToBasicHtml(doc.snapshotMd);
+
       return reply.code(200).send({
         id: doc.id,
         pageId: doc.pageId,
         title: doc.title,
-        html: doc.snapshotHtml,
+        html,
         markdown: doc.snapshotMd,
         toc: doc.tocJson,
         versionNo: doc.versionNo,

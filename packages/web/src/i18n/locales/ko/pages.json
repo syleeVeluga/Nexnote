@@ -12,5 +12,6 @@
   "slugPlaceholder": "멋진-문서-제목",
   "creating": "생성 중...",
   "createPage": "페이지 만들기",
-  "createFailed": "페이지 생성에 실패했습니다"
+  "createFailed": "페이지 생성에 실패했습니다",
+  "subPageOf": "{{parent}}의 하위 페이지"
 }
