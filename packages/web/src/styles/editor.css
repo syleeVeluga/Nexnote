@@ -281,3 +281,22 @@
 .tiptap-content .tiptap pre .hljs-deletion {
   color: #f38ba8;
 }
+
+@media (max-width: 768px) {
+  .editor-toolbar {
+    padding: 8px 12px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .toolbar-group,
+  .toolbar-divider {
+    flex-shrink: 0;
+  }
+
+  .tiptap-content .tiptap {
+    padding: 20px 16px 32px;
+  }
+}

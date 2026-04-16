@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   pages as pagesApi,
@@ -90,6 +90,7 @@ export function Sidebar({
   onLogout,
 }: SidebarProps) {
   const { t } = useTranslation("common");
+  const location = useLocation();
   const navigate = useNavigate();
 
   const [pageList, setPageList] = useState<Page[]>([]);
@@ -107,7 +108,7 @@ export function Sidebar({
       .then((res) => { if (!cancelled) setPageList(res.data); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [workspace.id]);
+  }, [workspace.id, location.pathname, location.search]);
 
   const pagesByParent = useMemo(() => {
     const map = new Map<string | null, Page[]>();
