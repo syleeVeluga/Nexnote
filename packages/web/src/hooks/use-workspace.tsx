@@ -41,8 +41,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
       if (list.length === 0) {
         const slug = `my-workspace-${Math.random().toString(36).slice(2, 8)}`;
-        const ws = await wsApi.create({ name: "My Workspace", slug });
-        list = [ws];
+        const workspace = await wsApi.create({ name: "My Workspace", slug });
+        list = [workspace];
       }
 
       setWorkspaceList(list);

@@ -1,6 +1,16 @@
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema/index.js";
+
+const currentDir = dirname(fileURLToPath(import.meta.url));
+const envFile = resolve(currentDir, "../../../.env");
+
+if (existsSync(envFile)) {
+  process.loadEnvFile(envFile);
+}
 
 export type Database = ReturnType<typeof createDb>;
 

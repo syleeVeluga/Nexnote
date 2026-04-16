@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    container_name: nexnote-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nexnote
+      POSTGRES_USER: nexnote
+      POSTGRES_PASSWORD: nexnote
+    ports:
+      - "5433:5432"
+    volumes:
+      - nexnote-postgres18-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexnote -d nexnote"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8.2-alpine
+    container_name: nexnote-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - nexnote-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  nexnote-postgres18-data:
+  nexnote-redis-data:

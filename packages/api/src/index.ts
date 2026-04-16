@@ -1,4 +1,14 @@
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.js";
+
+const currentDir = dirname(fileURLToPath(import.meta.url));
+const envFile = resolve(currentDir, "../../../.env");
+
+if (existsSync(envFile)) {
+  process.loadEnvFile(envFile);
+}
 
 const API_PORT = Number(process.env.API_PORT ?? 3001);
 const API_HOST = process.env.API_HOST ?? "0.0.0.0";

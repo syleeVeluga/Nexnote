@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Worker } from "bullmq";
 import {
   createRouteClassifierWorker,
@@ -8,6 +11,13 @@ import {
 } from "./workers/index.js";
 import { closeAllQueues } from "./queues.js";
 import { logger } from "./logger.js";
+
+const currentDir = dirname(fileURLToPath(import.meta.url));
+const envFile = resolve(currentDir, "../../../.env");
+
+if (existsSync(envFile)) {
+  process.loadEnvFile(envFile);
+}
 
 const workers: Worker[] = [];
 

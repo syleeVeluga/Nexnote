@@ -541,8 +541,8 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
             .set({
               ...(body.title !== undefined && { title: body.title }),
               ...(body.slug !== undefined && { slug: body.slug }),
-              ...(body.folderId !== undefined && {
-                folderId: body.folderId,
+              ...(body.parentPageId !== undefined && {
+                parentPageId: body.parentPageId,
               }),
               ...(body.status !== undefined && { status: body.status }),
               ...(body.sortOrder !== undefined && {
@@ -581,7 +581,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
             beforeJson: {
               title: existing.title,
               slug: existing.slug,
-              folderId: existing.folderId,
+              parentPageId: existing.parentPageId,
               status: existing.status,
               sortOrder: existing.sortOrder,
             },
@@ -1757,7 +1757,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         SELECT
           p.id,
           p.workspace_id    AS "workspaceId",
-          p.folder_id       AS "folderId",
+          p.parent_page_id  AS "parentPageId",
           p.title,
           p.slug,
           p.status,
@@ -1786,7 +1786,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       const data = (rows as unknown as Array<{
         id: string;
         workspaceId: string;
-        folderId: string | null;
+        parentPageId: string | null;
         title: string;
         slug: string;
         status: string;
@@ -1797,7 +1797,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       }>).map((row) => ({
         id: row.id,
         workspaceId: row.workspaceId,
-        folderId: row.folderId,
+        parentPageId: row.parentPageId,
         title: row.title,
         slug: row.slug,
         status: row.status,

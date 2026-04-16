@@ -2,17 +2,24 @@
   "name": "nexnote",
   "private": true,
   "type": "module",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "bcrypt",
+      "esbuild",
+      "msgpackr-extract"
+    ]
+  },
   "engines": {
     "node": ">=22.0.0"
   },
   "packageManager": "pnpm@10.8.1",
   "scripts": {
-    "dev": "pnpm -r --parallel run dev",
-    "build": "pnpm --filter @nexnote/shared build && pnpm --filter @nexnote/db build && pnpm --filter @nexnote/api --filter @nexnote/worker --filter @nexnote/web --parallel build",
-    "lint": "pnpm -r run lint",
+    "dev": "corepack pnpm -r --parallel run dev",
+    "build": "corepack pnpm --filter @nexnote/shared build && corepack pnpm --filter @nexnote/db build && corepack pnpm --filter @nexnote/api --filter @nexnote/worker --filter @nexnote/web --parallel build",
+    "lint": "corepack pnpm -r run lint",
     "format": "prettier --write \"packages/*/src/**/*.{ts,tsx}\"",
-    "test": "pnpm -r run test",
-    "typecheck": "pnpm -r run typecheck"
+    "test": "corepack pnpm -r run test",
+    "typecheck": "corepack pnpm -r run typecheck"
   },
   "devDependencies": {
     "prettier": "^3.5.0",
