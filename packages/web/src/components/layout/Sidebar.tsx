@@ -9,6 +9,7 @@ import {
   type Workspace,
 } from "../../lib/api-client.js";
 import { LanguageSwitcher } from "./LanguageSwitcher.js";
+import { subscribeDecisionCountsUpdated } from "../../lib/decision-events.js";
 
 // ---------------------------------------------------------------------------
 // Context menu
@@ -114,27 +115,22 @@ export function Sidebar({
 
   useEffect(() => {
     let cancelled = false;
-    const fetchCounts = () => {
-      decisionsApi
-        .counts(workspace.id)
-        .then((res) => {
-          if (cancelled) return;
-          const next = res.counts.pending ?? 0;
-          setPendingCount((prev) => (prev === next ? prev : next));
-        })
-        .catch(() => {});
-    };
-    fetchCounts();
-    const onUpdate = (e: Event) => {
-      const ce = e as CustomEvent<{ workspaceId: string; counts: { pending?: number } }>;
-      if (ce.detail?.workspaceId !== workspace.id) return;
-      const next = ce.detail.counts.pending ?? 0;
-      if (!cancelled) setPendingCount((prev) => (prev === next ? prev : next));
-    };
-    window.addEventListener("nexnote:decision-counts-updated", onUpdate);
+    decisionsApi
+      .counts(workspace.id)
+      .then((res) => {
+        if (cancelled) return;
+        const next = res.counts.pending ?? 0;
+        setPendingCount((prev) => (prev === next ? prev : next));
+      })
+      .catch(() => {});
+    const unsubscribe = subscribeDecisionCountsUpdated((detail) => {
+      if (cancelled || detail.workspaceId !== workspace.id) return;
+      const next = detail.counts.pending ?? 0;
+      setPendingCount((prev) => (prev === next ? prev : next));
+    });
     return () => {
       cancelled = true;
-      window.removeEventListener("nexnote:decision-counts-updated", onUpdate);
+      unsubscribe();
     };
   }, [workspace.id, location.pathname]);
 

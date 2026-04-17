@@ -9,6 +9,7 @@ import {
   type DecisionStatus,
 } from "../lib/api-client.js";
 import { ReviewDetail } from "../components/review/ReviewDetail.js";
+import { dispatchDecisionCountsUpdated } from "../lib/decision-events.js";
 
 type TabKey = "suggested" | "needs_review" | "failed" | "recent";
 
@@ -72,11 +73,7 @@ export function ReviewQueuePage() {
       ]);
       setItems(listRes.data);
       setCounts(countsRes.counts);
-      window.dispatchEvent(
-        new CustomEvent("nexnote:decision-counts-updated", {
-          detail: { workspaceId, counts: countsRes.counts },
-        }),
-      );
+      dispatchDecisionCountsUpdated({ workspaceId, counts: countsRes.counts });
       setSelectedId((prev) => {
         if (listRes.data.length === 0) return null;
         return prev && listRes.data.some((i) => i.id === prev)

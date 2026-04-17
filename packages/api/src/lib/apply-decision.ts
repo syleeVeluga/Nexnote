@@ -1,4 +1,4 @@
-import { eq, and, like } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import {
   ingestions,
   ingestionDecisions,
@@ -47,27 +47,44 @@ export interface ApplyDecisionError {
   statusCode: number;
 }
 
-async function uniqueSlugInWorkspace(
+const SLUG_ALLOC_MAX_ATTEMPTS = 20;
+const PG_UNIQUE_VIOLATION = "23505";
+const PAGES_SLUG_CONSTRAINT = "pages_workspace_slug_uk";
+
+function isPageSlugCollision(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as { code?: string; constraint_name?: string; constraint?: string };
+  return (
+    e.code === PG_UNIQUE_VIOLATION &&
+    (e.constraint_name === PAGES_SLUG_CONSTRAINT ||
+      e.constraint === PAGES_SLUG_CONSTRAINT)
+  );
+}
+
+async function insertPageWithUniqueSlug(
   db: Database,
-  workspaceId: string,
-  baseSlug: string,
-): Promise<string> {
-  const rows = await db
-    .select({ slug: pages.slug })
-    .from(pages)
-    .where(
-      and(
-        eq(pages.workspaceId, workspaceId),
-        like(pages.slug, `${baseSlug}%`),
-      ),
-    );
-  const taken = new Set(rows.map((r) => r.slug));
-  if (!taken.has(baseSlug)) return baseSlug;
-  for (let i = 2; i < 10000; i++) {
-    const candidate = `${baseSlug}-${i}`;
-    if (!taken.has(candidate)) return candidate;
+  params: { workspaceId: string; title: string; baseSlug: string },
+): Promise<typeof pages.$inferSelect> {
+  for (let i = 0; i < SLUG_ALLOC_MAX_ATTEMPTS; i++) {
+    const slug = i === 0 ? params.baseSlug : `${params.baseSlug}-${i + 1}`;
+    try {
+      const [page] = await db
+        .insert(pages)
+        .values({
+          workspaceId: params.workspaceId,
+          title: params.title,
+          slug,
+          status: "draft",
+        })
+        .returning();
+      return page;
+    } catch (err) {
+      if (!isPageSlugCollision(err)) throw err;
+    }
   }
-  return `${baseSlug}-${Date.now()}`;
+  throw new Error(
+    `Could not allocate unique slug for "${params.baseSlug}" after ${SLUG_ALLOC_MAX_ATTEMPTS} attempts`,
+  );
 }
 
 export async function approveDecision(
@@ -106,13 +123,13 @@ export async function approveDecision(
       decision.proposedPageTitle ??
       ingestion.titleHint ??
       "Untitled (ingested)";
-    const slug = await uniqueSlugInWorkspace(db, workspaceId, slugify(title));
     const contentMd = extractIngestionText(ingestion);
 
-    const [page] = await db
-      .insert(pages)
-      .values({ workspaceId, title, slug, status: "draft" })
-      .returning();
+    const page = await insertPageWithUniqueSlug(db, {
+      workspaceId,
+      title,
+      baseSlug: slugify(title),
+    });
 
     const [revision] = await db
       .insert(pageRevisions)
