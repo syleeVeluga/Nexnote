@@ -1,0 +1,62 @@
+{
+  "title": "검토 대기열",
+  "subtitle": "AI가 제안한 변경사항을 승인하거나 거절하세요",
+  "tabs": {
+    "suggested": "제안됨",
+    "needs_review": "검토 필요",
+    "failed": "실패",
+    "recent": "최근"
+  },
+  "badge": {
+    "suggested": "제안",
+    "needs_review": "검토",
+    "failed": "실패",
+    "auto_applied": "자동 적용",
+    "approved": "승인됨",
+    "rejected": "거절됨",
+    "noop": "무시"
+  },
+  "action": {
+    "create": "새 페이지",
+    "update": "업데이트",
+    "append": "추가",
+    "noop": "무시",
+    "needs_review": "검토 요청"
+  },
+  "emptyList": "이 탭에 항목이 없습니다",
+  "selectItem": "왼쪽 목록에서 항목을 선택하세요",
+  "loading": "로딩 중...",
+  "confidence": "신뢰도",
+  "source": "출처",
+  "receivedAt": "수신 시각",
+  "reason": "AI 판단",
+  "target": "대상",
+  "newPage": "새 페이지: {{title}}",
+  "rawPayload": "원본 페이로드",
+  "normalizedText": "정규화된 텍스트",
+  "proposedDiff": "제안된 변경사항",
+  "proposedContent": "제안된 내용",
+  "noDiff": "변경사항이 없습니다",
+  "approve": "승인",
+  "reject": "거절",
+  "approving": "승인 중...",
+  "rejecting": "거절 중...",
+  "approveSuccess": "승인되었습니다",
+  "rejectSuccess": "거절되었습니다",
+  "actionFailed": "작업 실패",
+  "rejectReason": "거절 사유 (선택)",
+  "rejectReasonPlaceholder": "이 결정을 거절하는 이유를 입력하세요...",
+  "shortcutHint": "단축키: j/k 탐색, a 승인, r 거절",
+  "reviewPending": "검토 대기",
+  "review": "검토",
+  "noReason": "사유 없음",
+  "timeAgo": {
+    "now": "방금",
+    "minutes_one": "{{count}}분 전",
+    "minutes_other": "{{count}}분 전",
+    "hours_one": "{{count}}시간 전",
+    "hours_other": "{{count}}시간 전",
+    "days_one": "{{count}}일 전",
+    "days_other": "{{count}}일 전"
+  }
+}

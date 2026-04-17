@@ -9,6 +9,7 @@ import "./styles/globals.css";
 import "./styles/editor.css";
 import "./styles/revisions.css";
 import "./styles/graph.css";
+import "./styles/review.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

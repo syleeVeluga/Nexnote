@@ -9,7 +9,7 @@ interface DiffViewerProps {
   onClose: () => void;
 }
 
-function classifyLine(line: string): string {
+export function classifyLine(line: string): string {
   if (line.startsWith("@@")) return "diff-line diff-line-hunk";
   if (line.startsWith("+++") || line.startsWith("---"))
     return "diff-line diff-line-header";

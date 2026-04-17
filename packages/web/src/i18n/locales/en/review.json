@@ -1,0 +1,62 @@
+{
+  "title": "Review Queue",
+  "subtitle": "Approve or reject AI-proposed changes",
+  "tabs": {
+    "suggested": "Suggested",
+    "needs_review": "Needs review",
+    "failed": "Failed",
+    "recent": "Recent"
+  },
+  "badge": {
+    "suggested": "suggested",
+    "needs_review": "needs review",
+    "failed": "failed",
+    "auto_applied": "auto-applied",
+    "approved": "approved",
+    "rejected": "rejected",
+    "noop": "noop"
+  },
+  "action": {
+    "create": "new page",
+    "update": "update",
+    "append": "append",
+    "noop": "noop",
+    "needs_review": "needs review"
+  },
+  "emptyList": "No items in this tab",
+  "selectItem": "Select an item from the list",
+  "loading": "Loading...",
+  "confidence": "Confidence",
+  "source": "Source",
+  "receivedAt": "Received",
+  "reason": "AI reasoning",
+  "target": "Target",
+  "newPage": "New page: {{title}}",
+  "rawPayload": "Raw payload",
+  "normalizedText": "Normalized text",
+  "proposedDiff": "Proposed diff",
+  "proposedContent": "Proposed content",
+  "noDiff": "No diff available",
+  "approve": "Approve",
+  "reject": "Reject",
+  "approving": "Approving...",
+  "rejecting": "Rejecting...",
+  "approveSuccess": "Approved",
+  "rejectSuccess": "Rejected",
+  "actionFailed": "Action failed",
+  "rejectReason": "Reject reason (optional)",
+  "rejectReasonPlaceholder": "Why are you rejecting this decision?",
+  "shortcutHint": "Shortcuts: j/k to navigate, a to approve, r to reject",
+  "reviewPending": "pending review",
+  "review": "Review",
+  "noReason": "(no reason provided)",
+  "timeAgo": {
+    "now": "just now",
+    "minutes_one": "{{count}}m ago",
+    "minutes_other": "{{count}}m ago",
+    "hours_one": "{{count}}h ago",
+    "hours_other": "{{count}}h ago",
+    "days_one": "{{count}}d ago",
+    "days_other": "{{count}}d ago"
+  }
+}
