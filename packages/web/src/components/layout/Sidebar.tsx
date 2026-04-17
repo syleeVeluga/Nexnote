@@ -114,15 +114,28 @@ export function Sidebar({
 
   useEffect(() => {
     let cancelled = false;
-    decisionsApi
-      .counts(workspace.id)
-      .then((res) => {
-        if (cancelled) return;
-        const next = res.counts.pending ?? 0;
-        setPendingCount((prev) => (prev === next ? prev : next));
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
+    const fetchCounts = () => {
+      decisionsApi
+        .counts(workspace.id)
+        .then((res) => {
+          if (cancelled) return;
+          const next = res.counts.pending ?? 0;
+          setPendingCount((prev) => (prev === next ? prev : next));
+        })
+        .catch(() => {});
+    };
+    fetchCounts();
+    const onUpdate = (e: Event) => {
+      const ce = e as CustomEvent<{ workspaceId: string; counts: { pending?: number } }>;
+      if (ce.detail?.workspaceId !== workspace.id) return;
+      const next = ce.detail.counts.pending ?? 0;
+      if (!cancelled) setPendingCount((prev) => (prev === next ? prev : next));
+    };
+    window.addEventListener("nexnote:decision-counts-updated", onUpdate);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("nexnote:decision-counts-updated", onUpdate);
+    };
   }, [workspace.id, location.pathname]);
 
   const pagesByParent = useMemo(() => {

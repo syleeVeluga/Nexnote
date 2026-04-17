@@ -72,6 +72,11 @@ export function ReviewQueuePage() {
       ]);
       setItems(listRes.data);
       setCounts(countsRes.counts);
+      window.dispatchEvent(
+        new CustomEvent("nexnote:decision-counts-updated", {
+          detail: { workspaceId, counts: countsRes.counts },
+        }),
+      );
       setSelectedId((prev) => {
         if (listRes.data.length === 0) return null;
         return prev && listRes.data.some((i) => i.id === prev)

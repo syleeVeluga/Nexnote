@@ -60,9 +60,12 @@ async function request<T>(
 ): Promise<T> {
   const { skipAuth, ...fetchOptions } = options;
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
     ...(fetchOptions.headers as Record<string, string>),
   };
+
+  if (fetchOptions.body != null && headers["Content-Type"] == null) {
+    headers["Content-Type"] = "application/json";
+  }
 
   if (token && !skipAuth) {
     headers["Authorization"] = `Bearer ${token}`;
@@ -600,6 +603,7 @@ export const decisions = {
         }
     >(`/workspaces/${workspaceId}/decisions/${decisionId}/approve`, {
       method: "POST",
+      body: JSON.stringify({}),
     });
   },
   reject(workspaceId: string, decisionId: string, reason?: string) {

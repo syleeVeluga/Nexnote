@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, like } from "drizzle-orm";
 import {
   ingestions,
   ingestionDecisions,
@@ -47,6 +47,29 @@ export interface ApplyDecisionError {
   statusCode: number;
 }
 
+async function uniqueSlugInWorkspace(
+  db: Database,
+  workspaceId: string,
+  baseSlug: string,
+): Promise<string> {
+  const rows = await db
+    .select({ slug: pages.slug })
+    .from(pages)
+    .where(
+      and(
+        eq(pages.workspaceId, workspaceId),
+        like(pages.slug, `${baseSlug}%`),
+      ),
+    );
+  const taken = new Set(rows.map((r) => r.slug));
+  if (!taken.has(baseSlug)) return baseSlug;
+  for (let i = 2; i < 10000; i++) {
+    const candidate = `${baseSlug}-${i}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${baseSlug}-${Date.now()}`;
+}
+
 export async function approveDecision(
   ctx: ApplyDecisionCtx,
 ): Promise<ApplyDecisionResult | ApplyDecisionError> {
@@ -83,7 +106,7 @@ export async function approveDecision(
       decision.proposedPageTitle ??
       ingestion.titleHint ??
       "Untitled (ingested)";
-    const slug = slugify(title);
+    const slug = await uniqueSlugInWorkspace(db, workspaceId, slugify(title));
     const contentMd = extractIngestionText(ingestion);
 
     const [page] = await db
