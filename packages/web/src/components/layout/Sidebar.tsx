@@ -9,6 +9,7 @@ import {
   type Workspace,
 } from "../../lib/api-client.js";
 import { LanguageSwitcher } from "./LanguageSwitcher.js";
+import { subscribeDecisionCountsUpdated } from "../../lib/decision-events.js";
 
 // ---------------------------------------------------------------------------
 // Context menu
@@ -122,7 +123,15 @@ export function Sidebar({
         setPendingCount((prev) => (prev === next ? prev : next));
       })
       .catch(() => {});
-    return () => { cancelled = true; };
+    const unsubscribe = subscribeDecisionCountsUpdated((detail) => {
+      if (cancelled || detail.workspaceId !== workspace.id) return;
+      const next = detail.counts.pending ?? 0;
+      setPendingCount((prev) => (prev === next ? prev : next));
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [workspace.id, location.pathname]);
 
   const pagesByParent = useMemo(() => {

@@ -6,7 +6,7 @@ import {
   pageRevisions,
   revisionDiffs,
   auditLogs,
-  uniqueSlugInWorkspace,
+  insertPageWithUniqueSlug,
 } from "@nexnote/db";
 import type { Database, IngestionDecision } from "@nexnote/db";
 import type { Queue } from "bullmq";
@@ -84,13 +84,13 @@ export async function approveDecision(
       decision.proposedPageTitle ??
       ingestion.titleHint ??
       "Untitled (ingested)";
-    const slug = await uniqueSlugInWorkspace(db, workspaceId, slugify(title));
     const contentMd = extractIngestionText(ingestion);
 
-    const [page] = await db
-      .insert(pages)
-      .values({ workspaceId, title, slug, status: "draft" })
-      .returning();
+    const page = await insertPageWithUniqueSlug(db, {
+      workspaceId,
+      title,
+      baseSlug: slugify(title),
+    });
 
     const [revision] = await db
       .insert(pageRevisions)

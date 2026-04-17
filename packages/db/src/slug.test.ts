@@ -1,100 +1,150 @@
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { uniqueSlugInWorkspace } from "./slug.js";
+import { insertPageWithUniqueSlug } from "./slug.js";
 import type { Database } from "./client.js";
 
-// Mocks the drizzle select-from-where chain. `rowsForCall` returns the rows the
-// helper should see on the Nth invocation (call index starts at 0). This lets
-// a single test simulate "first ingestion sees no rows, second ingestion sees
-// the first page's slug already present" for the collision scenario.
-function makeFakeDb(
-  rowsForCall: (callIndex: number) => Array<{ slug: string }>,
-): { db: Database; getCallCount: () => number } {
-  let calls = 0;
+// Mocks drizzle's insert(...).values(...).returning() chain, capturing the
+// slug passed on each attempt. `takenSlugs` simulates the
+// `pages_workspace_slug_uk` unique constraint: if the caller tries to
+// insert a slug already in the set, the call throws a pg unique-violation
+// error (code 23505, constraint_name set) — mirroring what postgres raises.
+function makeFakeDb(takenSlugs: Iterable<string>): {
+  db: Database;
+  attemptedSlugs: string[];
+} {
+  const taken = new Set(takenSlugs);
+  const attemptedSlugs: string[] = [];
   const fake = {
-    select: () => ({
-      from: () => ({
-        where: async () => {
-          const rows = rowsForCall(calls);
-          calls++;
-          return rows;
+    insert: () => ({
+      values: (row: { workspaceId: string; title: string; slug: string; status: string }) => ({
+        returning: async () => {
+          attemptedSlugs.push(row.slug);
+          if (taken.has(row.slug)) {
+            const err = new Error(
+              'duplicate key value violates unique constraint "pages_workspace_slug_uk"',
+            ) as Error & { code: string; constraint_name: string };
+            err.code = "23505";
+            err.constraint_name = "pages_workspace_slug_uk";
+            throw err;
+          }
+          taken.add(row.slug);
+          return [
+            {
+              id: `page-${attemptedSlugs.length}`,
+              workspaceId: row.workspaceId,
+              title: row.title,
+              slug: row.slug,
+              status: row.status,
+            },
+          ];
         },
       }),
     }),
   };
-  return {
-    db: fake as unknown as Database,
-    getCallCount: () => calls,
-  };
+  return { db: fake as unknown as Database, attemptedSlugs };
 }
 
-describe("uniqueSlugInWorkspace", () => {
+describe("insertPageWithUniqueSlug", () => {
   const workspaceId = "00000000-0000-0000-0000-000000000001";
 
-  it("returns the base slug when no collision exists", async () => {
-    const { db } = makeFakeDb(() => []);
-    const slug = await uniqueSlugInWorkspace(db, workspaceId, "my-title");
-    assert.equal(slug, "my-title");
+  it("inserts with the base slug when none taken", async () => {
+    const { db, attemptedSlugs } = makeFakeDb([]);
+    const page = await insertPageWithUniqueSlug(db, {
+      workspaceId,
+      title: "My Title",
+      baseSlug: "my-title",
+    });
+    assert.equal(page.slug, "my-title");
+    assert.deepEqual(attemptedSlugs, ["my-title"]);
   });
 
-  it("appends -2 when the base slug is taken", async () => {
-    const { db } = makeFakeDb(() => [{ slug: "my-title" }]);
-    const slug = await uniqueSlugInWorkspace(db, workspaceId, "my-title");
-    assert.equal(slug, "my-title-2");
+  it("retries with -2 after a unique-violation on the base slug", async () => {
+    const { db, attemptedSlugs } = makeFakeDb(["my-title"]);
+    const page = await insertPageWithUniqueSlug(db, {
+      workspaceId,
+      title: "My Title",
+      baseSlug: "my-title",
+    });
+    assert.equal(page.slug, "my-title-2");
+    assert.deepEqual(attemptedSlugs, ["my-title", "my-title-2"]);
   });
 
-  it("keeps incrementing past -2 when suffixes are taken", async () => {
-    const { db } = makeFakeDb(() => [
-      { slug: "my-title" },
-      { slug: "my-title-2" },
-      { slug: "my-title-3" },
+  it("keeps retrying past -2 as long as suffixes collide", async () => {
+    const { db, attemptedSlugs } = makeFakeDb([
+      "my-title",
+      "my-title-2",
+      "my-title-3",
     ]);
-    const slug = await uniqueSlugInWorkspace(db, workspaceId, "my-title");
-    assert.equal(slug, "my-title-4");
-  });
-
-  it("skips over gaps — -3 is valid when -2 is free", async () => {
-    // Not strictly expected (we allocate sequentially) but the helper should
-    // still find the lowest available suffix.
-    const { db } = makeFakeDb(() => [
-      { slug: "my-title" },
-      { slug: "my-title-3" },
+    const page = await insertPageWithUniqueSlug(db, {
+      workspaceId,
+      title: "My Title",
+      baseSlug: "my-title",
+    });
+    assert.equal(page.slug, "my-title-4");
+    assert.deepEqual(attemptedSlugs, [
+      "my-title",
+      "my-title-2",
+      "my-title-3",
+      "my-title-4",
     ]);
-    const slug = await uniqueSlugInWorkspace(db, workspaceId, "my-title");
-    assert.equal(slug, "my-title-2");
   });
 
-  it("does not match slugs with different prefixes", async () => {
-    // The `like` filter is baseSlug% — in real Postgres `my-title-extra`
-    // would be returned too, but the helper only rejects exact-set members.
-    const { db } = makeFakeDb(() => [{ slug: "my-title-extra" }]);
-    const slug = await uniqueSlugInWorkspace(db, workspaceId, "my-title");
-    assert.equal(slug, "my-title");
-  });
-
-  // This is the route-classifier scenario: two ingestions with the same
-  // titleHint both hit confidence >= 0.85, both try to auto-create. The
-  // second call must observe the first page's slug and produce a distinct
-  // one, instead of blowing up on pages_workspace_slug_uk.
-  it("gives distinct slugs to two back-to-back auto-creates with the same title", async () => {
-    const inserted: string[] = [];
+  it("rethrows errors that are not slug-constraint violations", async () => {
     const fake = {
-      select: () => ({
-        from: () => ({
-          where: async () => inserted.map((slug) => ({ slug })),
+      insert: () => ({
+        values: () => ({
+          returning: async () => {
+            const err = new Error("connection reset") as Error & { code: string };
+            err.code = "ECONNRESET";
+            throw err;
+          },
         }),
       }),
     };
-    const db = fake as unknown as Database;
+    await assert.rejects(
+      () =>
+        insertPageWithUniqueSlug(fake as unknown as Database, {
+          workspaceId,
+          title: "My Title",
+          baseSlug: "my-title",
+        }),
+      /connection reset/,
+    );
+  });
 
-    const base = "project-alpha";
-    const first = await uniqueSlugInWorkspace(db, workspaceId, base);
-    inserted.push(first);
-    const second = await uniqueSlugInWorkspace(db, workspaceId, base);
-    inserted.push(second);
+  // This is the route-classifier scenario: two ingestions with the same
+  // titleHint both hit confidence >= 0.85, both try to auto-create. Each
+  // call must resolve to a distinct slug — the second one seeing the first
+  // page's slug in the constraint and falling through to `-2`.
+  it("gives distinct slugs to two back-to-back auto-creates with the same title", async () => {
+    const { db } = makeFakeDb([]);
+    const first = await insertPageWithUniqueSlug(db, {
+      workspaceId,
+      title: "Project Alpha",
+      baseSlug: "project-alpha",
+    });
+    const second = await insertPageWithUniqueSlug(db, {
+      workspaceId,
+      title: "Project Alpha",
+      baseSlug: "project-alpha",
+    });
+    assert.equal(first.slug, "project-alpha");
+    assert.equal(second.slug, "project-alpha-2");
+    assert.notEqual(first.slug, second.slug);
+  });
 
-    assert.equal(first, "project-alpha");
-    assert.equal(second, "project-alpha-2");
-    assert.notEqual(first, second);
+  it("gives up after SLUG_ALLOC_MAX_ATTEMPTS (20) collisions", async () => {
+    const taken = new Set<string>(["pathological"]);
+    for (let i = 2; i <= 20; i++) taken.add(`pathological-${i}`);
+    const { db } = makeFakeDb(taken);
+    await assert.rejects(
+      () =>
+        insertPageWithUniqueSlug(db, {
+          workspaceId,
+          title: "Pathological",
+          baseSlug: "pathological",
+        }),
+      /Could not allocate unique slug/,
+    );
   });
 });
