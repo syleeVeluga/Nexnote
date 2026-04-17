@@ -61,6 +61,16 @@
   color: #1a1a1a;
 }
 
+.toolbar-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.toolbar-btn:disabled:hover {
+  background: transparent;
+  color: #6b7280;
+}
+
 /* ── Editor Content ── */
 .tiptap-content {
   flex: 1;

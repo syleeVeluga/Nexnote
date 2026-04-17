@@ -105,6 +105,64 @@ export function EditorToolbar({ editor }: ToolbarProps) {
           onClick={() => editor.chain().focus().setHorizontalRule().run()}
         />
       </div>
+
+      <div className="toolbar-divider" />
+
+      <div className="toolbar-group">
+        <ToolbarBtn
+          label="Link"
+          title={t("link")}
+          active={editor.isActive("link")}
+          onClick={() => {
+            const prev = editor.getAttributes("link").href ?? "";
+            const url = window.prompt(t("linkPrompt"), prev);
+            if (url === null) return;
+            if (url === "") {
+              editor.chain().focus().extendMarkRange("link").unsetLink().run();
+            } else {
+              editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+            }
+          }}
+        />
+        <ToolbarBtn
+          label="Img"
+          title={t("image")}
+          active={false}
+          onClick={() => {
+            const url = window.prompt(t("imagePrompt"), "");
+            if (url) {
+              editor.chain().focus().setImage({ src: url }).run();
+            }
+          }}
+        />
+        <ToolbarBtn
+          label="Tbl"
+          title={t("table")}
+          active={editor.isActive("table")}
+          onClick={() =>
+            editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+          }
+        />
+      </div>
+
+      <div className="toolbar-divider" />
+
+      <div className="toolbar-group">
+        <ToolbarBtn
+          label={"\u21B6"}
+          title={t("undo")}
+          active={false}
+          disabled={!editor.can().undo()}
+          onClick={() => editor.chain().focus().undo().run()}
+        />
+        <ToolbarBtn
+          label={"\u21B7"}
+          title={t("redo")}
+          active={false}
+          disabled={!editor.can().redo()}
+          onClick={() => editor.chain().focus().redo().run()}
+        />
+      </div>
     </div>
   );
 }
@@ -113,11 +171,13 @@ function ToolbarBtn({
   label,
   title,
   active,
+  disabled = false,
   onClick,
 }: {
   label: string;
   title: string;
   active: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -125,6 +185,7 @@ function ToolbarBtn({
       type="button"
       className={`toolbar-btn${active ? " active" : ""}`}
       title={title}
+      disabled={disabled}
       onClick={onClick}
     >
       {label}
