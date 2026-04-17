@@ -6,6 +6,7 @@ import { RegisterPage } from "./pages/RegisterPage.js";
 import { PageListPage } from "./pages/PageListPage.js";
 import { PageEditorPage } from "./pages/PageEditorPage.js";
 import { NewPagePage } from "./pages/NewPagePage.js";
+import { ReviewQueuePage } from "./pages/ReviewQueuePage.js";
 import { PublicDocPage } from "./pages/PublicDocPage.js";
 import { PublicDocListPage } from "./pages/PublicDocListPage.js";
 
@@ -73,6 +74,7 @@ export function App() {
         <Route index element={<PageListPage />} />
         <Route path="pages/new" element={<NewPagePage />} />
         <Route path="pages/:pageId" element={<PageEditorPage />} />
+        <Route path="review" element={<ReviewQueuePage />} />
       </Route>
     </Routes>
   );

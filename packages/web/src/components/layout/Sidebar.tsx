@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   pages as pagesApi,
   workspaces as wsApi,
+  decisions as decisionsApi,
   type Page,
   type Workspace,
 } from "../../lib/api-client.js";
@@ -100,6 +101,7 @@ export function Sidebar({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +111,19 @@ export function Sidebar({
       .catch(() => {});
     return () => { cancelled = true; };
   }, [workspace.id, location.pathname, location.search]);
+
+  useEffect(() => {
+    let cancelled = false;
+    decisionsApi
+      .counts(workspace.id)
+      .then((res) => {
+        if (cancelled) return;
+        const next = res.counts.pending ?? 0;
+        setPendingCount((prev) => (prev === next ? prev : next));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [workspace.id, location.pathname]);
 
   const pagesByParent = useMemo(() => {
     const map = new Map<string | null, Page[]>();
@@ -274,6 +289,20 @@ export function Sidebar({
             </button>
           </div>
         )}
+      </div>
+
+      <div className="sidebar-nav-top">
+        <NavLink
+          to="/review"
+          className={({ isActive }) =>
+            `sidebar-nav-link${isActive ? " active" : ""}`
+          }
+        >
+          <span className="sidebar-nav-label">{t("review")}</span>
+          {pendingCount > 0 && (
+            <span className="sidebar-nav-badge">{pendingCount}</span>
+          )}
+        </NavLink>
       </div>
 
       <div className="sidebar-content">

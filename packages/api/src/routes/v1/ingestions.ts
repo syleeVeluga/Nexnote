@@ -5,24 +5,13 @@ import {
   createIngestionSchema,
   uuidSchema,
   paginationSchema,
-  extractIngestionText,
-  computeDiff,
-  slugify,
   INGESTION_STATUSES,
   JOB_NAMES,
   DEFAULT_JOB_OPTIONS,
   ERROR_CODES,
 } from "@nexnote/shared";
-import type { RouteClassifierJobData, TripleExtractorJobData } from "@nexnote/shared";
-import {
-  ingestions,
-  ingestionDecisions,
-  apiTokens,
-  pages,
-  pageRevisions,
-  revisionDiffs,
-  auditLogs,
-} from "@nexnote/db";
+import type { RouteClassifierJobData } from "@nexnote/shared";
+import { ingestions, ingestionDecisions, apiTokens, auditLogs } from "@nexnote/db";
 import type { IngestionDecision } from "@nexnote/db";
 import {
   getMemberRole,
@@ -35,6 +24,7 @@ import {
   sendValidationError,
   isUniqueViolation,
 } from "../../lib/reply-helpers.js";
+import { approveDecision, rejectDecision } from "../../lib/apply-decision.js";
 
 const ingestionParamsSchema = z.object({
   workspaceId: uuidSchema,
@@ -322,43 +312,31 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
       if (!role) return forbidden(reply);
       if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
 
-      // Fetch ingestion + decision in parallel
-      const [[ingestion], [decision]] = await Promise.all([
-        fastify.db
-          .select({
-            id: ingestions.id,
-            sourceName: ingestions.sourceName,
-            titleHint: ingestions.titleHint,
-            normalizedText: ingestions.normalizedText,
-            rawPayload: ingestions.rawPayload,
-          })
-          .from(ingestions)
-          .where(
-            and(
-              eq(ingestions.id, ingestionId),
-              eq(ingestions.workspaceId, workspaceId),
-            ),
-          )
-          .limit(1),
-        fastify.db
-          .select()
-          .from(ingestionDecisions)
-          .where(
-            and(
-              eq(ingestionDecisions.id, decisionId),
-              eq(ingestionDecisions.ingestionId, ingestionId),
-            ),
-          )
-          .limit(1),
-      ]);
+      const [decision] = await fastify.db
+        .select({
+          id: ingestionDecisions.id,
+          ingestionId: ingestionDecisions.ingestionId,
+          targetPageId: ingestionDecisions.targetPageId,
+          proposedRevisionId: ingestionDecisions.proposedRevisionId,
+          modelRunId: ingestionDecisions.modelRunId,
+          action: ingestionDecisions.action,
+          status: ingestionDecisions.status,
+          proposedPageTitle: ingestionDecisions.proposedPageTitle,
+          confidence: ingestionDecisions.confidence,
+          rationaleJson: ingestionDecisions.rationaleJson,
+          createdAt: ingestionDecisions.createdAt,
+        })
+        .from(ingestionDecisions)
+        .innerJoin(ingestions, eq(ingestions.id, ingestionDecisions.ingestionId))
+        .where(
+          and(
+            eq(ingestionDecisions.id, decisionId),
+            eq(ingestionDecisions.ingestionId, ingestionId),
+            eq(ingestions.workspaceId, workspaceId),
+          ),
+        )
+        .limit(1);
 
-      if (!ingestion) {
-        return reply.code(404).send({
-          error: "Not found",
-          code: ERROR_CODES.NOT_FOUND,
-          details: "Ingestion not found",
-        });
-      }
       if (!decision) {
         return reply.code(404).send({
           error: "Not found",
@@ -367,254 +345,27 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      const ctx = {
+        db: fastify.db,
+        extractionQueue: fastify.queues.extraction,
+        workspaceId,
+        decision,
+        userId,
+      };
+
       if (!approved) {
-        await Promise.all([
-          fastify.db
-            .update(ingestionDecisions)
-            .set({ status: "rejected" })
-            .where(eq(ingestionDecisions.id, decisionId)),
-          fastify.db
-            .update(ingestions)
-            .set({ status: "completed", processedAt: new Date() })
-            .where(eq(ingestions.id, ingestionId)),
-          fastify.db.insert(auditLogs).values({
-            workspaceId,
-            userId,
-            entityType: "ingestion",
-            entityId: ingestionId,
-            action: "reject",
-            beforeJson: { decisionId, decisionAction: decision.action },
-          }),
-        ]);
-
-        return reply.send({ status: "rejected", ingestionId });
+        return reply.send(await rejectDecision(ctx));
       }
 
-      if (decision.action === "create") {
-        const title =
-          decision.proposedPageTitle ??
-          ingestion.titleHint ??
-          "Untitled (ingested)";
-        const slug = slugify(title);
-        const contentMd = extractIngestionText(ingestion);
-
-        const [page] = await fastify.db
-          .insert(pages)
-          .values({ workspaceId, title, slug, status: "draft" })
-          .returning();
-
-        const [revision] = await fastify.db
-          .insert(pageRevisions)
-          .values({
-            pageId: page.id,
-            actorType: "system",
-            source: "ingest_api",
-            sourceIngestionId: ingestionId,
-            sourceDecisionId: decisionId,
-            contentMd,
-            revisionNote: `Auto-created from ingestion ${ingestion.sourceName}`,
-          })
-          .returning();
-
-        await Promise.all([
-          fastify.db
-            .update(pages)
-            .set({ currentRevisionId: revision.id })
-            .where(eq(pages.id, page.id)),
-          fastify.db
-            .update(ingestionDecisions)
-            .set({
-              targetPageId: page.id,
-              proposedRevisionId: revision.id,
-              status: "approved",
-            })
-            .where(eq(ingestionDecisions.id, decisionId)),
-          fastify.db
-            .update(ingestions)
-            .set({ status: "completed", processedAt: new Date() })
-            .where(eq(ingestions.id, ingestionId)),
-          fastify.db.insert(auditLogs).values({
-            workspaceId,
-            userId,
-            entityType: "page",
-            entityId: page.id,
-            action: "create",
-            afterJson: { source: "ingestion_apply", ingestionId, decisionId },
-          }),
-        ]);
-
-        // Enqueue triple extraction for the new page
-        const createTripleData: TripleExtractorJobData = {
-          pageId: page.id,
-          revisionId: revision.id,
-          workspaceId,
-        };
-        await fastify.queues.extraction.add(
-          JOB_NAMES.TRIPLE_EXTRACTOR,
-          createTripleData,
-          DEFAULT_JOB_OPTIONS,
-        );
-
-        return reply.send({
-          status: "applied",
-          action: "create",
-          ingestionId,
-          pageId: page.id,
-          revisionId: revision.id,
+      const result = await approveDecision(ctx);
+      if ("code" in result) {
+        return reply.code(result.statusCode).send({
+          error: "Apply failed",
+          code: result.code,
+          details: result.details,
         });
       }
-
-      if (decision.action === "update" || decision.action === "append") {
-        if (!decision.targetPageId) {
-          return reply.code(400).send({
-            error: "Missing target",
-            code: ERROR_CODES.MISSING_TARGET_PAGE,
-            details: "Decision requires a targetPageId for update/append",
-          });
-        }
-
-        let revisionId: string;
-
-        if (decision.proposedRevisionId) {
-          revisionId = decision.proposedRevisionId;
-          await Promise.all([
-            fastify.db
-              .update(pages)
-              .set({
-                currentRevisionId: decision.proposedRevisionId,
-                updatedAt: new Date(),
-              })
-              .where(eq(pages.id, decision.targetPageId)),
-            fastify.db
-              .update(ingestionDecisions)
-              .set({ status: "approved" })
-              .where(eq(ingestionDecisions.id, decisionId)),
-          ]);
-        } else {
-          const [currentPage] = await fastify.db
-            .select({ currentRevisionId: pages.currentRevisionId })
-            .from(pages)
-            .where(eq(pages.id, decision.targetPageId))
-            .limit(1);
-
-          let existingContent = "";
-          if (currentPage?.currentRevisionId) {
-            const [rev] = await fastify.db
-              .select({ contentMd: pageRevisions.contentMd })
-              .from(pageRevisions)
-              .where(eq(pageRevisions.id, currentPage.currentRevisionId))
-              .limit(1);
-            if (rev) existingContent = rev.contentMd;
-          }
-
-          const incomingText = extractIngestionText(ingestion);
-
-          const newContent =
-            decision.action === "append"
-              ? `${existingContent}\n\n${incomingText}`
-              : incomingText;
-
-          const [revision] = await fastify.db
-            .insert(pageRevisions)
-            .values({
-              pageId: decision.targetPageId,
-              baseRevisionId: currentPage?.currentRevisionId ?? null,
-              actorType: "system",
-              source: "ingest_api",
-              sourceIngestionId: ingestionId,
-              sourceDecisionId: decisionId,
-              contentMd: newContent,
-              revisionNote: `Applied ${decision.action} from ingestion ${ingestion.sourceName}`,
-            })
-            .returning();
-
-          revisionId = revision.id;
-
-          // Compute and store revision diff
-          const diff = computeDiff(existingContent, newContent, null, null);
-          await fastify.db.insert(revisionDiffs).values({
-            revisionId: revision.id,
-            diffMd: diff.diffMd,
-            diffOpsJson: diff.diffOpsJson,
-            changedBlocks: diff.changedBlocks,
-          });
-
-          await Promise.all([
-            fastify.db
-              .update(pages)
-              .set({ currentRevisionId: revision.id, updatedAt: new Date() })
-              .where(eq(pages.id, decision.targetPageId)),
-            fastify.db
-              .update(ingestionDecisions)
-              .set({ proposedRevisionId: revision.id, status: "approved" })
-              .where(eq(ingestionDecisions.id, decisionId)),
-          ]);
-        }
-
-        // Enqueue triple extraction for the new/applied revision
-        const tripleData: TripleExtractorJobData = {
-          pageId: decision.targetPageId,
-          revisionId,
-          workspaceId,
-        };
-        await fastify.queues.extraction.add(
-          JOB_NAMES.TRIPLE_EXTRACTOR,
-          tripleData,
-          DEFAULT_JOB_OPTIONS,
-        );
-
-        await Promise.all([
-          fastify.db
-            .update(ingestions)
-            .set({ status: "completed", processedAt: new Date() })
-            .where(eq(ingestions.id, ingestionId)),
-          fastify.db.insert(auditLogs).values({
-            workspaceId,
-            userId,
-            entityType: "page",
-            entityId: decision.targetPageId,
-            action: decision.action,
-            afterJson: { source: "ingestion_apply", ingestionId, decisionId, revisionId },
-          }),
-        ]);
-
-        return reply.send({
-          status: "applied",
-          action: decision.action,
-          ingestionId,
-          pageId: decision.targetPageId,
-          revisionId,
-        });
-      }
-
-      // noop or needs_review acknowledged by the human — close out the decision
-      // with a status matching the AI's action so the review queue stops showing it.
-      const acknowledgedStatus =
-        decision.action === "noop" ? "noop" : "rejected";
-      await Promise.all([
-        fastify.db
-          .update(ingestionDecisions)
-          .set({ status: acknowledgedStatus })
-          .where(eq(ingestionDecisions.id, decisionId)),
-        fastify.db
-          .update(ingestions)
-          .set({ status: "completed", processedAt: new Date() })
-          .where(eq(ingestions.id, ingestionId)),
-        fastify.db.insert(auditLogs).values({
-          workspaceId,
-          userId,
-          entityType: "ingestion",
-          entityId: ingestionId,
-          action: "acknowledge",
-          beforeJson: { decisionId, decisionAction: decision.action },
-        }),
-      ]);
-
-      return reply.send({
-        status: "acknowledged",
-        action: decision.action,
-        ingestionId,
-      });
+      return reply.send(result);
     },
   );
 };

@@ -10,6 +10,9 @@ import type {
   GraphNode,
   GraphEdge,
   GraphData,
+  IngestionAction,
+  IngestionStatus,
+  DecisionStatus,
 } from "@nexnote/shared";
 
 const BASE_URL = "/api/v1";
@@ -262,8 +265,13 @@ export interface CompareResultDto {
   changedBlocks: number;
 }
 
-// Re-export shared graph types for consumers importing from api-client
+// Re-export shared types for consumers importing from api-client
 export type { GraphNode, GraphEdge, GraphData } from "@nexnote/shared";
+export type {
+  IngestionAction,
+  IngestionStatus,
+  DecisionStatus,
+} from "@nexnote/shared";
 
 export const pages = {
   list(workspaceId: string, params?: { parentPageId?: string; status?: string; limit?: number; offset?: number }) {
@@ -427,6 +435,198 @@ export const pages = {
         else if (event === "error") onError((payload.message as string) ?? "Unknown error");
       }
     }
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Ingestions & Decisions (supervision loop — stages ③/④)
+// ---------------------------------------------------------------------------
+
+export interface IngestionSummary {
+  id: string;
+  workspaceId: string;
+  apiTokenId: string;
+  sourceName: string;
+  externalRef: string | null;
+  idempotencyKey: string;
+  contentType: string;
+  titleHint: string | null;
+  status: IngestionStatus;
+  receivedAt: string;
+  processedAt: string | null;
+}
+
+export interface IngestionDetail extends IngestionSummary {
+  rawPayload: Record<string, unknown>;
+  normalizedText: string | null;
+  decisions: DecisionSummary[];
+}
+
+interface DecisionBase {
+  id: string;
+  ingestionId: string;
+  targetPageId: string | null;
+  proposedRevisionId: string | null;
+  modelRunId: string;
+  action: IngestionAction;
+  status: DecisionStatus;
+  proposedPageTitle: string | null;
+  confidence: number;
+  createdAt: string;
+}
+
+export interface DecisionSummary extends DecisionBase {
+  rationale: { reason?: string } | null;
+}
+
+export interface DecisionListItem extends DecisionBase {
+  reason: string | null;
+  ingestion: {
+    sourceName: string;
+    titleHint: string | null;
+    receivedAt: string;
+  };
+  targetPage: {
+    id: string;
+    title: string;
+    slug: string | null;
+  } | null;
+}
+
+export interface DecisionDetail extends Omit<DecisionListItem, "ingestion"> {
+  ingestion: {
+    id: string;
+    sourceName: string;
+    titleHint: string | null;
+    receivedAt: string;
+    normalizedText: string | null;
+    rawPayload: Record<string, unknown>;
+    contentType: string;
+    externalRef: string | null;
+  };
+  proposedRevision: {
+    id: string;
+    contentMd: string;
+    diffMd: string | null;
+    changedBlocks: number | null;
+  } | null;
+}
+
+export interface DecisionCounts {
+  auto_applied: number;
+  suggested: number;
+  needs_review: number;
+  approved: number;
+  rejected: number;
+  noop: number;
+  failed: number;
+  pending: number;
+}
+
+export const ingestions = {
+  list(
+    workspaceId: string,
+    params?: { status?: IngestionStatus; limit?: number; offset?: number },
+  ) {
+    const q = buildQuery({
+      status: params?.status,
+      limit: params?.limit,
+      offset: params?.offset,
+    });
+    return request<{ items: IngestionSummary[]; total: number; limit: number; offset: number }>(
+      `/workspaces/${workspaceId}/ingestions${q}`,
+    );
+  },
+  get(workspaceId: string, ingestionId: string) {
+    return request<IngestionDetail>(
+      `/workspaces/${workspaceId}/ingestions/${ingestionId}`,
+    );
+  },
+};
+
+export const decisions = {
+  list(
+    workspaceId: string,
+    params?: {
+      status?: DecisionStatus | DecisionStatus[];
+      sinceDays?: number;
+      limit?: number;
+      offset?: number;
+    },
+  ) {
+    const statusParam = Array.isArray(params?.status)
+      ? params?.status.join(",")
+      : params?.status;
+    const q = buildQuery({
+      status: statusParam,
+      sinceDays: params?.sinceDays,
+      limit: params?.limit,
+      offset: params?.offset,
+    });
+    return request<{
+      data: DecisionListItem[];
+      total: number;
+      limit: number;
+      offset: number;
+    }>(`/workspaces/${workspaceId}/decisions${q}`);
+  },
+  counts(workspaceId: string) {
+    return request<{ counts: DecisionCounts }>(
+      `/workspaces/${workspaceId}/decisions/counts`,
+    );
+  },
+  get(workspaceId: string, decisionId: string) {
+    return request<DecisionDetail>(
+      `/workspaces/${workspaceId}/decisions/${decisionId}`,
+    );
+  },
+  approve(workspaceId: string, decisionId: string) {
+    return request<
+      | {
+          status: "applied";
+          action: "create" | "update" | "append";
+          ingestionId: string;
+          pageId: string;
+          revisionId: string;
+        }
+      | {
+          status: "acknowledged";
+          action: "noop" | "needs_review";
+          ingestionId: string;
+        }
+    >(`/workspaces/${workspaceId}/decisions/${decisionId}/approve`, {
+      method: "POST",
+    });
+  },
+  reject(workspaceId: string, decisionId: string, reason?: string) {
+    return request<{ status: "rejected"; ingestionId: string }>(
+      `/workspaces/${workspaceId}/decisions/${decisionId}/reject`,
+      {
+        method: "POST",
+        body: JSON.stringify(reason ? { reason } : {}),
+      },
+    );
+  },
+  edit(
+    workspaceId: string,
+    decisionId: string,
+    data: {
+      action?: IngestionAction;
+      targetPageId?: string | null;
+      proposedPageTitle?: string | null;
+    },
+  ) {
+    return request<{
+      id: string;
+      action: IngestionAction;
+      targetPageId: string | null;
+      proposedPageTitle: string | null;
+      proposedRevisionId: string | null;
+      status: DecisionStatus;
+    }>(`/workspaces/${workspaceId}/decisions/${decisionId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
   },
 };
 
