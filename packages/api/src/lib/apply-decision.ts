@@ -6,6 +6,7 @@ import {
   pageRevisions,
   revisionDiffs,
   auditLogs,
+  uniqueSlugInWorkspace,
 } from "@nexnote/db";
 import type { Database, IngestionDecision } from "@nexnote/db";
 import type { Queue } from "bullmq";
@@ -83,7 +84,7 @@ export async function approveDecision(
       decision.proposedPageTitle ??
       ingestion.titleHint ??
       "Untitled (ingested)";
-    const slug = slugify(title);
+    const slug = await uniqueSlugInWorkspace(db, workspaceId, slugify(title));
     const contentMd = extractIngestionText(ingestion);
 
     const [page] = await db
