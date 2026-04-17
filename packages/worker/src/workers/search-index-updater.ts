@@ -14,13 +14,9 @@ import type {
 /**
  * search-index-updater worker
  *
- * Materialises a PostgreSQL `tsvector` search column on `pages` so that
- * the search endpoint can do fast `@@` queries instead of computing
- * `to_tsvector` on every request.
- *
- * The column `pages.search_vector` (tsvector) is created by a migration.
- * If the column does not exist yet the worker skips gracefully so the
- * system remains functional while the migration is pending.
+ * Materialises a PostgreSQL tsvector search column on pages so that search
+ * endpoints can do fast `@@` queries. Column + GIN index are created by
+ * migration 0003_supervision_loop_foundations.
  */
 export function createSearchIndexUpdaterWorker(): Worker {
   const db = getDb();
@@ -47,28 +43,17 @@ export function createSearchIndexUpdaterWorker(): Worker {
       }
 
       // Build the tsvector from title + content_md and update the search_vector column.
-      // The column is optional (may not exist in older migrations) — catch gracefully.
-      try {
-        await db.execute(sql`
-          UPDATE pages
-          SET search_vector = to_tsvector(
-            'simple',
-            coalesce(${row.title}, '') || ' ' || coalesce(${row.contentMd}, '')
-          )
-          WHERE id = ${pageId}
-            AND workspace_id = ${workspaceId}
-        `);
-        log.info({ pageId }, "Search vector updated");
-        return { pageId, indexed: true };
-      } catch (err) {
-        // If the column doesn't exist yet (migration not run) log a warning and continue
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("search_vector") || msg.includes("column")) {
-          log.warn({ pageId }, "search_vector column missing — skipping update");
-          return { pageId, indexed: false };
-        }
-        throw err;
-      }
+      await db.execute(sql`
+        UPDATE pages
+        SET search_vector = to_tsvector(
+          'simple',
+          coalesce(${row.title}, '') || ' ' || coalesce(${row.contentMd}, '')
+        )
+        WHERE id = ${pageId}
+          AND workspace_id = ${workspaceId}
+      `);
+      log.info({ pageId }, "Search vector updated");
+      return { pageId, indexed: true };
     },
     {
       connection: createRedisConnection(),

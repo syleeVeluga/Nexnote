@@ -23,6 +23,7 @@ import {
   revisionDiffs,
   auditLogs,
 } from "@nexnote/db";
+import type { IngestionDecision } from "@nexnote/db";
 import {
   getMemberRole,
   forbidden,
@@ -77,18 +78,7 @@ function mapIngestionDto(row: {
   };
 }
 
-function mapDecisionDto(row: {
-  id: string;
-  ingestionId: string;
-  targetPageId: string | null;
-  proposedRevisionId: string | null;
-  modelRunId: string;
-  action: string;
-  proposedPageTitle: string | null;
-  confidence: number;
-  rationaleJson: unknown;
-  createdAt: Date;
-}) {
+function mapDecisionDto(row: IngestionDecision) {
   return {
     id: row.id,
     ingestionId: row.ingestionId,
@@ -96,6 +86,7 @@ function mapDecisionDto(row: {
     proposedRevisionId: row.proposedRevisionId,
     modelRunId: row.modelRunId,
     action: row.action,
+    status: row.status,
     proposedPageTitle: row.proposedPageTitle,
     confidence: row.confidence,
     rationale: row.rationaleJson,
@@ -379,6 +370,10 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
       if (!approved) {
         await Promise.all([
           fastify.db
+            .update(ingestionDecisions)
+            .set({ status: "rejected" })
+            .where(eq(ingestionDecisions.id, decisionId)),
+          fastify.db
             .update(ingestions)
             .set({ status: "completed", processedAt: new Date() })
             .where(eq(ingestions.id, ingestionId)),
@@ -414,6 +409,8 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
             pageId: page.id,
             actorType: "system",
             source: "ingest_api",
+            sourceIngestionId: ingestionId,
+            sourceDecisionId: decisionId,
             contentMd,
             revisionNote: `Auto-created from ingestion ${ingestion.sourceName}`,
           })
@@ -426,7 +423,11 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
             .where(eq(pages.id, page.id)),
           fastify.db
             .update(ingestionDecisions)
-            .set({ targetPageId: page.id, proposedRevisionId: revision.id })
+            .set({
+              targetPageId: page.id,
+              proposedRevisionId: revision.id,
+              status: "approved",
+            })
             .where(eq(ingestionDecisions.id, decisionId)),
           fastify.db
             .update(ingestions)
@@ -476,13 +477,19 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
 
         if (decision.proposedRevisionId) {
           revisionId = decision.proposedRevisionId;
-          await fastify.db
-            .update(pages)
-            .set({
-              currentRevisionId: decision.proposedRevisionId,
-              updatedAt: new Date(),
-            })
-            .where(eq(pages.id, decision.targetPageId));
+          await Promise.all([
+            fastify.db
+              .update(pages)
+              .set({
+                currentRevisionId: decision.proposedRevisionId,
+                updatedAt: new Date(),
+              })
+              .where(eq(pages.id, decision.targetPageId)),
+            fastify.db
+              .update(ingestionDecisions)
+              .set({ status: "approved" })
+              .where(eq(ingestionDecisions.id, decisionId)),
+          ]);
         } else {
           const [currentPage] = await fastify.db
             .select({ currentRevisionId: pages.currentRevisionId })
@@ -514,6 +521,8 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
               baseRevisionId: currentPage?.currentRevisionId ?? null,
               actorType: "system",
               source: "ingest_api",
+              sourceIngestionId: ingestionId,
+              sourceDecisionId: decisionId,
               contentMd: newContent,
               revisionNote: `Applied ${decision.action} from ingestion ${ingestion.sourceName}`,
             })
@@ -537,7 +546,7 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
               .where(eq(pages.id, decision.targetPageId)),
             fastify.db
               .update(ingestionDecisions)
-              .set({ proposedRevisionId: revision.id })
+              .set({ proposedRevisionId: revision.id, status: "approved" })
               .where(eq(ingestionDecisions.id, decisionId)),
           ]);
         }
@@ -578,8 +587,15 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      // noop or needs_review — mark completed with audit trail
+      // noop or needs_review acknowledged by the human — close out the decision
+      // with a status matching the AI's action so the review queue stops showing it.
+      const acknowledgedStatus =
+        decision.action === "noop" ? "noop" : "rejected";
       await Promise.all([
+        fastify.db
+          .update(ingestionDecisions)
+          .set({ status: acknowledgedStatus })
+          .where(eq(ingestionDecisions.id, decisionId)),
         fastify.db
           .update(ingestions)
           .set({ status: "completed", processedAt: new Date() })

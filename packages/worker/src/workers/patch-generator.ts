@@ -150,7 +150,6 @@ Produce the merged Markdown:`,
 
       await job.updateProgress(60);
 
-      // Create new revision
       const [revision] = await db
         .insert(pageRevisions)
         .values({
@@ -159,6 +158,8 @@ Produce the merged Markdown:`,
           modelRunId,
           actorType: "ai",
           source: "ingest_api",
+          sourceIngestionId: ingestionId,
+          sourceDecisionId: decisionId,
           contentMd: newContent,
           revisionNote: `Auto-${action} from ingestion ${ingestion.sourceName}`,
         })
@@ -180,7 +181,7 @@ Produce the merged Markdown:`,
           .where(eq(pages.id, targetPageId)),
         db
           .update(ingestionDecisions)
-          .set({ proposedRevisionId: revision.id })
+          .set({ proposedRevisionId: revision.id, status: "auto_applied" })
           .where(eq(ingestionDecisions.id, decisionId)),
         db
           .update(ingestions)
@@ -234,13 +235,30 @@ Produce the merged Markdown:`,
   worker.on("failed", (job, err) => {
     const log = createJobLogger("patch-generator", job?.id);
     log.error({ err, ingestionId: job?.data?.ingestionId }, "Job failed");
+    const updates: Promise<unknown>[] = [];
     if (job?.data?.ingestionId) {
-      db.update(ingestions)
-        .set({ status: "failed", processedAt: new Date() })
-        .where(eq(ingestions.id, job.data.ingestionId))
-        .catch((e) =>
-          log.error({ err: e, ingestionId: job.data.ingestionId }, "Failed to update ingestion status"),
-        );
+      updates.push(
+        db
+          .update(ingestions)
+          .set({ status: "failed", processedAt: new Date() })
+          .where(eq(ingestions.id, job.data.ingestionId)),
+      );
+    }
+    if (job?.data?.decisionId) {
+      updates.push(
+        db
+          .update(ingestionDecisions)
+          .set({ status: "failed" })
+          .where(eq(ingestionDecisions.id, job.data.decisionId)),
+      );
+    }
+    if (updates.length > 0) {
+      Promise.all(updates).catch((e) =>
+        log.error(
+          { err: e, ingestionId: job?.data?.ingestionId, decisionId: job?.data?.decisionId },
+          "Failed to persist failure state",
+        ),
+      );
     }
   });
 

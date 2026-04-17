@@ -29,6 +29,20 @@ export const INGESTION_ACTIONS = [
 ] as const;
 export type IngestionAction = (typeof INGESTION_ACTIONS)[number];
 
+// Decision status — the three-band routing outcome plus human-review transitions.
+// Set by the route-classifier at decision-creation time and mutated by the
+// approve/reject APIs. See CONFIDENCE below for the thresholds.
+export const DECISION_STATUSES = [
+  "auto_applied",  // confidence >= AUTO_APPLY, already applied
+  "suggested",     // SUGGESTION_MIN <= confidence < AUTO_APPLY, awaiting human
+  "needs_review",  // confidence < SUGGESTION_MIN, low-trust
+  "approved",      // human approved a suggested decision
+  "rejected",      // human rejected the decision
+  "noop",          // AI decided no action was needed
+  "failed",        // patch-generator failed to produce a revision
+] as const;
+export type DecisionStatus = (typeof DECISION_STATUSES)[number];
+
 export const WORKSPACE_ROLES = ["owner", "admin", "editor", "viewer"] as const;
 export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
 

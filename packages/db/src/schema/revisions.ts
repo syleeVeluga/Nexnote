@@ -29,6 +29,9 @@ export const pageRevisions = pgTable(
     modelRunId: uuid("model_run_id"),
     actorType: text("actor_type").notNull(),
     source: text("source").notNull(),
+    // FK references deferred to migration SQL to avoid circular imports with ingestions.ts
+    sourceIngestionId: uuid("source_ingestion_id"),
+    sourceDecisionId: uuid("source_decision_id"),
     contentMd: text("content_md").notNull(),
     contentJson: jsonb("content_json"),
     revisionNote: text("revision_note"),
@@ -38,6 +41,7 @@ export const pageRevisions = pgTable(
   },
   (t) => [
     index("page_revisions_page_created_idx").on(t.pageId, t.createdAt),
+    index("page_revisions_source_ingestion_idx").on(t.sourceIngestionId),
   ],
 );
 

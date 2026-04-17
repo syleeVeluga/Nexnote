@@ -4,14 +4,47 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-NexNote is an AI-assisted Markdown knowledge wiki platform where external AI agents and humans collaboratively create, edit, connect, and publish documents. The canonical format is **Markdown + frontmatter**; the editor also stores a block-editor JSON snapshot alongside it.
+NexNote is an AI-assisted Markdown knowledge wiki. Its single north-star goal: **external signals (AI agents, scrapers, webhooks, humans) flow in continuously, and the wiki stays automatically up-to-date under human supervision.** AI does the drudgery of classifying, merging, deduplicating, and extracting structure; humans act as reviewers, correctors, and final approvers.
 
-Key design invariants:
+The canonical format is **Markdown + frontmatter**; the editor also stores a block-editor JSON snapshot alongside it.
+
+### Core knowledge-refresh loop
+
+Every feature should be evaluated against this loop. If it doesn't serve a stage, it's scope creep.
+
+```
+   ① Ingest              ② Classify           ③ Apply
+   ─────────             ──────────           ────────
+   External AI      →    route-classifier →   auto-apply  (confidence ≥ 0.85)
+   Webhook / API         (create/update/        ↓
+   Human paste           append/noop/         suggestion  (0.60–0.84)
+                         needs_review)          ↓
+                                              needs_review (< 0.60)
+                                                ↓
+                                     ┌──────────┴──────────┐
+                                     ▼                     ▼
+                              ④ Human review        ④' Patch-generator
+                              (approve / edit /      writes new revision
+                               reject / merge)       + triple extractor
+                                     │                     │
+                                     └──────────┬──────────┘
+                                                ▼
+                                       ⑤ Provenance & freshness
+                                       (who / when / from which source;
+                                        staleness signals, conflicts)
+                                                ▼
+                                       ⑥ Publish / expose
+                                       (immutable snapshot for readers)
+```
+
+Key design invariants (derived from the loop):
 - Markdown is the source of truth for every page
 - Every change (human, AI, or system) creates a revision — no hard overwrites
+- **Every revision must be traceable to its origin** (user action, specific ingestion, rollback, AI edit command)
 - Triples (subject/predicate/object) are stored in PostgreSQL with provenance, not in a Graph DB
 - Published docs are immutable snapshots separate from drafts
 - External AI ingestion always persists the raw payload before processing
+- **Auto-apply requires high confidence (≥ 0.85); the middle band (0.60–0.84) must land in a human-visible queue, never silently dropped**
 
 ## Tech Stack
 
@@ -159,3 +192,31 @@ AI functions return structured JSON. The three core contracts are defined in the
 7. Triple extraction + graph read API
 8. Publish renderer + public docs
 9. Observability + audit polish
+
+## Current Implementation Status (snapshot: 2026-04-17)
+
+Evaluated against the **core knowledge-refresh loop**, not per-package. See [TASKS.md](TASKS.md) for the active backlog.
+
+| Loop stage | Status | Evidence / gap |
+|---|---|---|
+| ① **Ingest** | ✅ DONE | `POST /workspaces/:id/ingestions` saves raw payload + enqueues route-classifier ([ingestions.ts:108-206](packages/api/src/routes/v1/ingestions.ts)). Idempotency key + API-token auth present. |
+| ② **Classify** | ✅ DONE | [route-classifier.ts](packages/worker/src/workers/route-classifier.ts) (523L) does title + FTS + trigram + entity-overlap candidate search, LLM picks action + confidence. Writes `ingestion_decisions`. |
+| ③ **Apply — auto (≥0.85)** | ✅ DONE | route-classifier creates page OR enqueues patch-generator → triple-extractor → search-index-updater. Chain verified. |
+| ③ **Apply — suggest (0.60–0.84)** | ✅ DONE (backend) | Route-classifier now tags decisions `suggested` when `SUGGESTION_MIN ≤ confidence < AUTO_APPLY`. Still needs UI (S4-1) to surface them. |
+| ③ **Apply — needs_review (<0.60)** | ✅ DONE (backend) | Route-classifier tags low-confidence decisions `needs_review`. Manual `POST /ingestions/:id/apply` now writes correct decision status. UI still missing (S4-1). |
+| ④ **Human review UI** | 🔴 **MISSING** | No `/suggestions`, `/review-queue`, or `/ingestions` page in the frontend. [api-client.ts](packages/web/src/lib/api-client.ts) has no ingestion methods. Pending decisions exist in DB with correct status but are invisible to users. |
+| ⑤ **Provenance** | 🟡 PARTIAL | `page_revisions.actor_type` + `source` render as badges in [RevisionHistoryPanel.tsx](packages/web/src/components/revisions/RevisionHistoryPanel.tsx). `page_revisions.source_ingestion_id` + `source_decision_id` FKs are now populated by route-classifier, patch-generator, and the apply endpoint. UI still needs to render the source-ingestion drill-down (S5-2). |
+| ⑤ **Freshness** | 🔴 **MISSING** | No `pages.last_ai_updated_at` / `last_human_edited_at`; no staleness badge; no "triples superseded" marker. The loop has no feedback on what's current vs. stale. |
+| ⑤ **Conflicts** | 🔴 MISSING | No detection of (a) concurrent ingestions to the same page, (b) AI patch arriving while a human is editing, (c) contradicting values for the same triple. |
+| ⑥ **Publish** | ✅ DONE (API) / 🟡 PARTIAL (UI) | [publish-renderer.ts](packages/worker/src/workers/publish-renderer.ts) + [docs.ts](packages/api/src/routes/v1/docs.ts) work end-to-end. No publish button in the editor UI. |
+| — **Activity feed / AI notifications** | 🔴 MISSING | `audit_logs` is populated but never rendered. Users have no "what did the AI do in my workspace today" view. |
+| — **AI-edit (in-editor)** | 🟡 PARTIAL | `POST /pages/:id/ai-edit` streams via SSE and [api-client.aiEdit](packages/web/src/lib/api-client.ts) consumes it. **No accept/reject UI** — result is streamed to screen, user manually saves or discards. No suggestion history. |
+| — **Notion-like editor/layout** | 🟡 PARTIAL | Hierarchical page tree + collapse/expand ✅; slash menu with 8 block types ✅; 2s debounced autosave ✅. **Missing:** page icon/cover (no DB column), block drag handles, page-link/mention, callout/toggle/math blocks, breadcrumb, backlinks panel, in-editor TOC, drag-and-drop reparent, Cmd+K palette. |
+| — **Graph exploration** | 🟡 PARTIAL | Per-page BFS endpoint + force-graph-2d render + type-colored nodes + predicate edge labels ✅. **Missing:** workspace-wide graph, entity detail panel, predicate/confidence filters, node search/highlight, confidence visual encoding (edge width/opacity), 3D toggle UX surface. |
+| — **Infra hygiene** | 🟡 PARTIAL | Health checks OK; `pages.search_vector` column + GIN index now created by migration 0003; no CI; 6 unit test files total (46 assertions green); no API integration tests; no Yjs/Hocuspocus. |
+
+### What this means for the goal
+
+The autonomous half of the loop (①→②→③-auto) works, and as of migration 0003 the **backend side of ③→④→⑤ is also coherent**: suggestion-band decisions land as `status="suggested"` instead of being silently dropped, and every AI-written revision carries a `source_ingestion_id` FK back to its origin. What's still missing is the **frontend surface**: a review queue that shows pending decisions, a page header that surfaces "last updated by AI 3h ago from ingestion X," and a guard against AI overwriting concurrent human edits.
+
+Closing those UI gaps — not adding more AI capabilities — remains the path to "AI keeps the wiki continuously up-to-date under human supervision."

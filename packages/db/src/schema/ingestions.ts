@@ -85,6 +85,7 @@ export const ingestionDecisions = pgTable(
       .notNull()
       .references(() => modelRuns.id, { onDelete: "restrict" }),
     action: text("action").notNull(),
+    status: text("status").notNull().default("suggested"),
     proposedPageTitle: text("proposed_page_title"),
     confidence: real("confidence").notNull(),
     rationaleJson: jsonb("rationale_json"),
@@ -97,6 +98,7 @@ export const ingestionDecisions = pgTable(
       t.ingestionId,
       t.createdAt,
     ),
+    index("ingestion_decisions_status_idx").on(t.status, t.createdAt),
   ],
 );
 

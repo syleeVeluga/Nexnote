@@ -17,8 +17,8 @@ import {
   auditLogs,
 } from "@nexnote/db";
 import {
-  CONFIDENCE,
   DEFAULT_JOB_OPTIONS,
+  classifyDecisionStatus,
   routeDecisionSchema,
   extractIngestionText,
   normalizeKey,
@@ -397,6 +397,8 @@ export function createRouteClassifierWorker(): Worker {
 
       await job.updateProgress(80);
 
+      const initialStatus = classifyDecisionStatus(parsed.action, parsed.confidence);
+
       const [decision] = await db
         .insert(ingestionDecisions)
         .values({
@@ -404,15 +406,15 @@ export function createRouteClassifierWorker(): Worker {
           targetPageId: parsed.targetPageId,
           modelRunId: modelRun.id,
           action: parsed.action,
+          status: initialStatus,
           proposedPageTitle: parsed.proposedTitle ?? null,
           confidence: parsed.confidence,
           rationaleJson: { reason: parsed.reason },
         })
         .returning();
 
-      // Auto-apply if confidence >= threshold
       if (
-        parsed.confidence >= CONFIDENCE.AUTO_APPLY &&
+        initialStatus === "auto_applied" &&
         (parsed.action === "update" || parsed.action === "append") &&
         parsed.targetPageId
       ) {
@@ -425,10 +427,7 @@ export function createRouteClassifierWorker(): Worker {
         };
         const patchQueue = getQueue(QUEUE_NAMES.PATCH);
         await patchQueue.add(JOB_NAMES.PATCH_GENERATOR, patchData, DEFAULT_JOB_OPTIONS);
-      } else if (
-        parsed.confidence >= CONFIDENCE.AUTO_APPLY &&
-        parsed.action === "create"
-      ) {
+      } else if (initialStatus === "auto_applied" && parsed.action === "create") {
         const title =
           parsed.proposedTitle ??
           ingestion.titleHint ??
@@ -447,6 +446,8 @@ export function createRouteClassifierWorker(): Worker {
             pageId: page.id,
             actorType: "ai",
             source: "ingest_api",
+            sourceIngestionId: ingestionId,
+            sourceDecisionId: decision.id,
             contentMd,
             revisionNote: `Auto-created from ingestion ${ingestion.sourceName}`,
           })
@@ -480,6 +481,9 @@ export function createRouteClassifierWorker(): Worker {
           }),
         ]);
       } else {
+        // Suggested / needs_review / noop: the classifier's job is done.
+        // Mark the ingestion complete so it drops off the active queue; the
+        // decision row now carries the human-review state via its own status.
         await db
           .update(ingestions)
           .set({ status: "completed", processedAt: new Date() })
