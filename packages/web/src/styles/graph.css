@@ -11,13 +11,37 @@
 }
 
 .graph-panel {
-  width: 380px;
-  min-width: 380px;
+  position: relative;
+  width: 760px;
+  min-width: 280px;
+  flex-shrink: 0;
   background: #fff;
   border-left: 1px solid #e5e7eb;
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+
+.graph-panel.is-resizing {
+  user-select: none;
+}
+
+.graph-panel-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 6px;
+  cursor: ew-resize;
+  z-index: 10;
+  background: transparent;
+  transition: background-color 120ms ease;
+  touch-action: none;
+}
+
+.graph-panel-resizer:hover,
+.graph-panel.is-resizing .graph-panel-resizer {
+  background: rgba(59, 130, 246, 0.25);
 }
 
 .graph-panel-header {
