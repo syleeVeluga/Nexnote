@@ -14,6 +14,10 @@ interface GraphPanelProps {
   onClose: () => void;
 }
 
+const DEFAULT_PANEL_WIDTH = 760;
+const MIN_PANEL_WIDTH = 280;
+const MAX_PANEL_WIDTH_RATIO = 0.8;
+
 const NODE_COLORS: Record<EntityType, string> = {
   person: "#4f46e5",
   organization: "#059669",
@@ -53,7 +57,37 @@ export function GraphPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState({ width: 380, height: 400 });
+  const [dimensions, setDimensions] = useState({ width: DEFAULT_PANEL_WIDTH, height: 400 });
+  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const handleResizePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      resizeStateRef.current = { startX: e.clientX, startWidth: panelWidth };
+      setIsResizing(true);
+      (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+    },
+    [panelWidth],
+  );
+
+  const handleResizePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const state = resizeStateRef.current;
+    if (!state) return;
+    const delta = state.startX - e.clientX;
+    const maxWidth = Math.max(MIN_PANEL_WIDTH, window.innerWidth * MAX_PANEL_WIDTH_RATIO);
+    const next = Math.min(Math.max(state.startWidth + delta, MIN_PANEL_WIDTH), maxWidth);
+    setPanelWidth((prev) => (prev === next ? prev : next));
+  }, []);
+
+  const handleResizePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    resizeStateRef.current = null;
+    setIsResizing(false);
+    if ((e.currentTarget as HTMLDivElement).hasPointerCapture(e.pointerId)) {
+      (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+    }
+  }, []);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -150,7 +184,19 @@ export function GraphPanel({
   const hasData = graphData && graphData.nodes.length > 0;
 
   return (
-    <div className="graph-panel">
+    <div
+      className={`graph-panel${isResizing ? " is-resizing" : ""}`}
+      style={{ width: panelWidth, minWidth: MIN_PANEL_WIDTH }}
+    >
+      <div
+        className="graph-panel-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        onPointerDown={handleResizePointerDown}
+        onPointerMove={handleResizePointerMove}
+        onPointerUp={handleResizePointerUp}
+        onPointerCancel={handleResizePointerUp}
+      />
       <div className="graph-panel-header">
         <h2>{t("graph")}</h2>
         <button className="btn-close-panel" onClick={onClose}>&times;</button>
