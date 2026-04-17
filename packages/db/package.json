@@ -15,6 +15,7 @@
     "migrate:create": "drizzle-kit generate",
     "seed": "tsx src/seed.ts",
     "studio": "drizzle-kit studio",
+    "test": "node --import tsx --test src/**/*.test.ts",
     "lint": "echo 'no linter configured yet'"
   },
   "dependencies": {

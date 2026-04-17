@@ -15,6 +15,7 @@ import {
   entities,
   triples,
   auditLogs,
+  insertPageWithUniqueSlug,
 } from "@nexnote/db";
 import {
   DEFAULT_JOB_OPTIONS,
@@ -432,13 +433,13 @@ export function createRouteClassifierWorker(): Worker {
           parsed.proposedTitle ??
           ingestion.titleHint ??
           "Untitled (ingested)";
-        const slug = slugify(title);
         const contentMd = extractIngestionText({ normalizedText, rawPayload: ingestion.rawPayload });
 
-        const [page] = await db
-          .insert(pages)
-          .values({ workspaceId, title, slug, status: "draft" })
-          .returning();
+        const page = await insertPageWithUniqueSlug(db, {
+          workspaceId,
+          title,
+          baseSlug: slugify(title),
+        });
 
         const [revision] = await db
           .insert(pageRevisions)
