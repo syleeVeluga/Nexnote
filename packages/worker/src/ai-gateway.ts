@@ -25,7 +25,7 @@ class OpenAIAdapter implements AIAdapter {
         model: request.model,
         messages: request.messages,
         temperature: request.temperature ?? 0.2,
-        max_tokens: request.maxTokens ?? 2048,
+        max_completion_tokens: request.maxTokens ?? 2048,
         ...(request.responseFormat === "json"
           ? { response_format: { type: "json_object" } }
           : {}),

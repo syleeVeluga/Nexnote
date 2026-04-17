@@ -58,12 +58,44 @@ describe("extractIngestionText", () => {
     assert.equal(result, "[1,2,3]");
   });
 
-  it("JSON stringifies rawPayload when it is an object without .content", () => {
+  it("JSON stringifies rawPayload when it is an object without any known text key", () => {
     const result = extractIngestionText({
       normalizedText: null,
-      rawPayload: { title: "no content key" },
+      rawPayload: { title: "no text key" },
     });
-    assert.equal(result, '{"title":"no content key"}');
+    assert.equal(result, '{"title":"no text key"}');
+  });
+
+  it("extracts .text from object rawPayload", () => {
+    const result = extractIngestionText({
+      normalizedText: null,
+      rawPayload: { text: "  from text field  " },
+    });
+    assert.equal(result, "from text field");
+  });
+
+  it("extracts .markdown from object rawPayload", () => {
+    const result = extractIngestionText({
+      normalizedText: null,
+      rawPayload: { markdown: "# from markdown field" },
+    });
+    assert.equal(result, "# from markdown field");
+  });
+
+  it("extracts .body from object rawPayload", () => {
+    const result = extractIngestionText({
+      normalizedText: null,
+      rawPayload: { body: "from body field" },
+    });
+    assert.equal(result, "from body field");
+  });
+
+  it("prefers .content over .text when both present", () => {
+    const result = extractIngestionText({
+      normalizedText: null,
+      rawPayload: { text: "text wins not", content: "content wins" },
+    });
+    assert.equal(result, "content wins");
   });
 
   it("JSON stringifies null rawPayload", () => {
