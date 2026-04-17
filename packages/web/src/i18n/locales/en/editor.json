@@ -48,5 +48,21 @@
   "graph": "Graph",
   "graphDepth": "Depth",
   "noGraphData": "No graph data",
-  "graphTruncated": "Graph truncated to {{limit}} nodes"
+  "graphTruncated": "Graph truncated to {{limit}} nodes",
+  "freshnessAiRecent": "AI updated {{ago}}",
+  "freshnessHumanRecent": "Edited {{ago}}",
+  "freshnessNever": "No edits yet",
+  "freshnessStale": "Stale · last change {{ago}}",
+  "freshnessTooltipAi": "Last AI update: {{date}}",
+  "freshnessTooltipHuman": "Last human edit: {{date}}",
+  "freshnessTooltipNone": "No AI or human edits recorded",
+  "viewSource": "View source",
+  "sourceIngestion": "Source ingestion",
+  "sourceRawPayload": "Raw payload",
+  "sourceDecisionReason": "Decision reason",
+  "sourceConfidence": "Confidence",
+  "sourceReceivedAt": "Received",
+  "sourceAction": "Action",
+  "sourceNone": "No source ingestion — this revision was not triggered by an ingestion",
+  "sourceLoadFailed": "Failed to load source ingestion"
 }

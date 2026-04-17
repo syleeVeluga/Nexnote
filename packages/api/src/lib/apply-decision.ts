@@ -105,10 +105,14 @@ export async function approveDecision(
       })
       .returning();
 
+    const now = new Date();
     await Promise.all([
       db
         .update(pages)
-        .set({ currentRevisionId: revision.id })
+        .set({
+          currentRevisionId: revision.id,
+          lastAiUpdatedAt: now,
+        })
         .where(eq(pages.id, page.id)),
       db
         .update(ingestionDecisions)
@@ -120,7 +124,7 @@ export async function approveDecision(
         .where(eq(ingestionDecisions.id, decision.id)),
       db
         .update(ingestions)
-        .set({ status: "completed", processedAt: new Date() })
+        .set({ status: "completed", processedAt: now })
         .where(eq(ingestions.id, ingestionId)),
       db.insert(auditLogs).values({
         workspaceId,
@@ -170,12 +174,14 @@ export async function approveDecision(
     if (decision.proposedRevisionId) {
       // Patch-generator already produced a revision; promote it to current.
       revisionId = decision.proposedRevisionId;
+      const now = new Date();
       await Promise.all([
         db
           .update(pages)
           .set({
             currentRevisionId: decision.proposedRevisionId,
-            updatedAt: new Date(),
+            updatedAt: now,
+            lastAiUpdatedAt: now,
           })
           .where(eq(pages.id, decision.targetPageId)),
         db
@@ -234,10 +240,15 @@ export async function approveDecision(
         changedBlocks: diff.changedBlocks,
       });
 
+      const now = new Date();
       await Promise.all([
         db
           .update(pages)
-          .set({ currentRevisionId: revision.id, updatedAt: new Date() })
+          .set({
+            currentRevisionId: revision.id,
+            updatedAt: now,
+            lastAiUpdatedAt: now,
+          })
           .where(eq(pages.id, decision.targetPageId)),
         db
           .update(ingestionDecisions)

@@ -453,10 +453,14 @@ export function createRouteClassifierWorker(): Worker {
           })
           .returning();
 
+        const now = new Date();
         await Promise.all([
           db
             .update(pages)
-            .set({ currentRevisionId: revision.id })
+            .set({
+              currentRevisionId: revision.id,
+              lastAiUpdatedAt: now,
+            })
             .where(eq(pages.id, page.id)),
           db
             .update(ingestionDecisions)
@@ -464,7 +468,7 @@ export function createRouteClassifierWorker(): Worker {
             .where(eq(ingestionDecisions.id, decision.id)),
           db
             .update(ingestions)
-            .set({ status: "completed", processedAt: new Date() })
+            .set({ status: "completed", processedAt: now })
             .where(eq(ingestions.id, ingestionId)),
           db.insert(auditLogs).values({
             workspaceId,

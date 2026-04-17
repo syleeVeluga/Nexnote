@@ -60,6 +60,8 @@ export const pages = pgTable(
     // FK references deferred to migration SQL to avoid circular imports
     currentRevisionId: uuid("current_revision_id"),
     latestPublishedSnapshotId: uuid("latest_published_snapshot_id"),
+    lastAiUpdatedAt: timestamp("last_ai_updated_at", { withTimezone: true }),
+    lastHumanEditedAt: timestamp("last_human_edited_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -14,6 +14,7 @@ import {
 } from "../components/editor/TiptapEditor.js";
 import { RevisionHistoryPanel } from "../components/revisions/RevisionHistoryPanel.js";
 import { GraphPanel } from "../components/graph/GraphPanel.js";
+import { FreshnessBadge } from "../components/editor/FreshnessBadge.js";
 
 type EditorMode = "block" | "source";
 
@@ -118,6 +119,9 @@ export function PageEditorPage() {
         contentJson,
       });
       setRevision(res.revision);
+      setPage((p) =>
+        p ? { ...p, lastHumanEditedAt: res.revision.createdAt } : p,
+      );
       setDirty(false);
     } finally {
       setSaving(false);
@@ -308,6 +312,12 @@ export function PageEditorPage() {
               ? t("lastSaved", { date: new Date(revision.createdAt).toLocaleString() })
               : t("newPageStatus")}
           </span>
+          {page && (
+            <FreshnessBadge
+              lastAiUpdatedAt={page.lastAiUpdatedAt}
+              lastHumanEditedAt={page.lastHumanEditedAt}
+            />
+          )}
           {dirty && <span className="unsaved-indicator">{t("unsavedChanges")}</span>}
         </div>
       </div>

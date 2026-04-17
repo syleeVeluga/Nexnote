@@ -9,7 +9,9 @@ Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH]
 
 > **Tranche 1 landed (2026-04-17):** migration `0003_supervision_loop_foundations` (search_vector column + GIN index, `page_revisions.source_ingestion_id` + `source_decision_id` FKs, `ingestion_decisions.status`); route-classifier now does three-band routing and tags decisions `auto_applied` / `suggested` / `needs_review` / `noop`; patch-generator populates provenance FKs and sets status on success/failure; the `POST /ingestions/:id/apply` endpoint transitions decision status to `approved` / `rejected` on human action.
 >
-> **Tranche 2 landed (2026-04-17):** dedicated `/workspaces/:id/decisions` API (list with joined ingestion/page context, per-status counts, detail with proposed diff, `approve` / `reject` / `PATCH` endpoints writing `audit_logs`); `apply-decision.ts` helper shared between the old apply endpoint and the new approve flow; `api-client.ts` gains `ingestions` + `decisions` surfaces; `/review` page with tabs (suggested / needs review / failed / recent), j/k/a/r keyboard shortcuts, and a detail panel that renders the proposed diff and reject-with-reason form; sidebar shows a pending-review badge. Next up: S4-2 (ingestion detail drill-down), S5-1/S5-2 (freshness + per-revision source attribution in the history panel).
+> **Tranche 2 landed (2026-04-17):** dedicated `/workspaces/:id/decisions` API (list with joined ingestion/page context, per-status counts, detail with proposed diff, `approve` / `reject` / `PATCH` endpoints writing `audit_logs`); `apply-decision.ts` helper shared between the old apply endpoint and the new approve flow; `api-client.ts` gains `ingestions` + `decisions` surfaces; `/review` page with tabs (suggested / needs review / failed / recent), j/k/a/r keyboard shortcuts, and a detail panel that renders the proposed diff and reject-with-reason form; sidebar shows a pending-review badge.
+>
+> **Tranche 3 landed (2026-04-17):** migration `0004_page_freshness` adds `pages.last_ai_updated_at` + `last_human_edited_at` (backfilled from existing revisions), bumped by every revision writer (route-classifier create, patch-generator, apply-decision, editor save, rollback); `FreshnessBadge` renders in the editor status bar in three tones (ai/human/stale) with a hover tooltip carrying both timestamps; revision summary DTO now returns `sourceIngestionId` + `sourceDecisionId`, surfaced in `RevisionHistoryPanel` as a "⛓" chip + "View source" button that opens `IngestionSourcePanel` — a drill-down reusing the existing `GET /workspaces/:id/decisions/:decisionId` endpoint to show action, confidence, decision reason, normalized text, and raw payload. Next up: S4-2 (ingestion detail drill-down from the review queue), S5-3 (concurrent-edit guard), S6-1 (activity feed).
 
 ---
 
@@ -41,15 +43,11 @@ The primary review surface shipped in Tranche 2: [/review](packages/web/src/page
 
 If users can't tell what's current, where a sentence came from, or whether AI is about to overwrite their edit, they won't trust the system to run autonomously.
 
-### S5-1 · [HIGH] Per-page freshness indicators
-- Add `pages.last_ai_updated_at`, `pages.last_human_edited_at` (updated by a trigger or in the revision-insert path)
-- Page header shows: "Last AI update: 3h ago (from *Slack-ingest*)" / "Last human edit: 2d ago by Alice"
-- Page list view: sort/filter by staleness
-
-### S5-2 · [HIGH] Per-revision source attribution in the history panel
-Depends on P0-2. With `source_ingestion_id` populated:
-- [RevisionHistoryPanel.tsx](packages/web/src/components/revisions/RevisionHistoryPanel.tsx) shows a link "from ingestion #abc (Slack webhook)" when actor_type=ai
-- Clicking drills into the ingestion detail view (S4-2)
+### S5-1-followup · [MED] Page-list staleness column / sort
+Tranche 3 added `last_ai_updated_at` / `last_human_edited_at` + the editor-header badge. The sidebar/page-list view still has no way to sort or filter by staleness, and there's no "who last touched it" attribution in the badge (we only show timestamps, not the actor name or originating ingestion). Add:
+- Sidebar: tiny "⚠ stale" dot for pages whose latest change is > 30d
+- `/workspaces/:slug/pages` list view: sort by "most recently AI-updated" / "most recently human-edited" / "stalest first"
+- Extend the editor-header freshness tooltip to include "from ingestion *X*" when the latest change was an AI write — query the latest `page_revisions` row with `source_ingestion_id` set
 
 ### S5-3 · [MED] Concurrent-edit guard
 When a patch-generator job runs, verify no human session has modified the page since `base_revision_id`. If so:

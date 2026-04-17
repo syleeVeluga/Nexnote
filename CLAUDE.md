@@ -193,7 +193,7 @@ AI functions return structured JSON. The three core contracts are defined in the
 8. Publish renderer + public docs
 9. Observability + audit polish
 
-## Current Implementation Status (snapshot: 2026-04-17)
+## Current Implementation Status (snapshot: 2026-04-17, tranche S5 shipped)
 
 Evaluated against the **core knowledge-refresh loop**, not per-package. See [TASKS.md](TASKS.md) for the active backlog.
 
@@ -205,8 +205,8 @@ Evaluated against the **core knowledge-refresh loop**, not per-package. See [TAS
 | ③ **Apply — suggest (0.60–0.84)** | ✅ DONE (backend) | Route-classifier now tags decisions `suggested` when `SUGGESTION_MIN ≤ confidence < AUTO_APPLY`. Still needs UI (S4-1) to surface them. |
 | ③ **Apply — needs_review (<0.60)** | ✅ DONE (backend) | Route-classifier tags low-confidence decisions `needs_review`. Manual `POST /ingestions/:id/apply` now writes correct decision status. UI still missing (S4-1). |
 | ④ **Human review UI** | 🟡 PARTIAL | [/review](packages/web/src/pages/ReviewQueuePage.tsx) landed with tabs (suggested / needs review / failed / recent), j/k/a/r shortcuts, list + detail panes, proposed-diff render, and sidebar pending-count badge. Backed by new `/workspaces/:id/decisions` endpoints (approve / reject / PATCH) with shared [apply-decision helper](packages/api/src/lib/apply-decision.ts) and `audit_logs` trail. Remaining gap: S4-2 ingestion-detail drill-down and S4-4 API-token management. |
-| ⑤ **Provenance** | 🟡 PARTIAL | `page_revisions.actor_type` + `source` render as badges in [RevisionHistoryPanel.tsx](packages/web/src/components/revisions/RevisionHistoryPanel.tsx). `page_revisions.source_ingestion_id` + `source_decision_id` FKs are now populated by route-classifier, patch-generator, and the apply endpoint. UI still needs to render the source-ingestion drill-down (S5-2). |
-| ⑤ **Freshness** | 🔴 **MISSING** | No `pages.last_ai_updated_at` / `last_human_edited_at`; no staleness badge; no "triples superseded" marker. The loop has no feedback on what's current vs. stale. |
+| ⑤ **Provenance** | ✅ DONE | `page_revisions.actor_type` + `source` render as badges in [RevisionHistoryPanel.tsx](packages/web/src/components/revisions/RevisionHistoryPanel.tsx). S5-2 adds a "View source" button per revision that opens an [IngestionSourcePanel](packages/web/src/components/revisions/IngestionSourcePanel.tsx) drill-down showing raw payload, decision reason, confidence, and received time — backed by the existing `GET /workspaces/:id/decisions/:decisionId` endpoint. Revision summary DTO now returns `sourceIngestionId` + `sourceDecisionId`. |
+| ⑤ **Freshness** | 🟡 PARTIAL | Migration 0004 adds `pages.last_ai_updated_at` + `last_human_edited_at`, bumped by route-classifier/patch-generator/apply-decision on AI writes and by editor save/rollback on human writes. [FreshnessBadge](packages/web/src/components/editor/FreshnessBadge.tsx) renders in the editor status bar showing whichever is latest with a "stale >30d" tone. Still missing: "triples superseded" marker and a workspace-wide stale-pages view. |
 | ⑤ **Conflicts** | 🔴 MISSING | No detection of (a) concurrent ingestions to the same page, (b) AI patch arriving while a human is editing, (c) contradicting values for the same triple. |
 | ⑥ **Publish** | ✅ DONE (API) / 🟡 PARTIAL (UI) | [publish-renderer.ts](packages/worker/src/workers/publish-renderer.ts) + [docs.ts](packages/api/src/routes/v1/docs.ts) work end-to-end. No publish button in the editor UI. |
 | — **Activity feed / AI notifications** | 🔴 MISSING | `audit_logs` is populated but never rendered. Users have no "what did the AI do in my workspace today" view. |
@@ -217,6 +217,6 @@ Evaluated against the **core knowledge-refresh loop**, not per-package. See [TAS
 
 ### What this means for the goal
 
-The autonomous half of the loop (①→②→③-auto) works, and as of migration 0003 the **backend side of ③→④→⑤ is also coherent**: suggestion-band decisions land as `status="suggested"` instead of being silently dropped, and every AI-written revision carries a `source_ingestion_id` FK back to its origin. What's still missing is the **frontend surface**: a review queue that shows pending decisions, a page header that surfaces "last updated by AI 3h ago from ingestion X," and a guard against AI overwriting concurrent human edits.
+With tranche S5 shipped, the loop surfaces its own signal: the editor header now tells a reader "this page was AI-updated 3h ago" or "stale · last change 40d ago" (FreshnessBadge), and every AI-authored revision exposes a "View source" drill-down showing the raw payload, decision reason, and confidence that produced it. Provenance (⑤) is now end-to-end, and freshness is readable per-page.
 
-Closing those UI gaps — not adding more AI capabilities — remains the path to "AI keeps the wiki continuously up-to-date under human supervision."
+What remains on the path to "AI keeps the wiki continuously up-to-date under human supervision": conflict detection (concurrent ingestions, AI-vs-human edit races, triple contradictions), a workspace-wide activity feed rendered from `audit_logs`, and the S4-2 ingestion-detail drill-down from the review queue.

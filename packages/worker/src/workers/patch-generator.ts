@@ -167,6 +167,7 @@ Produce the merged Markdown:`,
 
       // Compute diff + store it, then update page/decision/ingestion in parallel
       const diff = computeDiff(existingContent, newContent, null, null);
+      const now = new Date();
 
       await Promise.all([
         db.insert(revisionDiffs).values({
@@ -177,7 +178,11 @@ Produce the merged Markdown:`,
         }),
         db
           .update(pages)
-          .set({ currentRevisionId: revision.id, updatedAt: new Date() })
+          .set({
+            currentRevisionId: revision.id,
+            updatedAt: now,
+            lastAiUpdatedAt: now,
+          })
           .where(eq(pages.id, targetPageId)),
         db
           .update(ingestionDecisions)
@@ -185,7 +190,7 @@ Produce the merged Markdown:`,
           .where(eq(ingestionDecisions.id, decisionId)),
         db
           .update(ingestions)
-          .set({ status: "completed", processedAt: new Date() })
+          .set({ status: "completed", processedAt: now })
           .where(eq(ingestions.id, ingestionId)),
         db.insert(auditLogs).values({
           workspaceId,

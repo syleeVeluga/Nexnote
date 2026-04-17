@@ -89,6 +89,8 @@ function mapPageDto(page: {
   status: string;
   sortOrder: number;
   currentRevisionId: string | null;
+  lastAiUpdatedAt?: Date | null;
+  lastHumanEditedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -101,6 +103,8 @@ function mapPageDto(page: {
     status: page.status,
     sortOrder: page.sortOrder,
     currentRevisionId: page.currentRevisionId,
+    lastAiUpdatedAt: page.lastAiUpdatedAt ? page.lastAiUpdatedAt.toISOString() : null,
+    lastHumanEditedAt: page.lastHumanEditedAt ? page.lastHumanEditedAt.toISOString() : null,
     createdAt: page.createdAt.toISOString(),
     updatedAt: page.updatedAt.toISOString(),
   };
@@ -144,6 +148,8 @@ function mapRevisionSummaryDto(revision: {
   revisionNote: string | null;
   createdAt: Date;
   changedBlocks?: number | null;
+  sourceIngestionId?: string | null;
+  sourceDecisionId?: string | null;
 }) {
   return {
     id: revision.id,
@@ -155,6 +161,8 @@ function mapRevisionSummaryDto(revision: {
     revisionNote: revision.revisionNote,
     createdAt: revision.createdAt.toISOString(),
     changedBlocks: revision.changedBlocks ?? null,
+    sourceIngestionId: revision.sourceIngestionId ?? null,
+    sourceDecisionId: revision.sourceDecisionId ?? null,
   };
 }
 
@@ -285,7 +293,10 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
 
           const [updatedPage] = await tx
             .update(pages)
-            .set({ currentRevisionId: revision.id })
+            .set({
+              currentRevisionId: revision.id,
+              lastHumanEditedAt: sql`now()`,
+            })
             .where(eq(pages.id, page.id))
             .returning();
 
@@ -393,6 +404,8 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
             status: pages.status,
             sortOrder: pages.sortOrder,
             currentRevisionId: pages.currentRevisionId,
+            lastAiUpdatedAt: pages.lastAiUpdatedAt,
+            lastHumanEditedAt: pages.lastHumanEditedAt,
             createdAt: pages.createdAt,
             updatedAt: pages.updatedAt,
           })
@@ -444,6 +457,8 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
             status: pages.status,
             sortOrder: pages.sortOrder,
             currentRevisionId: pages.currentRevisionId,
+            lastAiUpdatedAt: pages.lastAiUpdatedAt,
+            lastHumanEditedAt: pages.lastHumanEditedAt,
             createdAt: pages.createdAt,
             updatedAt: pages.updatedAt,
           },
@@ -670,6 +685,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           .set({
             currentRevisionId: revision.id,
             updatedAt: sql`now()`,
+            lastHumanEditedAt: sql`now()`,
           })
           .where(eq(pages.id, pageId));
 
@@ -758,6 +774,8 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
             revisionNote: pageRevisions.revisionNote,
             createdAt: pageRevisions.createdAt,
             changedBlocks: revisionDiffs.changedBlocks,
+            sourceIngestionId: pageRevisions.sourceIngestionId,
+            sourceDecisionId: pageRevisions.sourceDecisionId,
           })
           .from(pageRevisions)
           .leftJoin(
@@ -1067,6 +1085,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           .set({
             currentRevisionId: newRevision.id,
             updatedAt: sql`now()`,
+            lastHumanEditedAt: sql`now()`,
           })
           .where(eq(pages.id, pageId));
 
@@ -1763,6 +1782,8 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           p.status,
           p.sort_order      AS "sortOrder",
           p.current_revision_id AS "currentRevisionId",
+          p.last_ai_updated_at   AS "lastAiUpdatedAt",
+          p.last_human_edited_at AS "lastHumanEditedAt",
           p.created_at      AS "createdAt",
           p.updated_at      AS "updatedAt",
           ts_rank(
@@ -1792,6 +1813,8 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         status: string;
         sortOrder: number;
         currentRevisionId: string | null;
+        lastAiUpdatedAt: Date | null;
+        lastHumanEditedAt: Date | null;
         createdAt: Date;
         updatedAt: Date;
       }>).map((row) => ({
@@ -1803,6 +1826,8 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         status: row.status,
         sortOrder: row.sortOrder,
         currentRevisionId: row.currentRevisionId,
+        lastAiUpdatedAt: row.lastAiUpdatedAt ? new Date(row.lastAiUpdatedAt).toISOString() : null,
+        lastHumanEditedAt: row.lastHumanEditedAt ? new Date(row.lastHumanEditedAt).toISOString() : null,
         createdAt: new Date(row.createdAt).toISOString(),
         updatedAt: new Date(row.updatedAt).toISOString(),
       }));

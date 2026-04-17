@@ -5,7 +5,9 @@ import {
   type RevisionSummary,
   type RevisionDiffDto,
 } from "../../lib/api-client.js";
+import { timeAgo } from "../../lib/time-ago.js";
 import { DiffViewer } from "./DiffViewer.js";
+import { IngestionSourcePanel } from "./IngestionSourcePanel.js";
 
 interface RevisionHistoryPanelProps {
   workspaceId: string;
@@ -13,20 +15,6 @@ interface RevisionHistoryPanelProps {
   currentRevisionId: string | null;
   onClose: () => void;
   onRollback: () => void;
-}
-
-function timeAgo(dateStr: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diff = now - then;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return t("justNow");
-  if (mins < 60) return t("minutesAgo", { count: mins });
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return t("hoursAgo", { count: hours });
-  const days = Math.floor(hours / 24);
-  if (days < 30) return t("daysAgo", { count: days });
-  return new Date(dateStr).toLocaleDateString();
 }
 
 export function RevisionHistoryPanel({
@@ -41,6 +29,7 @@ export function RevisionHistoryPanel({
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [diff, setDiff] = useState<RevisionDiffDto | null | "empty">(null);
+  const [sourceDecisionId, setSourceDecisionId] = useState<string | null>(null);
   const [rolling, setRolling] = useState(false);
   const [rollbackError, setRollbackError] = useState<string | null>(null);
   const rollingRef = useRef(false);
@@ -136,6 +125,15 @@ export function RevisionHistoryPanel({
                       >
                         {rev.source}
                       </span>
+                      {rev.sourceDecisionId && (
+                        <span
+                          className="badge-has-source"
+                          title={t("viewSource")}
+                          aria-label={t("viewSource")}
+                        >
+                          ⛓
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -164,6 +162,17 @@ export function RevisionHistoryPanel({
                           }}
                         >
                           {t("viewDiff")}
+                        </button>
+                      )}
+                      {rev.sourceDecisionId && (
+                        <button
+                          className="btn-view-source"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSourceDecisionId(rev.sourceDecisionId);
+                          }}
+                        >
+                          {t("viewSource")}
                         </button>
                       )}
                       {!isCurrent && (
@@ -198,6 +207,14 @@ export function RevisionHistoryPanel({
           changedBlocks={diffData?.changedBlocks}
           title={t("revisionDiff")}
           onClose={() => setDiff(null)}
+        />
+      )}
+
+      {sourceDecisionId && (
+        <IngestionSourcePanel
+          workspaceId={workspaceId}
+          decisionId={sourceDecisionId}
+          onClose={() => setSourceDecisionId(null)}
         />
       )}
     </>

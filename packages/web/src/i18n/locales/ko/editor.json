@@ -48,5 +48,21 @@
   "graph": "그래프",
   "graphDepth": "깊이",
   "noGraphData": "그래프 데이터 없음",
-  "graphTruncated": "{{limit}}개 노드로 제한됨"
+  "graphTruncated": "{{limit}}개 노드로 제한됨",
+  "freshnessAiRecent": "AI가 {{ago}} 업데이트함",
+  "freshnessHumanRecent": "{{ago}} 편집됨",
+  "freshnessNever": "편집 기록 없음",
+  "freshnessStale": "오래됨 · 마지막 변경 {{ago}}",
+  "freshnessTooltipAi": "마지막 AI 업데이트: {{date}}",
+  "freshnessTooltipHuman": "마지막 사용자 편집: {{date}}",
+  "freshnessTooltipNone": "기록된 AI·사용자 편집 없음",
+  "viewSource": "원본 보기",
+  "sourceIngestion": "원본 인제스천",
+  "sourceRawPayload": "원본 페이로드",
+  "sourceDecisionReason": "결정 근거",
+  "sourceConfidence": "신뢰도",
+  "sourceReceivedAt": "수신 시각",
+  "sourceAction": "액션",
+  "sourceNone": "원본 인제스천 없음 — 이 리비전은 인제스천으로부터 발생하지 않았습니다",
+  "sourceLoadFailed": "원본 인제스천을 불러올 수 없습니다"
 }

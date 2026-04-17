@@ -225,6 +225,8 @@ export interface Page {
   status: PageStatus;
   sortOrder: number;
   currentRevisionId: string | null;
+  lastAiUpdatedAt: string | null;
+  lastHumanEditedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -253,6 +255,8 @@ export interface RevisionSummary {
   revisionNote: string | null;
   createdAt: string;
   changedBlocks: number | null;
+  sourceIngestionId: string | null;
+  sourceDecisionId: string | null;
 }
 
 export type { RevisionDiffDto };
