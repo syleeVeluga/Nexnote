@@ -20,7 +20,7 @@ import type {
   AIRequest,
 } from "@nexnote/shared";
 
-const PROMPT_VERSION = "triple-extractor-v1";
+const PROMPT_VERSION = "triple-extractor-v2";
 
 export function createTripleExtractorWorker(): Worker {
   const db = getDb();
@@ -64,7 +64,9 @@ Rules:
 - Set objectType to "entity" if the object refers to a named entity, or "literal" if it's a value/description
 - Assign confidence 0.0–1.0 based on how explicit the relationship is in the text
 - Include spans showing where in the text each triple was found; keep each excerpt under 120 characters
-- Normalize entity names (capitalize properly, use canonical forms)
+- **Language fidelity (critical):** Preserve the original language of the source document verbatim for subjects, objects, and literal values. If the document is Korean, entity names (people, organizations, places, concepts) MUST stay in Korean — do NOT translate, romanize, or transliterate them to English (e.g., "이순신" stays "이순신", not "Lee Sun-sin"). The same rule applies to Japanese, Chinese, or any other non-English source. Only use English when the term appears in English in the source.
+- Predicates SHOULD be short snake_case identifiers in English (e.g., works_at, located_in, born_in) since they are relationship types, not content — but if a predicate has no natural English equivalent, keep it in the source language.
+- Normalize entity names by using the canonical surface form that appears in the text (e.g., unify "홍길동"/"길동" to the most complete form used in the document). Do NOT change scripts or languages.
 - Extract at most 40 of the most important, clearly-stated triples. Prioritize high-signal facts over exhaustive coverage.
 
 Respond with JSON:
