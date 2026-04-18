@@ -71,5 +71,17 @@
   "sourceReceivedAt": "Received",
   "sourceAction": "Action",
   "sourceNone": "No source ingestion — this revision was not triggered by an ingestion",
-  "sourceLoadFailed": "Failed to load source ingestion"
+  "sourceLoadFailed": "Failed to load source ingestion",
+  "graphNodeInspectorAria": "Node inspector",
+  "graphNodeInspectorLoadFailed": "Failed to load node details",
+  "graphNodeInspectorEmpty": "No node details available.",
+  "graphNodeInspectorSubtitle": "Appears in {{pageCount}} pages / {{relationCount}} relations",
+  "graphNodeInspectorNoPages": "No source pages found for this entity.",
+  "graphNodeInspectorPageReason": "{{count}} relations mention this entity",
+  "graphNodeInspectorOpenPage": "Open Page",
+  "graphNodeInspectorAlreadyOpen": "Already open",
+  "graphNodeInspectorEvidence": "Evidence",
+  "graphNodeInspectorNoPageEvidence": "No excerpts captured for this page.",
+  "graphNodeInspectorNoEvidence": "No evidence excerpts captured for this entity yet.",
+  "graphNodeInspectorMorePages": "+{{count}} more pages"
 }

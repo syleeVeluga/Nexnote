@@ -12,6 +12,7 @@ import {
   type GraphNode,
   type GraphEdge,
   type GraphData,
+  type EntityProvenance,
   type IngestionAction,
   type IngestionStatus,
   type DecisionStatus,
@@ -45,7 +46,9 @@ export class ApiError extends Error {
   }
 }
 
-function buildQuery(params: Record<string, string | number | null | undefined>): string {
+function buildQuery(
+  params: Record<string, string | number | null | undefined>,
+): string {
   const qs = new URLSearchParams();
   for (const [key, val] of Object.entries(params)) {
     if (val != null && val !== "") {
@@ -187,33 +190,44 @@ export interface Folder {
 }
 
 export const folders = {
-  list(workspaceId: string, params?: { parentFolderId?: string | null; limit?: number; offset?: number }) {
+  list(
+    workspaceId: string,
+    params?: {
+      parentFolderId?: string | null;
+      limit?: number;
+      offset?: number;
+    },
+  ) {
     const q = buildQuery({
       limit: params?.limit,
       offset: params?.offset,
       parentFolderId: params?.parentFolderId,
     });
-    return request<Paginated<Folder>>(
-      `/workspaces/${workspaceId}/folders${q}`,
-    );
+    return request<Paginated<Folder>>(`/workspaces/${workspaceId}/folders${q}`);
   },
-  create(workspaceId: string, data: { name: string; slug: string; parentFolderId?: string | null }) {
-    return request<{ data: Folder }>(
-      `/workspaces/${workspaceId}/folders`,
-      { method: "POST", body: JSON.stringify(data) },
-    );
+  create(
+    workspaceId: string,
+    data: { name: string; slug: string; parentFolderId?: string | null },
+  ) {
+    return request<{ data: Folder }>(`/workspaces/${workspaceId}/folders`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
   },
-  patch(workspaceId: string, folderId: string, data: { name?: string; slug?: string; parentFolderId?: string | null }) {
+  patch(
+    workspaceId: string,
+    folderId: string,
+    data: { name?: string; slug?: string; parentFolderId?: string | null },
+  ) {
     return request<{ data: Folder }>(
       `/workspaces/${workspaceId}/folders/${folderId}`,
       { method: "PATCH", body: JSON.stringify(data) },
     );
   },
   delete(workspaceId: string, folderId: string) {
-    return request<void>(
-      `/workspaces/${workspaceId}/folders/${folderId}`,
-      { method: "DELETE" },
-    );
+    return request<void>(`/workspaces/${workspaceId}/folders/${folderId}`, {
+      method: "DELETE",
+    });
   },
 };
 
@@ -275,7 +289,12 @@ export interface CompareResultDto {
 }
 
 // Re-export shared types for consumers importing from api-client
-export type { GraphNode, GraphEdge, GraphData } from "@nexnote/shared";
+export type {
+  GraphNode,
+  GraphEdge,
+  GraphData,
+  EntityProvenance,
+} from "@nexnote/shared";
 export type {
   IngestionAction,
   IngestionStatus,
@@ -283,16 +302,22 @@ export type {
 } from "@nexnote/shared";
 
 export const pages = {
-  list(workspaceId: string, params?: { parentPageId?: string; status?: string; limit?: number; offset?: number }) {
+  list(
+    workspaceId: string,
+    params?: {
+      parentPageId?: string;
+      status?: string;
+      limit?: number;
+      offset?: number;
+    },
+  ) {
     const q = buildQuery({
       limit: params?.limit,
       offset: params?.offset,
       parentPageId: params?.parentPageId,
       status: params?.status,
     });
-    return request<Paginated<Page>>(
-      `/workspaces/${workspaceId}/pages${q}`,
-    );
+    return request<Paginated<Page>>(`/workspaces/${workspaceId}/pages${q}`);
   },
   get(workspaceId: string, pageId: string) {
     return request<{ page: Page; currentRevision: Revision | null }>(
@@ -301,7 +326,13 @@ export const pages = {
   },
   create(
     workspaceId: string,
-    data: { title: string; slug: string; parentPageId?: string | null; contentMd?: string; contentJson?: Record<string, unknown> },
+    data: {
+      title: string;
+      slug: string;
+      parentPageId?: string | null;
+      contentMd?: string;
+      contentJson?: Record<string, unknown>;
+    },
   ) {
     return request<{ page: Page; revision: Revision }>(
       `/workspaces/${workspaceId}/pages`,
@@ -315,23 +346,30 @@ export const pages = {
     );
   },
   delete(workspaceId: string, pageId: string) {
-    return request<void>(
-      `/workspaces/${workspaceId}/pages/${pageId}`,
-      { method: "DELETE" },
-    );
+    return request<void>(`/workspaces/${workspaceId}/pages/${pageId}`, {
+      method: "DELETE",
+    });
   },
 
   createRevision(
     workspaceId: string,
     pageId: string,
-    data: { contentMd: string; contentJson?: Record<string, unknown>; revisionNote?: string },
+    data: {
+      contentMd: string;
+      contentJson?: Record<string, unknown>;
+      revisionNote?: string;
+    },
   ) {
     return request<{ revision: Revision }>(
       `/workspaces/${workspaceId}/pages/${pageId}/revisions`,
       { method: "POST", body: JSON.stringify(data) },
     );
   },
-  listRevisions(workspaceId: string, pageId: string, params?: { limit?: number; offset?: number }) {
+  listRevisions(
+    workspaceId: string,
+    pageId: string,
+    params?: { limit?: number; offset?: number },
+  ) {
     const q = buildQuery({ limit: params?.limit, offset: params?.offset });
     return request<Paginated<RevisionSummary>>(
       `/workspaces/${workspaceId}/pages/${pageId}/revisions${q}`,
@@ -370,10 +408,30 @@ export const pages = {
     );
   },
 
-  graph(workspaceId: string, pageId: string, params?: { depth?: number; limit?: number; minConfidence?: number }) {
-    const q = buildQuery({ depth: params?.depth, limit: params?.limit, minConfidence: params?.minConfidence });
+  graph(
+    workspaceId: string,
+    pageId: string,
+    params?: { depth?: number; limit?: number; minConfidence?: number },
+  ) {
+    const q = buildQuery({
+      depth: params?.depth,
+      limit: params?.limit,
+      minConfidence: params?.minConfidence,
+    });
     return request<GraphData>(
       `/workspaces/${workspaceId}/pages/${pageId}/graph${q}`,
+    );
+  },
+
+  entityProvenance(
+    workspaceId: string,
+    entityId: string,
+    params?: { limit?: number; signal?: AbortSignal },
+  ) {
+    const q = buildQuery({ limit: params?.limit });
+    return request<EntityProvenance>(
+      `/workspaces/${workspaceId}/entities/${entityId}/provenance${q}`,
+      { signal: params?.signal },
     );
   },
 
@@ -384,8 +442,15 @@ export const pages = {
     );
   },
 
-  search(workspaceId: string, params: { q: string; limit?: number; offset?: number }) {
-    const q = buildQuery({ q: params.q, limit: params.limit, offset: params.offset });
+  search(
+    workspaceId: string,
+    params: { q: string; limit?: number; offset?: number },
+  ) {
+    const q = buildQuery({
+      q: params.q,
+      limit: params.limit,
+      offset: params.offset,
+    });
     return request<{ data: Page[]; total: number; q: string }>(
       `/workspaces/${workspaceId}/pages/search${q}`,
     );
@@ -405,7 +470,7 @@ export const pages = {
   ): Promise<void> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "Accept": "text/event-stream",
+      Accept: "text/event-stream",
     };
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
@@ -437,11 +502,20 @@ export const pages = {
         if (!eventMatch || !dataMatch) continue;
         const event = eventMatch[1];
         let payload: Record<string, unknown>;
-        try { payload = JSON.parse(dataMatch[1]); } catch { continue; }
+        try {
+          payload = JSON.parse(dataMatch[1]);
+        } catch {
+          continue;
+        }
 
         if (event === "chunk") onChunk((payload.text as string) ?? "");
-        else if (event === "done") onDone((payload.result as string) ?? "", (payload.baseRevisionId as string) ?? "");
-        else if (event === "error") onError((payload.message as string) ?? "Unknown error");
+        else if (event === "done")
+          onDone(
+            (payload.result as string) ?? "",
+            (payload.baseRevisionId as string) ?? "",
+          );
+        else if (event === "error")
+          onError((payload.message as string) ?? "Unknown error");
       }
     }
   },
@@ -542,9 +616,12 @@ export const ingestions = {
       limit: params?.limit,
       offset: params?.offset,
     });
-    return request<{ items: IngestionSummary[]; total: number; limit: number; offset: number }>(
-      `/workspaces/${workspaceId}/ingestions${q}`,
-    );
+    return request<{
+      items: IngestionSummary[];
+      total: number;
+      limit: number;
+      offset: number;
+    }>(`/workspaces/${workspaceId}/ingestions${q}`);
   },
   get(workspaceId: string, ingestionId: string) {
     return request<IngestionDetail>(
@@ -559,7 +636,8 @@ export const ingestions = {
     const form = new FormData();
     form.append("file", file);
     if (options?.titleHint) form.append("titleHint", options.titleHint);
-    if (options?.idempotencyKey) form.append("idempotencyKey", options.idempotencyKey);
+    if (options?.idempotencyKey)
+      form.append("idempotencyKey", options.idempotencyKey);
 
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -570,7 +648,11 @@ export const ingestions = {
     );
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new ApiError(res.status, body.code ?? "UNKNOWN", body.error ?? res.statusText);
+      throw new ApiError(
+        res.status,
+        body.code ?? "UNKNOWN",
+        body.error ?? res.statusText,
+      );
     }
     return { ...(body as IngestionSummary), replayed: res.status === 200 };
   },
@@ -584,7 +666,9 @@ export const ingestions = {
       forceRefresh?: boolean;
     },
   ): Promise<IngestionSummary & { replayed: boolean }> {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
     if (token) headers["Authorization"] = `Bearer ${token}`;
     const res = await fetch(
       `${BASE_URL}/workspaces/${workspaceId}/ingestions/url`,
@@ -598,7 +682,10 @@ export const ingestions = {
         responseBody.error ?? res.statusText,
       );
     }
-    return { ...(responseBody as IngestionSummary), replayed: res.status === 200 };
+    return {
+      ...(responseBody as IngestionSummary),
+      replayed: res.status === 200,
+    };
   },
   async importText(
     workspaceId: string,
@@ -610,7 +697,9 @@ export const ingestions = {
       idempotencyKey?: string;
     },
   ): Promise<IngestionSummary & { replayed: boolean }> {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
     if (token) headers["Authorization"] = `Bearer ${token}`;
     const res = await fetch(
       `${BASE_URL}/workspaces/${workspaceId}/ingestions/text`,
@@ -624,7 +713,10 @@ export const ingestions = {
         responseBody.error ?? res.statusText,
       );
     }
-    return { ...(responseBody as IngestionSummary), replayed: res.status === 200 };
+    return {
+      ...(responseBody as IngestionSummary),
+      replayed: res.status === 200,
+    };
   },
 };
 
@@ -832,12 +924,14 @@ export interface PublicDocListItem {
 
 export const docs = {
   get(workspaceSlug: string, pagePath: string) {
-    return request<PublicDoc>(`/docs/${workspaceSlug}/${pagePath}`, { skipAuth: true });
+    return request<PublicDoc>(`/docs/${workspaceSlug}/${pagePath}`, {
+      skipAuth: true,
+    });
   },
   list(workspaceSlug: string) {
-    return request<{ workspace: { name: string; slug: string }; docs: PublicDocListItem[] }>(
-      `/docs/${workspaceSlug}`,
-      { skipAuth: true },
-    );
+    return request<{
+      workspace: { name: string; slug: string };
+      docs: PublicDocListItem[];
+    }>(`/docs/${workspaceSlug}`, { skipAuth: true });
   },
 };

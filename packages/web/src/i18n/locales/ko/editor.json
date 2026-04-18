@@ -71,5 +71,17 @@
   "sourceReceivedAt": "수신 시각",
   "sourceAction": "액션",
   "sourceNone": "원본 인제스천 없음 — 이 리비전은 인제스천으로부터 발생하지 않았습니다",
-  "sourceLoadFailed": "원본 인제스천을 불러올 수 없습니다"
+  "sourceLoadFailed": "원본 인제스천을 불러올 수 없습니다",
+  "graphNodeInspectorAria": "노드 인스펙터",
+  "graphNodeInspectorLoadFailed": "노드 상세 정보를 불러오지 못했습니다",
+  "graphNodeInspectorEmpty": "노드 상세 정보가 없습니다.",
+  "graphNodeInspectorSubtitle": "{{pageCount}}개 페이지 / {{relationCount}}개 관계에 나타남",
+  "graphNodeInspectorNoPages": "이 엔터티의 출처 페이지가 없습니다.",
+  "graphNodeInspectorPageReason": "{{count}}개의 관계가 이 엔터티를 언급합니다",
+  "graphNodeInspectorOpenPage": "페이지 열기",
+  "graphNodeInspectorAlreadyOpen": "이미 열림",
+  "graphNodeInspectorEvidence": "근거",
+  "graphNodeInspectorNoPageEvidence": "이 페이지에는 저장된 발췌문이 없습니다.",
+  "graphNodeInspectorNoEvidence": "이 엔터티에는 아직 저장된 근거 발췌문이 없습니다.",
+  "graphNodeInspectorMorePages": "+{{count}}개 페이지 더 있음"
 }

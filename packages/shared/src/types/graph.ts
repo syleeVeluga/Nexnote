@@ -26,3 +26,33 @@ export interface GraphData {
     truncated: boolean;
   };
 }
+
+export interface EntityProvenanceExcerpt {
+  tripleId: string;
+  predicate: string;
+  excerpt: string;
+  spanStart: number;
+  spanEnd: number;
+}
+
+export interface EntityProvenanceSourcePage {
+  pageId: string;
+  title: string;
+  slug: string;
+  activeTripleCount: number;
+  lastUpdatedAt: string;
+  lastAiUpdatedAt: string | null;
+  evidenceExcerpts: EntityProvenanceExcerpt[];
+}
+
+export interface EntityProvenance {
+  entity: {
+    id: string;
+    canonicalName: string;
+    entityType: string;
+    totalSourcePages: number;
+    totalActiveTriples: number;
+  };
+  sourcePages: EntityProvenanceSourcePage[];
+  truncated: boolean;
+}

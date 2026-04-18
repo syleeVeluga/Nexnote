@@ -1,9 +1,23 @@
-import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  lazy,
+  Suspense,
+} from "react";
 import { useTranslation } from "react-i18next";
 import ForceGraph2D from "react-force-graph-2d";
 import type { NodeObject, LinkObject } from "react-force-graph-2d";
-import type { EntityType, GraphNode, GraphEdge, GraphData } from "@nexnote/shared";
+import type {
+  EntityType,
+  GraphNode,
+  GraphEdge,
+  GraphData,
+} from "@nexnote/shared";
 import { pages as pagesApi } from "../../lib/api-client.js";
+import { NodeInspector } from "./NodeInspector.js";
 
 // Lazy-load 3D graph to avoid adding Three.js weight to the initial bundle
 const ForceGraph3D = lazy(() => import("react-force-graph-3d"));
@@ -12,13 +26,14 @@ interface GraphPanelProps {
   workspaceId: string;
   pageId: string;
   onClose: () => void;
+  onNavigateToPage: (pageId: string) => void;
 }
 
 const DEFAULT_PANEL_WIDTH = 760;
 const MIN_PANEL_WIDTH = 280;
 const MAX_PANEL_WIDTH_RATIO = 0.8;
 
-const NODE_COLORS: Record<EntityType, string> = {
+export const NODE_COLORS: Record<EntityType, string> = {
   person: "#4f46e5",
   organization: "#059669",
   concept: "#d97706",
@@ -42,25 +57,35 @@ type GLink = LinkObject<
 >;
 
 function getNodeColor(type: string): string {
-  return (NODE_COLORS as Record<string, string>)[type.toLowerCase()] ?? NODE_COLORS.other;
+  return (
+    (NODE_COLORS as Record<string, string>)[type.toLowerCase()] ??
+    NODE_COLORS.other
+  );
 }
 
 export function GraphPanel({
   workspaceId,
   pageId,
   onClose,
+  onNavigateToPage,
 }: GraphPanelProps) {
   const { t } = useTranslation(["editor", "common"]);
   const [depth, setDepth] = useState<1 | 2>(1);
   const [mode, setMode] = useState<"2d" | "3d">("2d");
   const [graphData, setGraphData] = useState<GraphData | null>(null);
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState({ width: DEFAULT_PANEL_WIDTH, height: 400 });
+  const [dimensions, setDimensions] = useState({
+    width: DEFAULT_PANEL_WIDTH,
+    height: 400,
+  });
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
-  const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(
+    null,
+  );
 
   const handleResizePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -72,22 +97,34 @@ export function GraphPanel({
     [panelWidth],
   );
 
-  const handleResizePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    const state = resizeStateRef.current;
-    if (!state) return;
-    const delta = state.startX - e.clientX;
-    const maxWidth = Math.max(MIN_PANEL_WIDTH, window.innerWidth * MAX_PANEL_WIDTH_RATIO);
-    const next = Math.min(Math.max(state.startWidth + delta, MIN_PANEL_WIDTH), maxWidth);
-    setPanelWidth((prev) => (prev === next ? prev : next));
-  }, []);
+  const handleResizePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const state = resizeStateRef.current;
+      if (!state) return;
+      const delta = state.startX - e.clientX;
+      const maxWidth = Math.max(
+        MIN_PANEL_WIDTH,
+        window.innerWidth * MAX_PANEL_WIDTH_RATIO,
+      );
+      const next = Math.min(
+        Math.max(state.startWidth + delta, MIN_PANEL_WIDTH),
+        maxWidth,
+      );
+      setPanelWidth((prev) => (prev === next ? prev : next));
+    },
+    [],
+  );
 
-  const handleResizePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    resizeStateRef.current = null;
-    setIsResizing(false);
-    if ((e.currentTarget as HTMLDivElement).hasPointerCapture(e.pointerId)) {
-      (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
-    }
-  }, []);
+  const handleResizePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      resizeStateRef.current = null;
+      setIsResizing(false);
+      if ((e.currentTarget as HTMLDivElement).hasPointerCapture(e.pointerId)) {
+        (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -97,7 +134,9 @@ export function GraphPanel({
         const { width, height } = entry.contentRect;
         if (width > 0 && height > 0) {
           setDimensions((prev) =>
-            prev.width === width && prev.height === height ? prev : { width, height },
+            prev.width === width && prev.height === height
+              ? prev
+              : { width, height },
           );
         }
       }
@@ -118,6 +157,13 @@ export function GraphPanel({
       })
       .finally(() => setLoading(false));
   }, [workspaceId, pageId, depth]);
+
+  useEffect(() => {
+    if (!selectedEntityId || !graphData) return;
+    if (!graphData.nodes.some((node) => node.id === selectedEntityId)) {
+      setSelectedEntityId(null);
+    }
+  }, [graphData, selectedEntityId]);
 
   const forceGraphData = useMemo(() => {
     if (!graphData) return { nodes: [] as GNode[], links: [] as GLink[] };
@@ -155,13 +201,27 @@ export function GraphPanel({
         ctx.stroke();
       }
 
+      if (node.id === selectedEntityId) {
+        ctx.beginPath();
+        ctx.arc(
+          node.x ?? 0,
+          node.y ?? 0,
+          size + 3 / globalScale,
+          0,
+          2 * Math.PI,
+        );
+        ctx.strokeStyle = "#1d4ed8";
+        ctx.lineWidth = 2 / globalScale;
+        ctx.stroke();
+      }
+
       ctx.font = `${node.isCenter ? "bold " : ""}${fontSize}px sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.fillStyle = "#1f2937";
       ctx.fillText(label, node.x ?? 0, (node.y ?? 0) + size + 2 / globalScale);
     },
-    [],
+    [selectedEntityId],
   );
 
   const paintLink = useCallback(
@@ -185,7 +245,7 @@ export function GraphPanel({
 
   return (
     <div
-      className={`graph-panel${isResizing ? " is-resizing" : ""}`}
+      className={`graph-panel${isResizing ? " is-resizing" : ""}${selectedEntityId ? " has-selection" : ""}`}
       style={{ width: panelWidth, minWidth: MIN_PANEL_WIDTH }}
     >
       <div
@@ -199,23 +259,47 @@ export function GraphPanel({
       />
       <div className="graph-panel-header">
         <h2>{t("graph")}</h2>
-        <button className="btn-close-panel" onClick={onClose}>&times;</button>
+        <button className="btn-close-panel" onClick={onClose}>
+          &times;
+        </button>
       </div>
 
       <div className="graph-controls">
         <span className="graph-controls-label">{t("graphDepth")}:</span>
-        <button className={`depth-btn${depth === 1 ? " active" : ""}`} onClick={() => setDepth(1)}>1</button>
-        <button className={`depth-btn${depth === 2 ? " active" : ""}`} onClick={() => setDepth(2)}>2</button>
+        <button
+          className={`depth-btn${depth === 1 ? " active" : ""}`}
+          onClick={() => setDepth(1)}
+        >
+          1
+        </button>
+        <button
+          className={`depth-btn${depth === 2 ? " active" : ""}`}
+          onClick={() => setDepth(2)}
+        >
+          2
+        </button>
         <span className="graph-controls-sep" />
-        <button className={`depth-btn${mode === "2d" ? " active" : ""}`} onClick={() => setMode("2d")}>2D</button>
-        <button className={`depth-btn${mode === "3d" ? " active" : ""}`} onClick={() => setMode("3d")}>3D</button>
+        <button
+          className={`depth-btn${mode === "2d" ? " active" : ""}`}
+          onClick={() => setMode("2d")}
+        >
+          2D
+        </button>
+        <button
+          className={`depth-btn${mode === "3d" ? " active" : ""}`}
+          onClick={() => setMode("3d")}
+        >
+          3D
+        </button>
       </div>
 
       <div className="graph-container" ref={containerRef}>
         {loading ? (
           <div className="graph-empty">{t("common:loading")}</div>
         ) : error ? (
-          <div className="graph-empty" style={{ color: "#dc2626" }}>{error}</div>
+          <div className="graph-empty" style={{ color: "#dc2626" }}>
+            {error}
+          </div>
         ) : !hasData ? (
           <div className="graph-empty">{t("noGraphData")}</div>
         ) : mode === "2d" ? (
@@ -224,8 +308,13 @@ export function GraphPanel({
               graphData={forceGraphData}
               width={dimensions.width}
               height={dimensions.height}
+              onNodeClick={(node) => setSelectedEntityId((node as GNode).id)}
               nodeCanvasObject={paintNode}
-              nodePointerAreaPaint={(node: GNode, color: string, ctx: CanvasRenderingContext2D) => {
+              nodePointerAreaPaint={(
+                node: GNode,
+                color: string,
+                ctx: CanvasRenderingContext2D,
+              ) => {
                 const size = Math.sqrt(node.val ?? 1) * 3;
                 ctx.beginPath();
                 ctx.arc(node.x ?? 0, node.y ?? 0, size + 2, 0, 2 * Math.PI);
@@ -233,7 +322,9 @@ export function GraphPanel({
                 ctx.fill();
               }}
               linkColor={() => "#d1d5db"}
-              linkWidth={(link: GLink) => Math.max((link.confidence ?? 0.5) * 2, 0.5)}
+              linkWidth={(link: GLink) =>
+                Math.max((link.confidence ?? 0.5) * 2, 0.5)
+              }
               linkDirectionalArrowLength={3}
               linkDirectionalArrowRelPos={1}
               linkCanvasObjectMode={() => "after" as const}
@@ -247,11 +338,14 @@ export function GraphPanel({
             )}
           </>
         ) : (
-          <Suspense fallback={<div className="graph-empty">{t("common:loading")}</div>}>
+          <Suspense
+            fallback={<div className="graph-empty">{t("common:loading")}</div>}
+          >
             <ForceGraph3D
               graphData={forceGraphData}
               width={dimensions.width}
               height={dimensions.height}
+              onNodeClick={(node) => setSelectedEntityId((node as GNode).id)}
               nodeLabel="label"
               nodeColor={(node) => {
                 const n = node as GNode;
@@ -259,7 +353,9 @@ export function GraphPanel({
               }}
               nodeVal={(node) => (node as GNode).val ?? 1}
               linkColor={() => "#d1d5db"}
-              linkWidth={(link) => Math.max(((link as GLink).confidence ?? 0.5) * 2, 0.5)}
+              linkWidth={(link) =>
+                Math.max(((link as GLink).confidence ?? 0.5) * 2, 0.5)
+              }
               linkDirectionalArrowLength={4}
               linkDirectionalArrowRelPos={1}
               cooldownTicks={200}
@@ -267,6 +363,17 @@ export function GraphPanel({
           </Suspense>
         )}
       </div>
+
+      {selectedEntityId && (
+        <NodeInspector
+          workspaceId={workspaceId}
+          entityId={selectedEntityId}
+          currentPageId={pageId}
+          onClose={() => setSelectedEntityId(null)}
+          onNavigateToPage={onNavigateToPage}
+          getTypeColor={getNodeColor}
+        />
+      )}
     </div>
   );
 }

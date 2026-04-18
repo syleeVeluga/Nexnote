@@ -4,6 +4,7 @@ import authRoutes from "./v1/auth.js";
 import workspaceRoutes from "./v1/workspaces.js";
 import folderRoutes from "./v1/folders.js";
 import pageRoutes from "./v1/pages.js";
+import entityRoutes from "./v1/entities.js";
 import ingestionRoutes from "./v1/ingestions.js";
 import decisionRoutes from "./v1/decisions.js";
 import docRoutes from "./v1/docs.js";
@@ -23,6 +24,9 @@ export const routes: FastifyPluginAsync = async (fastify) => {
       });
       await scoped.register(pageRoutes, {
         prefix: "/workspaces/:workspaceId/pages",
+      });
+      await scoped.register(entityRoutes, {
+        prefix: "/workspaces/:workspaceId/entities",
       });
       await scoped.register(ingestionRoutes, {
         prefix: "/workspaces/:workspaceId/ingestions",

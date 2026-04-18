@@ -65,7 +65,9 @@ export function PageEditorPage() {
         if (!cancelled) setLoading(false);
       });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [workspace, pageId, navigate]);
 
   const scheduleAutosave = useCallback(() => {
@@ -73,11 +75,14 @@ export function PageEditorPage() {
     autosaveTimerRef.current = setTimeout(() => saveRef.current(), 2000);
   }, []);
 
-  const handleEditorChange = useCallback((md: string) => {
-    setMarkdown(md);
-    setDirty(true);
-    scheduleAutosave();
-  }, [scheduleAutosave]);
+  const handleEditorChange = useCallback(
+    (md: string) => {
+      setMarkdown(md);
+      setDirty(true);
+      scheduleAutosave();
+    },
+    [scheduleAutosave],
+  );
 
   const handleSourceChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -153,7 +158,7 @@ export function PageEditorPage() {
     try {
       const res = await pagesApi.publish(workspace.id, pageId);
       setPublishResult({ status: "success", snapshot: res.snapshot });
-      setPage((p) => p ? { ...p, status: "published" } : p);
+      setPage((p) => (p ? { ...p, status: "published" } : p));
     } catch {
       setPublishResult({ status: "error" });
     } finally {
@@ -190,7 +195,9 @@ export function PageEditorPage() {
   }
 
   return (
-    <div className={`page-editor${historyOpen ? " with-history" : ""}${graphOpen ? " with-graph" : ""}`}>
+    <div
+      className={`page-editor${historyOpen ? " with-history" : ""}${graphOpen ? " with-graph" : ""}`}
+    >
       <div className="editor-main">
         <div className="editor-header">
           <h1 className="editor-title">{page.title}</h1>
@@ -248,7 +255,10 @@ export function PageEditorPage() {
         {publishResult?.status === "confirm" && (
           <div className="publish-banner publish-banner-confirm">
             <span>{t("publishConfirm")}</span>
-            <button className="btn-primary btn-sm" onClick={handlePublishConfirm}>
+            <button
+              className="btn-primary btn-sm"
+              onClick={handlePublishConfirm}
+            >
               {t("publish")}
             </button>
             <button className="btn-sm" onClick={() => setPublishResult(null)}>
@@ -309,7 +319,9 @@ export function PageEditorPage() {
         <div className="editor-status">
           <span>
             {revision
-              ? t("lastSaved", { date: new Date(revision.createdAt).toLocaleString() })
+              ? t("lastSaved", {
+                  date: new Date(revision.createdAt).toLocaleString(),
+                })
               : t("newPageStatus")}
           </span>
           {page && (
@@ -318,7 +330,9 @@ export function PageEditorPage() {
               lastHumanEditedAt={page.lastHumanEditedAt}
             />
           )}
-          {dirty && <span className="unsaved-indicator">{t("unsavedChanges")}</span>}
+          {dirty && (
+            <span className="unsaved-indicator">{t("unsavedChanges")}</span>
+          )}
         </div>
       </div>
 
@@ -327,6 +341,9 @@ export function PageEditorPage() {
           workspaceId={workspace.id}
           pageId={pageId}
           onClose={() => setGraphOpen(false)}
+          onNavigateToPage={(targetPageId) =>
+            navigate(`/pages/${targetPageId}`)
+          }
         />
       )}
 
