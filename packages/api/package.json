@@ -14,7 +14,9 @@
   "dependencies": {
     "@fastify/cors": "^11.0.0",
     "@fastify/jwt": "^10.0.0",
+    "@fastify/multipart": "^9.0.0",
     "@fastify/sensible": "^6.0.0",
+    "@mozilla/readability": "^0.5.0",
     "@nexnote/db": "workspace:*",
     "@nexnote/shared": "workspace:*",
     "bcrypt": "^6.0.0",
@@ -23,11 +25,17 @@
     "fastify": "^5.3.0",
     "fastify-plugin": "^5.0.0",
     "ioredis": "^5.6.0",
+    "jsdom": "^25.0.0",
+    "officeparser": "^5.0.0",
+    "turndown": "^7.2.0",
+    "turndown-plugin-gfm": "^1.0.2",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
+    "@types/jsdom": "^21.1.0",
     "@types/node": "^22.0.0",
+    "@types/turndown": "^5.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"
   }
