@@ -535,14 +535,65 @@ export function createRouteClassifierWorker(): Worker {
   worker.on("failed", (job, err) => {
     const log = createJobLogger("route-classifier", job?.id);
     log.error({ err }, "Job failed");
-    if (job?.data?.ingestionId) {
-      db.update(ingestions)
+    if (!job?.data?.ingestionId) return;
+
+    const ingestionId = job.data.ingestionId;
+    const workspaceId = job.data.workspaceId;
+    const attemptsMade = job.attemptsMade ?? 0;
+    const maxAttempts = job.opts?.attempts ?? 1;
+    const isFinalAttempt = attemptsMade >= maxAttempts;
+
+    (async () => {
+      await db
+        .update(ingestions)
         .set({ status: "failed", processedAt: new Date() })
-        .where(eq(ingestions.id, job.data.ingestionId))
-        .catch((e) =>
-          log.error({ err: e, ingestionId: job.data.ingestionId }, "Failed to update ingestion status"),
-        );
-    }
+        .where(eq(ingestions.id, ingestionId));
+
+      // On the final attempt, surface the failure in the review queue by
+      // writing a decision row with status='failed'. Without this, a crashed
+      // classifier drops the ingestion out of every human-visible tab.
+      if (!isFinalAttempt) return;
+
+      const [existing] = await db
+        .select({ id: ingestionDecisions.id })
+        .from(ingestionDecisions)
+        .where(eq(ingestionDecisions.ingestionId, ingestionId))
+        .limit(1);
+      if (existing) return;
+
+      const errMessage = err instanceof Error ? err.message : String(err);
+      const { provider, model } = getDefaultProvider();
+
+      const [modelRun] = await db
+        .insert(modelRuns)
+        .values({
+          workspaceId,
+          provider,
+          modelName: model,
+          mode: "route_decision",
+          promptVersion: PROMPT_VERSION,
+          tokenInput: 0,
+          tokenOutput: 0,
+          latencyMs: 0,
+          status: "failed",
+          requestMetaJson: { ingestionId, attempts: attemptsMade },
+          responseMetaJson: { error: errMessage.slice(0, 1000) },
+        })
+        .returning();
+
+      await db.insert(ingestionDecisions).values({
+        ingestionId,
+        modelRunId: modelRun.id,
+        action: "needs_review",
+        status: "failed",
+        confidence: 0,
+        rationaleJson: {
+          reason: `Classifier crashed after ${attemptsMade} attempt(s): ${errMessage.slice(0, 500)}`,
+        },
+      });
+    })().catch((e) =>
+      log.error({ err: e, ingestionId }, "Failed to record classifier failure"),
+    );
   });
 
   return worker;

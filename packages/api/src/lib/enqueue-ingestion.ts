@@ -114,6 +114,32 @@ export async function enqueueIngestion(
         )
         .limit(1);
       if (existing) {
+        // Previously failed ingestions are retry-worthy: re-enqueue the
+        // classifier and reset the status so the row doesn't stay stuck.
+        // BullMQ dedupes by jobId, so concurrent replays are safe.
+        if (existing.status === "failed") {
+          const [reset] = await fastify.db
+            .update(ingestions)
+            .set({ status: "pending", processedAt: null })
+            .where(eq(ingestions.id, existing.id))
+            .returning();
+          // BullMQ ignores add() when a job with the same id still exists
+          // (even in the failed set), so remove any lingering copy first.
+          const prior = await fastify.queues.ingestion.getJob(existing.id);
+          if (prior) {
+            await prior.remove().catch(() => undefined);
+          }
+          const retryJobData: RouteClassifierJobData = {
+            ingestionId: existing.id,
+            workspaceId: input.workspaceId,
+          };
+          await fastify.queues.ingestion.add(
+            JOB_NAMES.ROUTE_CLASSIFIER,
+            retryJobData,
+            { jobId: existing.id, ...DEFAULT_JOB_OPTIONS },
+          );
+          return { ingestion: reset ?? existing, replayed: false };
+        }
         return { ingestion: existing, replayed: true };
       }
     }
