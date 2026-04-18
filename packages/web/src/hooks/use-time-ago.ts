@@ -2,10 +2,10 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 
 export function useTimeAgo() {
-  const { t } = useTranslation("review");
+  const { t } = useTranslation("common");
   return useCallback(
     (iso: string | null | undefined): string => {
-      if (!iso) return "—";
+      if (!iso) return t("timeAgo.empty");
       const diff = Date.now() - new Date(iso).getTime();
       const mins = Math.floor(diff / 60000);
       if (mins < 1) return t("timeAgo.now");

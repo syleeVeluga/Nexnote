@@ -23,6 +23,7 @@ export function QueueHealthPage() {
   const [jobTab, setJobTab] = useState<JobTab>("failed");
   const [jobs, setJobs] = useState<FailedJob[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
+  const [jobsError, setJobsError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -50,18 +51,22 @@ export function QueueHealthPage() {
   const loadJobs = useCallback(async () => {
     if (!workspaceId || !allowed) return;
     setJobsLoading(true);
+    setJobsError(null);
     try {
       const res =
         jobTab === "failed"
           ? await adminQueues.failed(workspaceId, selectedQueue)
           : await adminQueues.stalled(workspaceId, selectedQueue);
       setJobs(res.items);
-    } catch {
+    } catch (err) {
       setJobs([]);
+      setJobsError(
+        err instanceof Error ? err.message : t("queueHealth.errors.loadFailed"),
+      );
     } finally {
       setJobsLoading(false);
     }
-  }, [workspaceId, allowed, jobTab, selectedQueue]);
+  }, [workspaceId, allowed, jobTab, selectedQueue, t]);
 
   useEffect(() => {
     loadSummaries();
@@ -233,6 +238,8 @@ export function QueueHealthPage() {
         <div className="queue-jobs-body">
           {jobsLoading ? (
             <div className="queue-empty">{t("common:loading")}</div>
+          ) : jobsError ? (
+            <div className="queue-error">{jobsError}</div>
           ) : jobs.length === 0 ? (
             <div className="queue-empty">
               {jobTab === "failed"
@@ -241,13 +248,23 @@ export function QueueHealthPage() {
             </div>
           ) : (
             <ul className="queue-job-list">
-              {jobs.map((job) => {
-                const crossWorkspace =
-                  job.workspaceId !== null && job.workspaceId !== workspaceId;
+              {jobs.map((job, index) => {
+                const crossWorkspace = job.isCrossWorkspace;
                 const timestamp =
                   jobTab === "failed" ? job.finishedOn : job.processedOn;
+                const jobKey =
+                  job.id ??
+                  [
+                    job.name,
+                    job.workspaceId ?? "no-workspace",
+                    job.ingestionId ?? "no-ingestion",
+                    job.pageId ?? "no-page",
+                    timestamp ?? "no-timestamp",
+                    job.attemptsMade,
+                    index,
+                  ].join(":");
                 return (
-                  <li key={job.id ?? Math.random()} className="queue-job-item">
+                  <li key={jobKey} className="queue-job-item">
                     <div className="queue-job-top">
                       <span className="queue-job-name">{job.name}</span>
                       <span className="queue-job-attempts">

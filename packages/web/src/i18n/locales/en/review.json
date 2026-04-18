@@ -49,14 +49,5 @@
   "shortcutHint": "Shortcuts: j/k to navigate, a to approve, r to reject",
   "reviewPending": "pending review",
   "review": "Review",
-  "noReason": "(no reason provided)",
-  "timeAgo": {
-    "now": "just now",
-    "minutes_one": "{{count}}m ago",
-    "minutes_other": "{{count}}m ago",
-    "hours_one": "{{count}}h ago",
-    "hours_other": "{{count}}h ago",
-    "days_one": "{{count}}d ago",
-    "days_other": "{{count}}d ago"
-  }
+  "noReason": "(no reason provided)"
 }

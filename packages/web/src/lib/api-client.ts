@@ -1,19 +1,20 @@
-import { QUEUE_KEYS, type QueueKey } from "@nexnote/shared";
-import type {
-  Register,
-  Login,
-  UpdatePage,
-  PageStatus,
-  ActorType,
-  RevisionSource,
-  WorkspaceRole,
-  RevisionDiffDto,
-  GraphNode,
-  GraphEdge,
-  GraphData,
-  IngestionAction,
-  IngestionStatus,
-  DecisionStatus,
+import {
+  QUEUE_KEYS,
+  type QueueKey,
+  type Register,
+  type Login,
+  type UpdatePage,
+  type PageStatus,
+  type ActorType,
+  type RevisionSource,
+  type WorkspaceRole,
+  type RevisionDiffDto,
+  type GraphNode,
+  type GraphEdge,
+  type GraphData,
+  type IngestionAction,
+  type IngestionStatus,
+  type DecisionStatus,
 } from "@nexnote/shared";
 
 const BASE_URL = "/api/v1";
@@ -734,6 +735,7 @@ export interface QueueSummary {
   key: QueueKey;
   name: string;
   counts: QueueCounts;
+  stalledCountCapped: boolean;
   isPaused: boolean;
 }
 
@@ -750,6 +752,7 @@ export interface FailedJob {
   workspaceId: string | null;
   ingestionId: string | null;
   pageId: string | null;
+  isCrossWorkspace: boolean;
 }
 
 export const adminQueues = {
