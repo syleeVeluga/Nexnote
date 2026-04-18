@@ -4,6 +4,7 @@ import TurndownService from "turndown";
 // @ts-expect-error — turndown-plugin-gfm ships without types
 import { gfm } from "turndown-plugin-gfm";
 import { assertUrlSafe } from "../url-safety.js";
+import { parsePositiveInt } from "../rate-limit.js";
 
 export interface WebExtractionResult {
   content: string;
@@ -21,12 +22,6 @@ export class WebExtractError extends Error {
     this.code = code;
     this.name = "WebExtractError";
   }
-}
-
-function parsePositiveInt(value: string | undefined, fallback: number): number {
-  if (!value) return fallback;
-  const n = parseInt(value, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 const FETCH_TIMEOUT_MS = parsePositiveInt(
@@ -120,7 +115,7 @@ async function fetchHtml(url: string): Promise<{
     }
   }
 
-  const buffer = Buffer.concat(chunks.map((c) => Buffer.from(c)));
+  const buffer = Buffer.concat(chunks);
   return {
     html: buffer.toString("utf8"),
     finalUrl: response.url || url,
@@ -154,33 +149,34 @@ export async function extractWebPage(
 
   const warnings: string[] = [];
   const dom = new JSDOM(html, { url: finalUrl });
-  const doc = dom.window.document;
 
-  const article = new Readability(doc).parse();
-  if (!article || !article.content) {
+  try {
+    const article = new Readability(dom.window.document).parse();
+    if (!article || !article.content) {
+      throw new WebExtractError(
+        "no-article",
+        "Readability could not extract a main article",
+      );
+    }
+
+    const td = new TurndownService({
+      headingStyle: "atx",
+      codeBlockStyle: "fenced",
+    });
+    td.use(gfm);
+    const markdown = td.turndown(article.content).trim();
+
+    if (markdown.length < 50) warnings.push("short-content");
+
+    return {
+      content: markdown,
+      title: article.title ?? undefined,
+      warnings,
+      extractorVersion: "readability@0.5+turndown@7",
+      finalUrl,
+      contentType,
+    };
+  } finally {
     dom.window.close();
-    throw new WebExtractError(
-      "no-article",
-      "Readability could not extract a main article",
-    );
   }
-
-  const td = new TurndownService({
-    headingStyle: "atx",
-    codeBlockStyle: "fenced",
-  });
-  td.use(gfm);
-  const markdown = td.turndown(article.content).trim();
-  dom.window.close();
-
-  if (markdown.length < 50) warnings.push("short-content");
-
-  return {
-    content: markdown,
-    title: article.title ?? undefined,
-    warnings,
-    extractorVersion: "readability@0.5+turndown@7",
-    finalUrl,
-    contentType,
-  };
 }
