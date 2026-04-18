@@ -1,0 +1,51 @@
+{
+  "queueHealth": {
+    "title": "큐 상태",
+    "subtitle": "BullMQ 큐의 실시간 상태입니다. 실패한 잡을 재시도하거나 제거할 수 있습니다.",
+    "refresh": "새로 고침",
+    "autoRefresh": "10초마다 자동 새로 고침",
+    "paused": "일시 정지",
+    "running": "실행 중",
+    "selectQueue": "실패·스톨된 잡을 확인하려면 큐를 선택하세요.",
+    "emptyFailed": "이 큐에는 실패한 잡이 없습니다.",
+    "emptyStalled": "스톨된 잡이 없습니다.",
+    "tabs": {
+      "failed": "실패",
+      "stalled": "스톨"
+    },
+    "counts": {
+      "waiting": "대기",
+      "active": "실행",
+      "completed": "완료",
+      "failed": "실패",
+      "delayed": "지연",
+      "paused": "일시정지",
+      "stalled": "스톨"
+    },
+    "job": {
+      "attempts": "시도",
+      "workspace": "워크스페이스",
+      "ingestion": "인제스션",
+      "page": "페이지",
+      "failedAt": "실패 시각",
+      "startedAt": "시작 시각",
+      "retry": "재시도",
+      "remove": "제거",
+      "crossWorkspace": "다른 워크스페이스의 잡입니다",
+      "noReason": "(기록된 실패 원인 없음)"
+    },
+    "errors": {
+      "loadFailed": "큐 상태를 불러오지 못했습니다.",
+      "retryFailed": "재시도에 실패했습니다.",
+      "removeFailed": "제거에 실패했습니다."
+    },
+    "actions": {
+      "removeConfirm": "이 잡을 큐에서 영구적으로 제거하시겠습니까?"
+    },
+    "restrictedToAdmins": "큐 상태 페이지는 워크스페이스 관리자만 접근할 수 있습니다."
+  },
+  "nav": {
+    "admin": "관리",
+    "queueHealth": "큐 상태"
+  }
+}

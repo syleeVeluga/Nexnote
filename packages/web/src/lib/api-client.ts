@@ -1,3 +1,4 @@
+import { QUEUE_KEYS, type QueueKey } from "@nexnote/shared";
 import type {
   Register,
   Login,
@@ -635,6 +636,74 @@ export const decisions = {
       method: "PATCH",
       body: JSON.stringify(data),
     });
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Admin — Queue health (BullMQ visibility)
+// ---------------------------------------------------------------------------
+
+export { QUEUE_KEYS, type QueueKey };
+
+export interface QueueCounts {
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+  paused: number;
+  stalled: number;
+}
+
+export interface QueueSummary {
+  key: QueueKey;
+  name: string;
+  counts: QueueCounts;
+  isPaused: boolean;
+}
+
+export interface FailedJob {
+  id: string | null;
+  name: string;
+  attemptsMade: number;
+  maxAttempts: number | null;
+  failedReason: string | null;
+  stackFirstLine: string | null;
+  timestamp: string | null;
+  processedOn: string | null;
+  finishedOn: string | null;
+  workspaceId: string | null;
+  ingestionId: string | null;
+  pageId: string | null;
+}
+
+export const adminQueues = {
+  overview(workspaceId: string) {
+    return request<{ queues: QueueSummary[] }>(
+      `/workspaces/${workspaceId}/admin/queues`,
+    );
+  },
+  failed(workspaceId: string, queueName: QueueKey) {
+    return request<{ queue: QueueKey; items: FailedJob[] }>(
+      `/workspaces/${workspaceId}/admin/queues/${queueName}/failed`,
+    );
+  },
+  stalled(workspaceId: string, queueName: QueueKey) {
+    return request<{ queue: QueueKey; items: FailedJob[] }>(
+      `/workspaces/${workspaceId}/admin/queues/${queueName}/stalled`,
+    );
+  },
+  retry(workspaceId: string, queueName: QueueKey, jobId: string) {
+    return request<{ status: "retried"; jobId: string }>(
+      `/workspaces/${workspaceId}/admin/queues/${queueName}/jobs/${encodeURIComponent(jobId)}/retry`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+  },
+  remove(workspaceId: string, queueName: QueueKey, jobId: string) {
+    return request<{ status: "removed"; jobId: string }>(
+      `/workspaces/${workspaceId}/admin/queues/${queueName}/jobs/${encodeURIComponent(jobId)}/remove`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
   },
 };
 

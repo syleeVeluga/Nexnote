@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../hooks/use-workspace.js";
+import { useTimeAgo } from "../hooks/use-time-ago.js";
 import {
   decisions as decisionsApi,
   type DecisionListItem,
@@ -25,24 +26,6 @@ const TABS: TabConfig[] = [
   { key: "failed", statuses: ["failed"] },
   { key: "recent", statuses: ["auto_applied", "approved", "rejected"], sinceDays: 7 },
 ];
-
-function useTimeAgo() {
-  const { t } = useTranslation("review");
-  return useCallback(
-    (dateStr: string): string => {
-      const diff = Date.now() - new Date(dateStr).getTime();
-      const mins = Math.floor(diff / 60000);
-      if (mins < 1) return t("timeAgo.now");
-      if (mins < 60) return t("timeAgo.minutes", { count: mins });
-      const hours = Math.floor(mins / 60);
-      if (hours < 24) return t("timeAgo.hours", { count: hours });
-      const days = Math.floor(hours / 24);
-      if (days < 30) return t("timeAgo.days", { count: days });
-      return new Date(dateStr).toLocaleDateString();
-    },
-    [t],
-  );
-}
 
 export function ReviewQueuePage() {
   const { t } = useTranslation(["review", "common"]);

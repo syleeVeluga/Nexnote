@@ -312,6 +312,16 @@ export function Sidebar({
             <span className="sidebar-nav-badge">{pendingCount}</span>
           )}
         </NavLink>
+        {(workspace.role === "owner" || workspace.role === "admin") && (
+          <NavLink
+            to="/admin/queues"
+            className={({ isActive }) =>
+              `sidebar-nav-link${isActive ? " active" : ""}`
+            }
+          >
+            <span className="sidebar-nav-label">{t("queueHealth")}</span>
+          </NavLink>
+        )}
       </div>
 
       <div className="sidebar-content">

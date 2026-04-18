@@ -18,9 +18,13 @@ Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH]
 ## Stage ③ — Remaining follow-ups
 
 ### S3-3 · [MED] Retry / dead-letter path for failed patch-generator jobs
-Currently a failed patch-generator sets `ingestions.status="failed"` and logs — no retry UI, no dead-letter queue.
-- Expose failed ingestions in the review queue with an error excerpt
-- "Retry" button re-enqueues; "Abandon" marks it closed with audit entry
+Currently a failed patch-generator sets `ingestions.status="failed"` and logs. The new `/admin/queues` page (S3-4) now exposes BullMQ-level failed jobs with retry/remove, which partially covers the operator case. Still open: surface the per-ingestion error excerpt in `/review` itself, and wire an "Abandon" (audit-logged close) action next to the queue-level retry.
+
+### S3-4 · [DONE · 2026-04-18] Queue observability + DLQ visibility
+- Admin-only `/admin/queues` page shows per-queue counts (waiting/active/failed/delayed/stalled/paused) for all five queues (ingestion, patch, extraction, publish, search).
+- Failed and stalled (active > 2min) jobs listed with `failedReason`, attempts/max, timestamps, and workspace/ingestion/page chips drilled from job data.
+- Retry and remove actions per job; cross-workspace jobs are read-only guard-rails.
+- Backend: [packages/api/src/routes/v1/admin-queues.ts](packages/api/src/routes/v1/admin-queues.ts) mounted under `/workspaces/:id/admin/queues`, gated by `ADMIN_PLUS_ROLES`; queue plugin updated to expose the `patch` queue. Frontend: [packages/web/src/pages/QueueHealthPage.tsx](packages/web/src/pages/QueueHealthPage.tsx) with optional 10s auto-refresh.
 
 ---
 
