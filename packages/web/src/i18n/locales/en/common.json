@@ -13,5 +13,6 @@
   "delete": "Delete",
   "deleteConfirm": "Are you sure? Child pages will also be deleted.",
   "review": "Review Queue",
+  "import": "Import Knowledge",
   "queueHealth": "Queue Health"
 }

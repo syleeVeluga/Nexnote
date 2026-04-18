@@ -11,6 +11,27 @@ export const createIngestionSchema = z.object({
   rawPayload: z.record(z.unknown()),
 });
 
+export const importUrlBodySchema = z.object({
+  url: z.string().url().max(2048),
+  mode: z.enum(["readable", "firecrawl"]).default("readable"),
+  titleHint: z.string().max(500).optional(),
+  idempotencyKey: z.string().min(1).max(200).optional(),
+  forceRefresh: z.boolean().optional(),
+});
+
+export const importTextBodySchema = z.object({
+  content: z.string().min(1).max(1_000_000),
+  sourceName: z.string().min(1).max(200).default("manual-paste"),
+  contentType: z.string().max(100).default("text/markdown"),
+  titleHint: z.string().max(500).optional(),
+  idempotencyKey: z.string().min(1).max(200).optional(),
+});
+
+export const importFileFieldsSchema = z.object({
+  titleHint: z.string().max(500).optional(),
+  idempotencyKey: z.string().min(1).max(200).optional(),
+});
+
 export const routeDecisionSchema = z.object({
   action: z.enum(INGESTION_ACTIONS),
   targetPageId: uuidSchema.nullable().default(null),
@@ -47,6 +68,9 @@ export const tripleExtractionSchema = z.object({
 });
 
 export type CreateIngestion = z.infer<typeof createIngestionSchema>;
+export type ImportUrlBody = z.infer<typeof importUrlBodySchema>;
+export type ImportTextBody = z.infer<typeof importTextBodySchema>;
+export type ImportFileFields = z.infer<typeof importFileFieldsSchema>;
 export type RouteDecision = z.infer<typeof routeDecisionSchema>;
 export type PatchProposal = z.infer<typeof patchProposalSchema>;
 export type TripleExtraction = z.infer<typeof tripleExtractionSchema>;

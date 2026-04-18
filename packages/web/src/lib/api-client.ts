@@ -550,6 +550,81 @@ export const ingestions = {
       `/workspaces/${workspaceId}/ingestions/${ingestionId}`,
     );
   },
+  async importFile(
+    workspaceId: string,
+    file: File,
+    options?: { titleHint?: string; idempotencyKey?: string },
+  ): Promise<IngestionSummary & { replayed: boolean }> {
+    const form = new FormData();
+    form.append("file", file);
+    if (options?.titleHint) form.append("titleHint", options.titleHint);
+    if (options?.idempotencyKey) form.append("idempotencyKey", options.idempotencyKey);
+
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const res = await fetch(
+      `${BASE_URL}/workspaces/${workspaceId}/ingestions/upload`,
+      { method: "POST", headers, body: form },
+    );
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new ApiError(res.status, body.code ?? "UNKNOWN", body.error ?? res.statusText);
+    }
+    return { ...(body as IngestionSummary), replayed: res.status === 200 };
+  },
+  async importUrl(
+    workspaceId: string,
+    body: {
+      url: string;
+      mode?: "readable" | "firecrawl";
+      titleHint?: string;
+      idempotencyKey?: string;
+      forceRefresh?: boolean;
+    },
+  ): Promise<IngestionSummary & { replayed: boolean }> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(
+      `${BASE_URL}/workspaces/${workspaceId}/ingestions/url`,
+      { method: "POST", headers, body: JSON.stringify(body) },
+    );
+    const responseBody = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new ApiError(
+        res.status,
+        responseBody.code ?? "UNKNOWN",
+        responseBody.error ?? res.statusText,
+      );
+    }
+    return { ...(responseBody as IngestionSummary), replayed: res.status === 200 };
+  },
+  async importText(
+    workspaceId: string,
+    body: {
+      content: string;
+      sourceName?: string;
+      contentType?: string;
+      titleHint?: string;
+      idempotencyKey?: string;
+    },
+  ): Promise<IngestionSummary & { replayed: boolean }> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(
+      `${BASE_URL}/workspaces/${workspaceId}/ingestions/text`,
+      { method: "POST", headers, body: JSON.stringify(body) },
+    );
+    const responseBody = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new ApiError(
+        res.status,
+        responseBody.code ?? "UNKNOWN",
+        responseBody.error ?? res.statusText,
+      );
+    }
+    return { ...(responseBody as IngestionSummary), replayed: res.status === 200 };
+  },
 };
 
 export const decisions = {

@@ -6,12 +6,9 @@ import {
   uuidSchema,
   paginationSchema,
   INGESTION_STATUSES,
-  JOB_NAMES,
-  DEFAULT_JOB_OPTIONS,
   ERROR_CODES,
 } from "@nexnote/shared";
-import type { RouteClassifierJobData } from "@nexnote/shared";
-import { ingestions, ingestionDecisions, apiTokens, auditLogs } from "@nexnote/db";
+import { ingestions, ingestionDecisions, apiTokens } from "@nexnote/db";
 import type { IngestionDecision } from "@nexnote/db";
 import {
   getMemberRole,
@@ -23,10 +20,11 @@ import {
 import {
   sendValidationError,
   sendRateLimitExceeded,
-  isUniqueViolation,
 } from "../../lib/reply-helpers.js";
 import { approveDecision, rejectDecision } from "../../lib/apply-decision.js";
 import { consumeRateLimit, parsePositiveInt } from "../../lib/rate-limit.js";
+import { enqueueIngestion } from "../../lib/enqueue-ingestion.js";
+import { registerImportRoutes } from "./ingestions-import.js";
 
 const INGESTION_RATE_PER_MIN = parsePositiveInt(
   process.env["INGESTION_RATE_LIMIT_PER_MINUTE"],
@@ -51,7 +49,7 @@ const applyBodySchema = z.object({
   approved: z.boolean(),
 });
 
-function mapIngestionDto(row: {
+export function mapIngestionDto(row: {
   id: string;
   workspaceId: string;
   apiTokenId: string;
@@ -165,66 +163,27 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
         );
       }
 
-      let ingestionRow;
-      try {
-        [ingestionRow] = await fastify.db
-          .insert(ingestions)
-          .values({
-            workspaceId,
-            apiTokenId: token.id,
-            sourceName: body.data.sourceName,
-            externalRef: body.data.externalRef ?? null,
-            idempotencyKey: body.data.idempotencyKey,
-            contentType: body.data.contentType,
-            titleHint: body.data.titleHint ?? null,
-            rawPayload: body.data.rawPayload,
-            status: "pending",
-          })
-          .returning();
-      } catch (err) {
-        if (isUniqueViolation(err)) {
-          const [existing] = await fastify.db
-            .select()
-            .from(ingestions)
-            .where(
-              and(
-                eq(ingestions.workspaceId, workspaceId),
-                eq(ingestions.idempotencyKey, body.data.idempotencyKey),
-              ),
-            )
-            .limit(1);
-          if (existing) {
-            return reply.code(200).send(mapIngestionDto(existing));
-          }
-        }
-        throw err;
-      }
-
-      await fastify.db.insert(auditLogs).values({
-        workspaceId,
-        userId,
-        entityType: "ingestion",
-        entityId: ingestionRow.id,
-        action: "create",
-        afterJson: {
+      const { ingestion: ingestionRow, replayed } = await enqueueIngestion(
+        fastify,
+        {
+          workspaceId,
+          userId,
+          apiTokenId: token.id,
           sourceName: body.data.sourceName,
+          externalRef: body.data.externalRef,
           idempotencyKey: body.data.idempotencyKey,
+          contentType: body.data.contentType,
+          titleHint: body.data.titleHint,
+          rawPayload: body.data.rawPayload,
         },
-      });
-
-      const jobData: RouteClassifierJobData = {
-        ingestionId: ingestionRow.id,
-        workspaceId,
-      };
-      await fastify.queues.ingestion.add(
-        JOB_NAMES.ROUTE_CLASSIFIER,
-        jobData,
-        { jobId: ingestionRow.id, ...DEFAULT_JOB_OPTIONS },
       );
 
-      return reply.code(202).send(mapIngestionDto(ingestionRow));
+      return reply.code(replayed ? 200 : 202).send(mapIngestionDto(ingestionRow));
     },
   );
+
+  // POST /upload, /url, /text — Browser-initiated import paths
+  await registerImportRoutes(fastify);
 
   // GET / — List ingestions (paginated, filterable)
   fastify.get(
