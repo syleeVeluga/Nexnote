@@ -63,8 +63,9 @@ Rules:
 - Each triple should have a subject (entity name), predicate (relationship), and object (entity name OR literal value)
 - Set objectType to "entity" if the object refers to a named entity, or "literal" if it's a value/description
 - Assign confidence 0.0–1.0 based on how explicit the relationship is in the text
-- Include spans showing where in the text each triple was found
+- Include spans showing where in the text each triple was found; keep each excerpt under 120 characters
 - Normalize entity names (capitalize properly, use canonical forms)
+- Extract at most 40 of the most important, clearly-stated triples. Prioritize high-signal facts over exhaustive coverage.
 
 Respond with JSON:
 {
@@ -89,7 +90,7 @@ ${revision.contentMd.slice(0, 6000)}
           },
         ],
         temperature: 0.1,
-        maxTokens: 2048,
+        maxTokens: 8192,
         responseFormat: "json",
       };
 
