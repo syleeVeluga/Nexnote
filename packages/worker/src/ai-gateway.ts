@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type {
   AIAdapter,
   AIProvider,
@@ -5,6 +8,94 @@ import type {
   AIResponse,
 } from "@nexnote/shared";
 import { AI_MODELS } from "@nexnote/shared";
+
+const currentDir = dirname(fileURLToPath(import.meta.url));
+const fixturePath = resolve(currentDir, "../../../tests/fixtures/ai/markers.json");
+const E2E_MARKER_PATTERN = /\[E2E_[A-Z_]+\]/g;
+
+interface MockFixtureFile {
+  markers: Record<
+    string,
+    {
+      route_decision?: Record<string, unknown>;
+      patch_generation?: string;
+      triple_extraction?: Record<string, unknown>;
+    }
+  >;
+}
+
+let mockFixtureCache: MockFixtureFile | null = null;
+
+function isMockModeEnabled(): boolean {
+  return process.env["AI_TEST_MODE"] === "mock";
+}
+
+function loadMockFixtures(): MockFixtureFile {
+  if (mockFixtureCache) {
+    return mockFixtureCache;
+  }
+
+  if (!existsSync(fixturePath)) {
+    throw new Error(
+      `AI_TEST_MODE=mock requires fixture file at ${fixturePath}`,
+    );
+  }
+
+  mockFixtureCache = JSON.parse(
+    readFileSync(fixturePath, "utf8"),
+  ) as MockFixtureFile;
+
+  return mockFixtureCache;
+}
+
+function detectMarker(messages: AIRequest["messages"]): string | null {
+  const haystack = messages.map((message) => message.content).join("\n");
+  const matches = haystack.match(E2E_MARKER_PATTERN);
+  return matches?.[0] ?? null;
+}
+
+function resolveMockContent(request: AIRequest): string {
+  const marker = detectMarker(request.messages);
+  if (!marker) {
+    if (request.mode === "triple_extraction") {
+      return JSON.stringify({ triples: [] });
+    }
+    if (request.mode === "patch_generation") {
+      return "# E2E Mock Patch\n\nNo explicit marker was provided.\n";
+    }
+    throw new Error(
+      `AI_TEST_MODE=mock requires one of the registered markers (${Object.keys(loadMockFixtures().markers).join(", ")}) in the prompt`,
+    );
+  }
+
+  const fixture = loadMockFixtures().markers[marker];
+  if (!fixture) {
+    throw new Error(`No AI mock fixture registered for marker ${marker}`);
+  }
+
+  const response = fixture[request.mode];
+  if (response == null) {
+    throw new Error(
+      `Mock fixture for ${marker} does not define a response for ${request.mode}`,
+    );
+  }
+
+  return typeof response === "string" ? response : JSON.stringify(response);
+}
+
+class MockAIAdapter implements AIAdapter {
+  readonly provider = "openai" as const;
+
+  async chat(request: AIRequest): Promise<AIResponse> {
+    const content = resolveMockContent(request);
+    return {
+      content,
+      tokenInput: Math.max(16, content.length),
+      tokenOutput: Math.max(16, Math.ceil(content.length / 4)),
+      latencyMs: 1,
+    };
+  }
+}
 
 class OpenAIAdapter implements AIAdapter {
   readonly provider = "openai" as const;
@@ -118,12 +209,22 @@ const adapters: Record<AIProvider, AIAdapter> = {
   openai: new OpenAIAdapter(),
   gemini: new GeminiAdapter(),
 };
+const mockAdapter = new MockAIAdapter();
 
 export function getAIAdapter(provider: AIProvider): AIAdapter {
+  if (isMockModeEnabled()) {
+    return mockAdapter;
+  }
   return adapters[provider];
 }
 
 export function getDefaultProvider(): { provider: AIProvider; model: string } {
+  if (isMockModeEnabled()) {
+    return {
+      provider: "openai",
+      model: "mock-e2e",
+    };
+  }
   if (process.env["OPENAI_API_KEY"]) {
     return {
       provider: "openai",
