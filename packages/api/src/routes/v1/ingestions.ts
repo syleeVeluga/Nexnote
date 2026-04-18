@@ -162,7 +162,6 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
-  // POST /upload, /url, /text — Browser-initiated import paths
   await registerImportRoutes(fastify);
 
   // GET / — List ingestions (paginated, filterable)

@@ -218,10 +218,8 @@ export function ImportPage() {
   return (
     <div className="import-page">
       <div className="import-header">
-        <div>
-          <h1>{t("title")}</h1>
-          <p className="import-subtitle">{t("subtitle")}</p>
-        </div>
+        <h1>{t("title")}</h1>
+        <p className="import-subtitle">{t("subtitle")}</p>
       </div>
 
       <div className="import-tabs">

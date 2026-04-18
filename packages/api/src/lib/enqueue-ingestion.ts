@@ -16,14 +16,11 @@ import { isUniqueViolation } from "./reply-helpers.js";
 
 const BROWSER_IMPORT_TOKEN_NAME = "Browser Import (auto)";
 
-/**
- * Finds any active API token owned by this user in the workspace.
- * If none exists, provisions a hidden auto-token so ingestion rows can
- * satisfy the `api_token_id NOT NULL` FK. The token hash is random bytes
- * that are never exposed — the row exists purely for referential integrity
- * and as a rate-limit keying surface for the browser-import path.
- */
-export async function getOrCreateImportTokenId(
+// Provisions a hidden auto-token so browser-initiated ingestion rows can
+// satisfy the api_token_id NOT NULL FK. The hash is random bytes that are
+// never exposed — the row exists purely for referential integrity and as
+// a rate-limit keying surface.
+async function getOrCreateImportTokenId(
   fastify: FastifyInstance,
   workspaceId: string,
   userId: string,
@@ -57,7 +54,8 @@ export async function getOrCreateImportTokenId(
 export interface EnqueueIngestionInput {
   workspaceId: string;
   userId: string;
-  apiTokenId: string;
+  /** When omitted, an auto-provisioned browser-import token is used. */
+  apiTokenId?: string;
   sourceName: string;
   externalRef?: string | null;
   idempotencyKey: string;
@@ -83,13 +81,17 @@ export async function enqueueIngestion(
   fastify: FastifyInstance,
   input: EnqueueIngestionInput,
 ): Promise<EnqueueIngestionResult> {
+  const apiTokenId =
+    input.apiTokenId ??
+    (await getOrCreateImportTokenId(fastify, input.workspaceId, input.userId));
+
   let row: Ingestion | undefined;
   try {
     [row] = await fastify.db
       .insert(ingestions)
       .values({
         workspaceId: input.workspaceId,
-        apiTokenId: input.apiTokenId,
+        apiTokenId,
         sourceName: input.sourceName,
         externalRef: input.externalRef ?? null,
         idempotencyKey: input.idempotencyKey,

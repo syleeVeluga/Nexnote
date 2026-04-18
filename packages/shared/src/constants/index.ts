@@ -20,6 +20,14 @@ export const INGESTION_STATUSES = [
 ] as const;
 export type IngestionStatus = (typeof INGESTION_STATUSES)[number];
 
+export const IMPORT_SOURCE_NAMES = {
+  MANUAL_UPLOAD: "manual-upload",
+  WEB_URL: "web-url",
+  MANUAL_PASTE: "manual-paste",
+} as const;
+export type ImportSourceName =
+  (typeof IMPORT_SOURCE_NAMES)[keyof typeof IMPORT_SOURCE_NAMES];
+
 export const INGESTION_ACTIONS = [
   "create",
   "update",
