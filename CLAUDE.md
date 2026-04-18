@@ -213,7 +213,7 @@ Evaluated against the **core knowledge-refresh loop**, not per-package. See [TAS
 | — **AI-edit (in-editor)** | 🟡 PARTIAL | `POST /pages/:id/ai-edit` streams via SSE and [api-client.aiEdit](packages/web/src/lib/api-client.ts) consumes it. **No accept/reject UI** — result is streamed to screen, user manually saves or discards. No suggestion history. |
 | — **Notion-like editor/layout** | 🟡 PARTIAL | Hierarchical page tree + collapse/expand ✅; slash menu with 8 block types ✅; 2s debounced autosave ✅. **Missing:** page icon/cover (no DB column), block drag handles, page-link/mention, callout/toggle/math blocks, breadcrumb, backlinks panel, in-editor TOC, drag-and-drop reparent, Cmd+K palette. |
 | — **Graph exploration** | 🟡 PARTIAL | Per-page BFS endpoint + force-graph-2d render + type-colored nodes + predicate edge labels ✅. **Missing:** workspace-wide graph, entity detail panel, predicate/confidence filters, node search/highlight, confidence visual encoding (edge width/opacity), 3D toggle UX surface. |
-| — **Infra hygiene** | 🟡 PARTIAL | Health checks OK; `pages.search_vector` column + GIN index now created by migration 0003; no CI; 6 unit test files total (46 assertions green); no API integration tests; no Yjs/Hocuspocus. |
+| — **Infra hygiene** | 🟡 PARTIAL | Health checks OK; `pages.search_vector` column + GIN index created by migration 0003; admin-only `/admin/queues` page (S3-4) surfaces BullMQ-level per-queue counts, failed/stalled job lists with retry/remove — no more silent DLQ; no CI; 6 unit test files total (46 assertions green); no API integration tests; no Yjs/Hocuspocus. |
 
 ### What this means for the goal
 

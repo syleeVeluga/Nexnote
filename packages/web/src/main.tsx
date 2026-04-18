@@ -10,6 +10,7 @@ import "./styles/editor.css";
 import "./styles/revisions.css";
 import "./styles/graph.css";
 import "./styles/review.css";
+import "./styles/admin.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

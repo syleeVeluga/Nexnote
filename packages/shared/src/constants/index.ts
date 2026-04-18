@@ -105,6 +105,15 @@ export const QUEUE_NAMES = {
   SEARCH: "search",
 } as const;
 
+export const QUEUE_KEYS = [
+  QUEUE_NAMES.INGESTION,
+  QUEUE_NAMES.PATCH,
+  QUEUE_NAMES.EXTRACTION,
+  QUEUE_NAMES.PUBLISH,
+  QUEUE_NAMES.SEARCH,
+] as const;
+export type QueueKey = (typeof QUEUE_KEYS)[number];
+
 export const JOB_NAMES = {
   ROUTE_CLASSIFIER: "route-classifier",
   PATCH_GENERATOR: "patch-generator",

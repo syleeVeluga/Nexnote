@@ -1,0 +1,51 @@
+{
+  "queueHealth": {
+    "title": "Queue health",
+    "subtitle": "Live state of BullMQ queues. Retry or remove failed jobs here.",
+    "refresh": "Refresh",
+    "autoRefresh": "Auto-refresh every 10s",
+    "paused": "Paused",
+    "running": "Running",
+    "selectQueue": "Select a queue to inspect failed or stalled jobs.",
+    "emptyFailed": "No failed jobs in this queue.",
+    "emptyStalled": "No stalled jobs detected.",
+    "tabs": {
+      "failed": "Failed",
+      "stalled": "Stalled"
+    },
+    "counts": {
+      "waiting": "Waiting",
+      "active": "Active",
+      "completed": "Completed",
+      "failed": "Failed",
+      "delayed": "Delayed",
+      "paused": "Paused",
+      "stalled": "Stalled"
+    },
+    "job": {
+      "attempts": "Attempts",
+      "workspace": "Workspace",
+      "ingestion": "Ingestion",
+      "page": "Page",
+      "failedAt": "Failed at",
+      "startedAt": "Started at",
+      "retry": "Retry",
+      "remove": "Remove",
+      "crossWorkspace": "Job belongs to another workspace",
+      "noReason": "(no reason recorded)"
+    },
+    "errors": {
+      "loadFailed": "Failed to load queue state.",
+      "retryFailed": "Retry failed.",
+      "removeFailed": "Remove failed."
+    },
+    "actions": {
+      "removeConfirm": "Remove this job from the queue permanently?"
+    },
+    "restrictedToAdmins": "Queue health is restricted to workspace admins."
+  },
+  "nav": {
+    "admin": "Admin",
+    "queueHealth": "Queue health"
+  }
+}
