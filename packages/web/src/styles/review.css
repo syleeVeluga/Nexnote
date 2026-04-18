@@ -108,7 +108,7 @@
 }
 
 .review-item:hover {
-  background: #f9fafb;
+  background: #f8fafc;
 }
 
 .review-item.selected {
@@ -265,7 +265,7 @@
   color: #0f172a;
   line-height: 1.5;
   padding: 10px 12px;
-  background: #f9fafb;
+  background: #f8fafc;
   border-radius: 6px;
   border-left: 3px solid #6366f1;
 }
@@ -291,7 +291,7 @@
   font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
   font-size: 12px;
   line-height: 1.5;
-  background: #f9fafb;
+  background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
   max-height: 300px;
@@ -302,7 +302,7 @@
 }
 
 .review-detail-collapsible {
-  background: #f9fafb;
+  background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
   padding: 8px 12px;
@@ -376,7 +376,7 @@
 
 .review-detail-actions .btn:hover,
 .review-reject-buttons .btn:hover {
-  background: #f9fafb;
+  background: #f8fafc;
 }
 
 .review-detail-actions .btn-primary,
