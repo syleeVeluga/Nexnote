@@ -22,9 +22,20 @@ import {
 } from "../../lib/workspace-auth.js";
 import {
   sendValidationError,
+  sendRateLimitExceeded,
   isUniqueViolation,
 } from "../../lib/reply-helpers.js";
 import { approveDecision, rejectDecision } from "../../lib/apply-decision.js";
+import { consumeRateLimit, parsePositiveInt } from "../../lib/rate-limit.js";
+
+const INGESTION_RATE_PER_MIN = parsePositiveInt(
+  process.env["INGESTION_RATE_LIMIT_PER_MINUTE"],
+  60,
+);
+const INGESTION_QUOTA_PER_DAY = parsePositiveInt(
+  process.env["INGESTION_QUOTA_PER_DAY"],
+  5000,
+);
 
 const ingestionParamsSchema = z.object({
   workspaceId: uuidSchema,
@@ -124,6 +135,34 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
           details:
             "You need at least one active API token in this workspace to submit ingestions",
         });
+      }
+
+      const tokenRate = await consumeRateLimit(fastify.redis, {
+        key: `ingest:token:${token.id}`,
+        limit: INGESTION_RATE_PER_MIN,
+        windowSec: 60,
+      });
+      if (!tokenRate.allowed) {
+        return sendRateLimitExceeded(
+          reply,
+          tokenRate,
+          ERROR_CODES.RATE_LIMIT_EXCEEDED,
+          `Token is limited to ${INGESTION_RATE_PER_MIN} ingestions per minute. Retry after ${tokenRate.resetSec}s.`,
+        );
+      }
+
+      const workspaceQuota = await consumeRateLimit(fastify.redis, {
+        key: `ingest:workspace:${workspaceId}`,
+        limit: INGESTION_QUOTA_PER_DAY,
+        windowSec: 86400,
+      });
+      if (!workspaceQuota.allowed) {
+        return sendRateLimitExceeded(
+          reply,
+          workspaceQuota,
+          ERROR_CODES.INGESTION_QUOTA_EXCEEDED,
+          `Workspace exceeded ${INGESTION_QUOTA_PER_DAY} ingestions for today. Resets in ${workspaceQuota.resetSec}s.`,
+        );
       }
 
       let ingestionRow;

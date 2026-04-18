@@ -199,7 +199,7 @@ Evaluated against the **core knowledge-refresh loop**, not per-package. See [TAS
 
 | Loop stage | Status | Evidence / gap |
 |---|---|---|
-| ① **Ingest** | ✅ DONE | `POST /workspaces/:id/ingestions` saves raw payload + enqueues route-classifier ([ingestions.ts:108-206](packages/api/src/routes/v1/ingestions.ts)). Idempotency key + API-token auth present. |
+| ① **Ingest** | ✅ DONE | `POST /workspaces/:id/ingestions` saves raw payload + enqueues route-classifier ([ingestions.ts](packages/api/src/routes/v1/ingestions.ts)). Idempotency key + API-token auth present. Hardening: per-token minute rate limit + per-workspace daily quota via Redis fixed-window [consumeRateLimit](packages/api/src/lib/rate-limit.ts) (429 with `Retry-After`), configurable via `INGESTION_RATE_LIMIT_PER_MINUTE` / `INGESTION_QUOTA_PER_DAY`, fails open on Redis outage so a cache blip doesn't break ingest. Idempotent replays short-circuit before the limiter so retries don't consume budget. |
 | ② **Classify** | ✅ DONE | [route-classifier.ts](packages/worker/src/workers/route-classifier.ts) (523L) does title + FTS + trigram + entity-overlap candidate search, LLM picks action + confidence. Writes `ingestion_decisions`. |
 | ③ **Apply — auto (≥0.85)** | ✅ DONE | route-classifier creates page OR enqueues patch-generator → triple-extractor → search-index-updater. Chain verified. |
 | ③ **Apply — suggest (0.60–0.84)** | ✅ DONE (backend) | Route-classifier now tags decisions `suggested` when `SUGGESTION_MIN ≤ confidence < AUTO_APPLY`. Still needs UI (S4-1) to surface them. |
