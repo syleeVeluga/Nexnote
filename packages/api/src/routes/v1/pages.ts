@@ -47,6 +47,11 @@ import {
   sendValidationError,
   isUniqueViolation,
 } from "../../lib/reply-helpers.js";
+import {
+  getNextPageSortOrder,
+  loadPageHierarchyRow,
+  validateParentPageAssignment,
+} from "../../lib/page-hierarchy.js";
 
 // ---------------------------------------------------------------------------
 // Param & query schemas
@@ -265,8 +270,24 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         bodyResult.data;
       const userId = request.user.sub;
 
+      const parentValidation = await validateParentPageAssignment(
+        (candidatePageId) => loadPageHierarchyRow(fastify.db, candidatePageId),
+        { workspaceId, parentPageId },
+      );
+      if (parentValidation) {
+        return reply
+          .code(parentValidation.statusCode)
+          .send(parentValidation.body);
+      }
+
       try {
         const result = await fastify.db.transaction(async (tx) => {
+          const sortOrder = await getNextPageSortOrder(
+            tx,
+            workspaceId,
+            parentPageId,
+          );
+
           const [page] = await tx
             .insert(pages)
             .values({
@@ -275,6 +296,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
               title,
               slug,
               status: "draft",
+              sortOrder,
             })
             .returning();
 
@@ -548,9 +570,38 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       const userId = request.user.sub;
       const slugChanged =
         body.slug !== undefined && body.slug !== existing.slug;
+      const parentChanged =
+        body.parentPageId !== undefined &&
+        body.parentPageId !== existing.parentPageId;
+
+      if (body.parentPageId !== undefined) {
+        const parentValidation = await validateParentPageAssignment(
+          (candidatePageId) =>
+            loadPageHierarchyRow(fastify.db, candidatePageId),
+          {
+            workspaceId,
+            pageId,
+            parentPageId: body.parentPageId,
+          },
+        );
+        if (parentValidation) {
+          return reply
+            .code(parentValidation.statusCode)
+            .send(parentValidation.body);
+        }
+      }
 
       try {
         const result = await fastify.db.transaction(async (tx) => {
+          const nextSortOrder =
+            parentChanged && body.sortOrder === undefined
+              ? await getNextPageSortOrder(
+                  tx,
+                  workspaceId,
+                  body.parentPageId ?? null,
+                )
+              : undefined;
+
           const [updatedPage] = await tx
             .update(pages)
             .set({
@@ -562,6 +613,9 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
               ...(body.status !== undefined && { status: body.status }),
               ...(body.sortOrder !== undefined && {
                 sortOrder: body.sortOrder,
+              }),
+              ...(nextSortOrder !== undefined && {
+                sortOrder: nextSortOrder,
               }),
               updatedAt: sql`now()`,
             })
