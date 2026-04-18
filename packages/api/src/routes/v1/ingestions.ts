@@ -24,6 +24,7 @@ import {
 import { approveDecision, rejectDecision } from "../../lib/apply-decision.js";
 import { consumeRateLimit, parsePositiveInt } from "../../lib/rate-limit.js";
 import { enqueueIngestion } from "../../lib/enqueue-ingestion.js";
+import { mapIngestionDto } from "../../lib/ingestion-dto.js";
 import { registerImportRoutes } from "./ingestions-import.js";
 
 const INGESTION_RATE_PER_MIN = parsePositiveInt(
@@ -33,6 +34,10 @@ const INGESTION_RATE_PER_MIN = parsePositiveInt(
 const INGESTION_QUOTA_PER_DAY = parsePositiveInt(
   process.env["INGESTION_QUOTA_PER_DAY"],
   5000,
+);
+const INGESTION_BODY_LIMIT_BYTES = parsePositiveInt(
+  process.env["INGESTION_BODY_LIMIT_BYTES"],
+  10 * 1024 * 1024,
 );
 
 const ingestionParamsSchema = z.object({
@@ -48,34 +53,6 @@ const applyBodySchema = z.object({
   decisionId: uuidSchema,
   approved: z.boolean(),
 });
-
-export function mapIngestionDto(row: {
-  id: string;
-  workspaceId: string;
-  apiTokenId: string;
-  sourceName: string;
-  externalRef: string | null;
-  idempotencyKey: string;
-  contentType: string;
-  titleHint: string | null;
-  status: string;
-  receivedAt: Date;
-  processedAt: Date | null;
-}) {
-  return {
-    id: row.id,
-    workspaceId: row.workspaceId,
-    apiTokenId: row.apiTokenId,
-    sourceName: row.sourceName,
-    externalRef: row.externalRef,
-    idempotencyKey: row.idempotencyKey,
-    contentType: row.contentType,
-    titleHint: row.titleHint,
-    status: row.status,
-    receivedAt: row.receivedAt.toISOString(),
-    processedAt: row.processedAt?.toISOString() ?? null,
-  };
-}
 
 function mapDecisionDto(row: IngestionDecision) {
   return {
@@ -97,7 +74,10 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
   // POST / — Submit a new ingestion (JWT auth, returns 202)
   fastify.post(
     "/",
-    { onRequest: [fastify.authenticate] },
+    {
+      onRequest: [fastify.authenticate],
+      bodyLimit: INGESTION_BODY_LIMIT_BYTES,
+    },
     async (request, reply) => {
       const params = workspaceParamsSchema.safeParse(request.params);
       if (!params.success) return sendValidationError(reply, params.error.issues);
@@ -135,17 +115,37 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      const tokenRate = await consumeRateLimit(fastify.redis, {
-        key: `ingest:token:${token.id}`,
+      // Idempotent replays short-circuit before the limiter so safe retries
+      // never consume rate-limit / quota budget.
+      const [existing] = await fastify.db
+        .select()
+        .from(ingestions)
+        .where(
+          and(
+            eq(ingestions.workspaceId, workspaceId),
+            eq(ingestions.idempotencyKey, body.data.idempotencyKey),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        return reply.code(200).send(mapIngestionDto(existing));
+      }
+
+      // Key per authenticated user, not per API token. The route is JWT-auth;
+      // `token.id` above is arbitrarily selected with `.limit(1)` and no
+      // deterministic ordering, so keying on it would let a user with multiple
+      // active tokens dilute their own bucket across requests.
+      const userRate = await consumeRateLimit(fastify.redis, {
+        key: `ingest:api:${userId}`,
         limit: INGESTION_RATE_PER_MIN,
         windowSec: 60,
       });
-      if (!tokenRate.allowed) {
+      if (!userRate.allowed) {
         return sendRateLimitExceeded(
           reply,
-          tokenRate,
+          userRate,
           ERROR_CODES.RATE_LIMIT_EXCEEDED,
-          `Token is limited to ${INGESTION_RATE_PER_MIN} ingestions per minute. Retry after ${tokenRate.resetSec}s.`,
+          `User is limited to ${INGESTION_RATE_PER_MIN} ingestions per minute. Retry after ${userRate.resetSec}s.`,
         );
       }
 

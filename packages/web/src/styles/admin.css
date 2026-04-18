@@ -23,7 +23,7 @@
 
 .queue-subtitle {
   font-size: 13px;
-  color: #6b7280;
+  color: #64748b;
   margin: 4px 0 0;
 }
 
@@ -38,7 +38,7 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #4b5563;
+  color: #475569;
   cursor: pointer;
   user-select: none;
 }
@@ -48,14 +48,14 @@
   font-size: 13px;
   font-weight: 500;
   border-radius: 6px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #cbd5e1;
   cursor: pointer;
   background: #fff;
-  color: #374151;
+  color: #0f172a;
 }
 
 .queue-header-actions .btn:hover:not(:disabled) {
-  background: #f9fafb;
+  background: #f8fafc;
 }
 
 .queue-header-actions .btn:disabled {
@@ -83,7 +83,7 @@
   gap: 10px;
   padding: 14px;
   background: #fff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
   text-align: left;
   cursor: pointer;
@@ -91,7 +91,7 @@
 }
 
 .queue-card:hover {
-  border-color: #9ca3af;
+  border-color: #94a3b8;
 }
 
 .queue-card.selected {
@@ -120,7 +120,7 @@
 .queue-card-name {
   font-size: 14px;
   font-weight: 600;
-  color: #111827;
+  color: #0f172a;
   text-transform: capitalize;
 }
 
@@ -153,13 +153,13 @@
   flex-direction: column;
   align-items: flex-start;
   padding: 6px 8px;
-  background: #f9fafb;
+  background: #f8fafc;
   border-radius: 4px;
 }
 
 .queue-metric-label {
   font-size: 10px;
-  color: #6b7280;
+  color: #64748b;
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -167,7 +167,7 @@
 .queue-metric-value {
   font-size: 16px;
   font-weight: 600;
-  color: #111827;
+  color: #0f172a;
 }
 
 .queue-metric.metric-failed.non-zero .queue-metric-value {
@@ -187,7 +187,7 @@
   flex-direction: column;
   gap: 10px;
   background: #fff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 14px;
   flex: 1;
@@ -198,7 +198,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e2e8f0;
   padding-bottom: 10px;
 }
 
@@ -211,7 +211,7 @@
   padding: 6px 14px;
   font-size: 13px;
   font-weight: 500;
-  color: #6b7280;
+  color: #64748b;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
@@ -226,10 +226,10 @@
 .queue-jobs-selected {
   font-size: 12px;
   font-weight: 500;
-  color: #6b7280;
+  color: #64748b;
   text-transform: capitalize;
   padding: 2px 8px;
-  background: #f3f4f6;
+  background: #f1f5f9;
   border-radius: 4px;
 }
 
@@ -243,7 +243,7 @@
   align-items: center;
   justify-content: center;
   padding: 48px 12px;
-  color: #9ca3af;
+  color: #94a3b8;
   font-size: 13px;
 }
 
@@ -259,7 +259,7 @@
 .queue-job-item {
   padding: 12px;
   background: #fefefe;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e2e8f0;
   border-left: 3px solid #dc2626;
   border-radius: 6px;
 }
@@ -275,13 +275,13 @@
 .queue-job-name {
   font-size: 13px;
   font-weight: 600;
-  color: #111827;
+  color: #0f172a;
 }
 
 .queue-job-attempts,
 .queue-job-time {
   font-size: 11px;
-  color: #6b7280;
+  color: #64748b;
 }
 
 .queue-job-reason {
@@ -297,8 +297,8 @@
   padding: 6px 10px;
   font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
   font-size: 11px;
-  color: #6b7280;
-  background: #f9fafb;
+  color: #64748b;
+  background: #f8fafc;
   border-radius: 4px;
   overflow-x: auto;
   white-space: pre;
@@ -309,7 +309,7 @@
   flex-wrap: wrap;
   gap: 10px;
   font-size: 11px;
-  color: #6b7280;
+  color: #64748b;
   margin-bottom: 8px;
 }
 
@@ -317,9 +317,9 @@
   padding: 1px 5px;
   font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
   font-size: 10px;
-  background: #f3f4f6;
+  background: #f1f5f9;
   border-radius: 3px;
-  color: #374151;
+  color: #334155;
 }
 
 .queue-job-cross {
@@ -338,14 +338,14 @@
   font-size: 12px;
   font-weight: 500;
   border-radius: 6px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #cbd5e1;
   cursor: pointer;
   background: #fff;
-  color: #374151;
+  color: #0f172a;
 }
 
 .queue-job-actions .btn:hover:not(:disabled) {
-  background: #f9fafb;
+  background: #f8fafc;
 }
 
 .queue-job-actions .btn-danger {

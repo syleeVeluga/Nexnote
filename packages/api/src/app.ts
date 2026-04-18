@@ -21,7 +21,9 @@ export async function buildApp() {
     logger: true,
     disableRequestLogging: true,
     genReqId: () => crypto.randomUUID(),
-    bodyLimit: MAX_UPLOAD_BYTES,
+    // Default (1 MiB) applies globally. The /ingestions/upload route opts in
+    // to MAX_UPLOAD_BYTES via its own route-level bodyLimit; multipart fileSize
+    // below bounds the file part independently.
   });
 
   await app.register(cors, { origin: true });

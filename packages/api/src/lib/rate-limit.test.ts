@@ -6,11 +6,16 @@ import {
   type RateLimitRedis,
 } from "./rate-limit.js";
 
-function fakeRedis(): RateLimitRedis & { ttls: Map<string, number> } {
+function fakeRedis(): RateLimitRedis & {
+  ttls: Map<string, number>;
+  expireCalls: Map<string, number>;
+} {
   const store = new Map<string, number>();
   const ttls = new Map<string, number>();
+  const expireCalls = new Map<string, number>();
   return {
     ttls,
+    expireCalls,
     async incr(key) {
       const next = (store.get(key) ?? 0) + 1;
       store.set(key, next);
@@ -18,6 +23,7 @@ function fakeRedis(): RateLimitRedis & { ttls: Map<string, number> } {
     },
     async expire(key, seconds) {
       ttls.set(key, seconds);
+      expireCalls.set(key, (expireCalls.get(key) ?? 0) + 1);
       return 1;
     },
   };
@@ -65,20 +71,25 @@ describe("consumeRateLimit", () => {
     assert.ok(third.resetSec > 0 && third.resetSec <= 60);
   });
 
-  it("sets TTL only on first increment per window", async () => {
+  it("refreshes TTL on every increment, aligned to window end (never exceeds windowSec)", async () => {
     const redis = fakeRedis();
     const cfg = { key: "t:abc", limit: 5, windowSec: 60 };
+    const first = await consumeRateLimit(redis, cfg);
     await consumeRateLimit(redis, cfg);
     await consumeRateLimit(redis, cfg);
-    await consumeRateLimit(redis, cfg);
+    // Same window → same single key stored
     assert.equal(redis.ttls.size, 1);
-    assert.equal([...redis.ttls.values()][0], 60);
+    // EXPIRE is called on every increment (idempotent; guards against a prior
+    // transient EXPIRE failure leaving the counter without a TTL)
+    assert.equal([...redis.expireCalls.values()][0], 3);
+    // TTL aligns with the window end, so it's always ≤ windowSec
+    const ttl = [...redis.ttls.values()][0];
+    assert.ok(ttl > 0 && ttl <= 60);
+    assert.equal(ttl, first.resetSec);
   });
 
-  it("uses distinct counters per window boundary", async () => {
+  it("uses distinct counters per key", async () => {
     const redis = fakeRedis();
-    // Two different windows by key manipulation would require mocking Date;
-    // instead assert that distinct-key configs produce distinct counters.
     const cfgA = { key: "t:a", limit: 1, windowSec: 60 };
     const cfgB = { key: "t:b", limit: 1, windowSec: 60 };
     const a1 = await consumeRateLimit(redis, cfgA);

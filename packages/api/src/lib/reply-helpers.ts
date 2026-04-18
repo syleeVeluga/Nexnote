@@ -16,12 +16,13 @@ export function sendRateLimitExceeded(
   code: string,
   message: string,
 ) {
+  const resetAtUnixSec = Math.floor(Date.now() / 1000) + result.resetSec;
   return reply
     .code(429)
     .header("Retry-After", String(result.resetSec))
     .header("X-RateLimit-Limit", String(result.limit))
     .header("X-RateLimit-Remaining", String(result.remaining))
-    .header("X-RateLimit-Reset", String(result.resetSec))
+    .header("X-RateLimit-Reset", String(resetAtUnixSec))
     .send({ error: "Too Many Requests", code, details: message });
 }
 

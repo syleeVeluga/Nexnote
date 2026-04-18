@@ -578,7 +578,7 @@ export const ingestions = {
     workspaceId: string,
     body: {
       url: string;
-      mode?: "readable" | "firecrawl";
+      mode?: "readable";
       titleHint?: string;
       idempotencyKey?: string;
       forceRefresh?: boolean;

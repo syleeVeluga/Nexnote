@@ -15,7 +15,7 @@
 /* ── Header ── */
 .doc-header {
   border-bottom: 1px solid #e2e8f0;
-  background: #fafafa;
+  background: #f8fafc;
   padding: 12px 24px;
 }
 
@@ -221,7 +221,7 @@
 }
 
 .doc-body th {
-  background: #f9fafb;
+  background: #f8fafc;
   font-weight: 600;
 }
 
