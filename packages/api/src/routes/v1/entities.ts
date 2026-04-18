@@ -9,6 +9,10 @@ import {
   workspaceParamsSchema,
 } from "../../lib/workspace-auth.js";
 import { sendValidationError } from "../../lib/reply-helpers.js";
+import {
+  groupEvidenceByPage,
+  type RawEvidenceRow,
+} from "../../lib/entity-provenance.js";
 
 const entityParamsSchema = workspaceParamsSchema.extend({
   entityId: uuidSchema,
@@ -95,7 +99,7 @@ const entityRoutes: FastifyPluginAsync = async (fastify) => {
             pages.updatedAt,
             pages.lastAiUpdatedAt,
           )
-          .orderBy(desc(activeTripleCount), desc(pages.updatedAt))
+          .orderBy(desc(activeTripleCount), desc(pages.updatedAt), pages.id)
           .limit(limit + 1),
         fastify.db
           .select({
@@ -116,35 +120,40 @@ const entityRoutes: FastifyPluginAsync = async (fastify) => {
       const selectedPages = rankedPages.slice(0, limit);
       const rankedPageIds = selectedPages.map((page) => page.pageId);
 
-      let evidenceRows: Array<{
-        tripleId: string;
-        pageId: string;
-        spanStart: number;
-        spanEnd: number;
-        excerpt: string;
-        predicate: string;
-      }> = [];
+      let evidenceRows: RawEvidenceRow[] = [];
 
       if (rankedPageIds.length > 0) {
         const rankedEvidence = sql`(
-          SELECT
-            ${tripleMentions.tripleId} AS triple_id,
-            ${tripleMentions.pageId} AS page_id,
-            ${tripleMentions.spanStart} AS span_start,
-            ${tripleMentions.spanEnd} AS span_end,
-            ${tripleMentions.excerpt} AS excerpt,
-            ${triples.predicate} AS predicate,
-            ROW_NUMBER() OVER (
-              PARTITION BY ${tripleMentions.pageId}
-              ORDER BY ${tripleMentions.spanStart}
-            ) AS rn
-          FROM ${tripleMentions}
-          INNER JOIN ${triples} ON ${triples.id} = ${tripleMentions.tripleId}
-          WHERE ${inArray(tripleMentions.pageId, rankedPageIds)}
-            AND ${triples.workspaceId} = ${workspaceId}
-            AND ${triples.status} = 'active'
-            AND (${triples.subjectEntityId} = ${entityId} OR ${triples.objectEntityId} = ${entityId})
-            AND ${tripleMentions.excerpt} IS NOT NULL
+          SELECT triple_id, page_id, span_start, span_end, excerpt, predicate, page_rn
+          FROM (
+            SELECT
+              triple_id, page_id, span_start, span_end, excerpt, predicate,
+              ROW_NUMBER() OVER (
+                PARTITION BY page_id
+                ORDER BY span_start, triple_id
+              ) AS page_rn
+            FROM (
+              SELECT
+                ${tripleMentions.tripleId} AS triple_id,
+                ${tripleMentions.pageId} AS page_id,
+                ${tripleMentions.spanStart} AS span_start,
+                ${tripleMentions.spanEnd} AS span_end,
+                ${tripleMentions.excerpt} AS excerpt,
+                ${triples.predicate} AS predicate,
+                ROW_NUMBER() OVER (
+                  PARTITION BY ${tripleMentions.pageId}, ${tripleMentions.tripleId}
+                  ORDER BY ${tripleMentions.spanStart}
+                ) AS triple_rn
+              FROM ${tripleMentions}
+              INNER JOIN ${triples} ON ${triples.id} = ${tripleMentions.tripleId}
+              WHERE ${inArray(tripleMentions.pageId, rankedPageIds)}
+                AND ${triples.workspaceId} = ${workspaceId}
+                AND ${triples.status} = 'active'
+                AND (${triples.subjectEntityId} = ${entityId} OR ${triples.objectEntityId} = ${entityId})
+                AND ${tripleMentions.excerpt} IS NOT NULL
+            ) per_triple
+            WHERE triple_rn = 1
+          ) ranked
         ) AS evidence`;
 
         evidenceRows = await fastify.db
@@ -157,31 +166,11 @@ const entityRoutes: FastifyPluginAsync = async (fastify) => {
             predicate: sql<string>`evidence.predicate`,
           })
           .from(rankedEvidence)
-          .where(sql`evidence.rn <= 3`)
-          .orderBy(sql`evidence.page_id`, sql`evidence.rn`);
+          .where(sql`evidence.page_rn <= 3`)
+          .orderBy(sql`evidence.page_id`, sql`evidence.page_rn`);
       }
 
-      const evidenceByPage = new Map<
-        string,
-        Array<{
-          tripleId: string;
-          predicate: string;
-          excerpt: string;
-          spanStart: number;
-          spanEnd: number;
-        }>
-      >();
-      for (const row of evidenceRows) {
-        const items = evidenceByPage.get(row.pageId) ?? [];
-        items.push({
-          tripleId: row.tripleId,
-          predicate: row.predicate,
-          excerpt: row.excerpt,
-          spanStart: Number(row.spanStart),
-          spanEnd: Number(row.spanEnd),
-        });
-        evidenceByPage.set(row.pageId, items);
-      }
+      const evidenceByPage = groupEvidenceByPage(evidenceRows);
 
       return reply.code(200).send({
         entity: {
