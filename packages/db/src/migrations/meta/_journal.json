@@ -36,6 +36,13 @@
       "when": 1776355200000,
       "tag": "0004_page_freshness",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776700800000,
+      "tag": "0005_triple_mentions_page_idx",
+      "breakpoints": true
     }
   ]
 }

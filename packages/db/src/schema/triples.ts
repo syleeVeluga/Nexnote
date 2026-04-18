@@ -87,6 +87,7 @@ export const tripleMentions = pgTable(
   (t) => [
     index("triple_mentions_triple_idx").on(t.tripleId),
     index("triple_mentions_revision_idx").on(t.revisionId),
+    index("triple_mentions_page_triple_idx").on(t.pageId, t.tripleId),
   ],
 );
 
