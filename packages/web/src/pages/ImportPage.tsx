@@ -249,6 +249,12 @@ export function ImportPage() {
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
               onClick={handleBrowse}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleBrowse();
+                }
+              }}
               role="button"
               tabIndex={0}
             >
