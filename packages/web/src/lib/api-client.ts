@@ -85,7 +85,23 @@ async function request<T>(
     return undefined as T;
   }
 
-  const body = await res.json();
+  const rawText = await res.text();
+  let body: { code?: string; error?: string; [key: string]: unknown } = {};
+  if (rawText.length > 0) {
+    try {
+      body = JSON.parse(rawText);
+    } catch {
+      if (res.ok) {
+        throw new ApiError(
+          res.status,
+          "INVALID_JSON",
+          "Server returned a non-JSON response",
+        );
+      }
+      // For error responses with non-JSON bodies, fall through with empty body
+      // so the status-based ApiError below still fires with a sensible message.
+    }
+  }
 
   if (!res.ok) {
     throw new ApiError(
