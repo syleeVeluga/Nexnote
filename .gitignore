@@ -4,10 +4,13 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.test
 *.log
 .DS_Store
 Thumbs.db
 .turbo/
 coverage/
+playwright-report/
+test-results/
 .claude/settings.local.json
 .vscode/settings.json

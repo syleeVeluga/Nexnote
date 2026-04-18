@@ -29,6 +29,7 @@ import type {
   RouteClassifierJobData,
   RouteClassifierJobResult,
   PatchGeneratorJobData,
+  TripleExtractorJobData,
   AIRequest,
 } from "@nexnote/shared";
 
@@ -485,6 +486,18 @@ export function createRouteClassifierWorker(): Worker {
             },
           }),
         ]);
+
+        const extractionData: TripleExtractorJobData = {
+          workspaceId,
+          pageId: page.id,
+          revisionId: revision.id,
+        };
+        const extractionQueue = getQueue(QUEUE_NAMES.EXTRACTION);
+        await extractionQueue.add(
+          JOB_NAMES.TRIPLE_EXTRACTOR,
+          extractionData,
+          DEFAULT_JOB_OPTIONS,
+        );
       } else {
         // Suggested / needs_review / noop: the classifier's job is done.
         // Mark the ingestion complete so it drops off the active queue; the

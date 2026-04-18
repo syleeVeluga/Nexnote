@@ -1,0 +1,88 @@
+{
+  "markers": {
+    "[E2E_AUTO]": {
+      "route_decision": {
+        "action": "create",
+        "targetPageId": null,
+        "confidence": 0.96,
+        "reason": "Deterministic auto-apply fixture for end-to-end coverage.",
+        "proposedTitle": "E2E Auto Page"
+      },
+      "patch_generation": "# E2E Auto Patch\n\nThis patch was generated for [E2E_AUTO].\n",
+      "triple_extraction": {
+        "triples": [
+          {
+            "subject": "E2E Auto Entity",
+            "predicate": "verifies",
+            "object": "Auto apply pipeline",
+            "objectType": "literal",
+            "confidence": 0.94,
+            "spans": [
+              {
+                "start": 0,
+                "end": 48,
+                "excerpt": "[E2E_AUTO] verifies the auto apply pipeline."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "[E2E_SUGGEST]": {
+      "route_decision": {
+        "action": "create",
+        "targetPageId": null,
+        "confidence": 0.72,
+        "reason": "Deterministic suggested-review fixture for end-to-end coverage.",
+        "proposedTitle": "E2E Suggested Page"
+      },
+      "patch_generation": "# E2E Suggested Patch\n\nThis patch was generated for [E2E_SUGGEST].\n",
+      "triple_extraction": {
+        "triples": [
+          {
+            "subject": "E2E Suggested Entity",
+            "predicate": "requires",
+            "object": "Human approval",
+            "objectType": "literal",
+            "confidence": 0.88,
+            "spans": [
+              {
+                "start": 0,
+                "end": 53,
+                "excerpt": "[E2E_SUGGEST] requires human approval before publish."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "[E2E_REVIEW]": {
+      "route_decision": {
+        "action": "needs_review",
+        "targetPageId": null,
+        "confidence": 0.38,
+        "reason": "Deterministic low-confidence fixture for manual review coverage.",
+        "proposedTitle": "E2E Needs Review Page"
+      },
+      "patch_generation": "# E2E Needs Review Patch\n\nThis patch was generated for [E2E_REVIEW].\n",
+      "triple_extraction": {
+        "triples": [
+          {
+            "subject": "E2E Review Entity",
+            "predicate": "blocks",
+            "object": "Automatic apply",
+            "objectType": "literal",
+            "confidence": 0.83,
+            "spans": [
+              {
+                "start": 0,
+                "end": 48,
+                "excerpt": "[E2E_REVIEW] blocks automatic apply in tests."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
