@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type fastifyMultipart from "@fastify/multipart";
 import {
   ERROR_CODES,
+  IMPORT_SOURCE_NAMES,
   importTextBodySchema,
   importUrlBodySchema,
 } from "@nexnote/shared";
@@ -21,10 +22,7 @@ import {
   consumeRateLimit,
   parsePositiveInt,
 } from "../../lib/rate-limit.js";
-import {
-  enqueueIngestion,
-  getOrCreateImportTokenId,
-} from "../../lib/enqueue-ingestion.js";
+import { enqueueIngestion } from "../../lib/enqueue-ingestion.js";
 import {
   ACCEPTED_UPLOAD_MIMES,
   ExtractError,
@@ -103,11 +101,19 @@ async function enforceImportRateLimits(
   userId: string,
   reply: FastifyReply,
 ): Promise<boolean> {
-  const userLimit = await consumeRateLimit(fastify.redis, {
-    key: `ingest:user:${userId}`,
-    limit: IMPORT_RATE_PER_MIN,
-    windowSec: 60,
-  });
+  const [userLimit, workspaceQuota] = await Promise.all([
+    consumeRateLimit(fastify.redis, {
+      key: `ingest:user:${userId}`,
+      limit: IMPORT_RATE_PER_MIN,
+      windowSec: 60,
+    }),
+    consumeRateLimit(fastify.redis, {
+      key: `ingest:workspace:${workspaceId}`,
+      limit: INGESTION_QUOTA_PER_DAY,
+      windowSec: 86400,
+    }),
+  ]);
+
   if (!userLimit.allowed) {
     sendRateLimitExceeded(
       reply,
@@ -117,12 +123,6 @@ async function enforceImportRateLimits(
     );
     return false;
   }
-
-  const workspaceQuota = await consumeRateLimit(fastify.redis, {
-    key: `ingest:workspace:${workspaceId}`,
-    limit: INGESTION_QUOTA_PER_DAY,
-    windowSec: 86400,
-  });
   if (!workspaceQuota.allowed) {
     sendRateLimitExceeded(
       reply,
@@ -155,7 +155,6 @@ async function readFileBuffer(part: MultipartFilePart): Promise<Buffer | null> {
 }
 
 export async function registerImportRoutes(fastify: FastifyInstance) {
-  // POST /upload — multipart file upload
   fastify.post(
     "/upload",
     { onRequest: [fastify.authenticate] },
@@ -171,7 +170,6 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Drain fields + file in a single pass
       let file: MultipartFilePart | null = null;
       let titleHint: string | undefined;
       let explicitIdempotencyKey: string | undefined;
@@ -256,20 +254,13 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         throw err;
       }
 
-      const apiTokenId = await getOrCreateImportTokenId(
-        fastify,
-        auth.workspaceId,
-        auth.userId,
-      );
-
       const idempotencyKey =
         explicitIdempotencyKey ?? `upload:${sha256(buffer)}:${auth.workspaceId}`;
 
       const { ingestion, replayed } = await enqueueIngestion(fastify, {
         workspaceId: auth.workspaceId,
         userId: auth.userId,
-        apiTokenId,
-        sourceName: "manual-upload",
+        sourceName: IMPORT_SOURCE_NAMES.MANUAL_UPLOAD,
         externalRef: file.filename ?? null,
         idempotencyKey,
         contentType: mime,
@@ -288,7 +279,6 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
     },
   );
 
-  // POST /url — fetch + scrape a single URL
   fastify.post(
     "/url",
     { onRequest: [fastify.authenticate] },
@@ -311,9 +301,9 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         return;
       }
 
+      // MVP: mode=readable only. firecrawl path reserved for a future sidecar.
       let extraction;
       try {
-        // MVP: mode=readable only. firecrawl path reserved for a future sidecar.
         extraction = await extractWebPage(body.data.url);
       } catch (err) {
         if (err instanceof WebExtractError) {
@@ -329,12 +319,6 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         throw err;
       }
 
-      const apiTokenId = await getOrCreateImportTokenId(
-        fastify,
-        auth.workspaceId,
-        auth.userId,
-      );
-
       const forcePart = body.data.forceRefresh
         ? `:force:${Date.now()}`
         : "";
@@ -345,8 +329,7 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
       const { ingestion, replayed } = await enqueueIngestion(fastify, {
         workspaceId: auth.workspaceId,
         userId: auth.userId,
-        apiTokenId,
-        sourceName: "web-url",
+        sourceName: IMPORT_SOURCE_NAMES.WEB_URL,
         externalRef: body.data.url,
         idempotencyKey,
         contentType: "text/markdown",
@@ -366,7 +349,6 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
     },
   );
 
-  // POST /text — paste raw Markdown/plain text
   fastify.post(
     "/text",
     { onRequest: [fastify.authenticate] },
@@ -381,12 +363,6 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         return;
       }
 
-      const apiTokenId = await getOrCreateImportTokenId(
-        fastify,
-        auth.workspaceId,
-        auth.userId,
-      );
-
       const idempotencyKey =
         body.data.idempotencyKey ??
         `text:${sha256(`${auth.workspaceId}|${body.data.content}`)}`;
@@ -394,7 +370,6 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
       const { ingestion, replayed } = await enqueueIngestion(fastify, {
         workspaceId: auth.workspaceId,
         userId: auth.userId,
-        apiTokenId,
         sourceName: body.data.sourceName,
         idempotencyKey,
         contentType: body.data.contentType,
