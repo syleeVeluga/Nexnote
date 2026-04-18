@@ -76,6 +76,12 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
+function redirectResponse(location: string, status = 302): Response {
+  const headers = new Headers();
+  headers.set("location", location);
+  return new Response(null, { status, headers });
+}
+
 describe("extractWebPage — SSRF guard", () => {
   it("rejects unsafe URL before fetching", async () => {
     let fetchCalled = false;
@@ -101,6 +107,50 @@ describe("extractWebPage — SSRF guard", () => {
       (err: unknown) =>
         err instanceof WebExtractError && (err as WebExtractError).code === "unsafe-url",
     );
+  });
+
+  it("rejects when a redirect points at a private IP (cloud metadata)", async () => {
+    let call = 0;
+    globalThis.fetch = async () => {
+      call++;
+      if (call === 1) {
+        return redirectResponse("http://169.254.169.254/latest/meta-data/");
+      }
+      return fakeResponse({ body: "should not fetch" });
+    };
+    await assert.rejects(
+      () => extractWebPage("https://example.com/redirect-me"),
+      (err: unknown) => {
+        assert.ok(err instanceof WebExtractError);
+        assert.equal((err as WebExtractError).code, "unsafe-redirect");
+        return true;
+      },
+    );
+    assert.equal(call, 1);
+  });
+
+  it("rejects when a redirect points at loopback", async () => {
+    globalThis.fetch = async () =>
+      redirectResponse("http://127.0.0.1:8080/admin");
+    await assert.rejects(
+      () => extractWebPage("https://example.com/login"),
+      (err: unknown) =>
+        err instanceof WebExtractError &&
+        (err as WebExtractError).code === "unsafe-redirect",
+    );
+  });
+
+  it("follows a safe redirect and extracts content", async () => {
+    let call = 0;
+    globalThis.fetch = async () => {
+      call++;
+      if (call === 1) return redirectResponse("https://example.com/final");
+      const html = `<!doctype html><html><body><article><h1>T</h1><p>This is a paragraph of at least fifty characters to avoid the short warning.</p></article></body></html>`;
+      return fakeResponse({ body: html, url: "https://example.com/final" });
+    };
+    const result = await extractWebPage("https://example.com/start");
+    assert.equal(call, 2);
+    assert.ok(result.content.length > 0);
   });
 });
 

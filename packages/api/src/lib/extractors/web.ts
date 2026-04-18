@@ -37,6 +37,10 @@ const MAX_RESPONSE_BYTES = parsePositiveInt(
   process.env["WEB_IMPORT_MAX_RESPONSE_BYTES"],
   10 * 1024 * 1024,
 );
+const MAX_REDIRECTS = parsePositiveInt(
+  process.env["WEB_IMPORT_MAX_REDIRECTS"],
+  5,
+);
 const USER_AGENT =
   process.env["WEB_IMPORT_USER_AGENT"] ??
   "NexNoteImporter/1.0 (+https://nexnote.app)";
@@ -49,22 +53,73 @@ async function fetchHtml(url: string): Promise<{
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-  let response: Response;
+  let currentUrl = url;
+  let response: Response | undefined;
   try {
-    response = await fetch(url, {
-      signal: controller.signal,
-      redirect: "follow",
-      headers: {
-        "User-Agent": USER_AGENT,
-        Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.1",
-      },
-    });
-  } catch (err) {
-    clearTimeout(timeout);
-    const message = err instanceof Error ? err.message : String(err);
-    throw new WebExtractError("fetch-failed", `Fetch failed: ${message}`);
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      let res: Response;
+      try {
+        res = await fetch(currentUrl, {
+          signal: controller.signal,
+          redirect: "manual",
+          headers: {
+            "User-Agent": USER_AGENT,
+            Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.1",
+          },
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new WebExtractError("fetch-failed", `Fetch failed: ${message}`);
+      }
+
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get("location");
+        // Drain and discard the redirect body so the connection can be reused.
+        res.body?.cancel().catch(() => undefined);
+        if (!location) {
+          throw new WebExtractError(
+            "redirect-without-location",
+            `HTTP ${res.status} without Location header`,
+          );
+        }
+        let nextUrl: string;
+        try {
+          nextUrl = new URL(location, currentUrl).toString();
+        } catch {
+          throw new WebExtractError(
+            "invalid-redirect",
+            `Invalid Location header: ${location}`,
+          );
+        }
+        const safety = await assertUrlSafe(nextUrl);
+        if (!safety.ok) {
+          throw new WebExtractError(
+            "unsafe-redirect",
+            `Redirect target rejected: ${safety.reason ?? "unknown"}`,
+          );
+        }
+        if (hop === MAX_REDIRECTS) {
+          throw new WebExtractError(
+            "too-many-redirects",
+            `Exceeded ${MAX_REDIRECTS} redirects`,
+          );
+        }
+        currentUrl = nextUrl;
+        continue;
+      }
+
+      response = res;
+      break;
+    }
   } finally {
     clearTimeout(timeout);
+  }
+
+  if (!response) {
+    throw new WebExtractError(
+      "too-many-redirects",
+      `Exceeded ${MAX_REDIRECTS} redirects`,
+    );
   }
 
   if (!response.ok) {
@@ -123,7 +178,7 @@ async function fetchHtml(url: string): Promise<{
   const buffer = Buffer.concat(chunks.map((c) => Buffer.from(c)));
   return {
     html: buffer.toString("utf8"),
-    finalUrl: response.url || url,
+    finalUrl: response.url || currentUrl,
     contentType,
   };
 }

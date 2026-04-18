@@ -13,7 +13,9 @@ export const createIngestionSchema = z.object({
 
 export const importUrlBodySchema = z.object({
   url: z.string().url().max(2048),
-  mode: z.enum(["readable", "firecrawl"]).default("readable"),
+  // Only "readable" is implemented today. A future tranche may add
+  // sidecar-based fetchers (e.g. firecrawl) behind a new enum value.
+  mode: z.literal("readable").default("readable"),
   titleHint: z.string().max(500).optional(),
   idempotencyKey: z.string().min(1).max(200).optional(),
   forceRefresh: z.boolean().optional(),

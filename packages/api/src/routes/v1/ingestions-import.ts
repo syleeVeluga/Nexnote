@@ -34,7 +34,7 @@ import {
   extractWebPage,
   WebExtractError,
 } from "../../lib/extractors/web.js";
-import { mapIngestionDto } from "./ingestions.js";
+import { mapIngestionDto } from "../../lib/ingestion-dto.js";
 
 const IMPORT_RATE_PER_MIN = parsePositiveInt(
   process.env["IMPORT_RATE_LIMIT_PER_MINUTE"],
@@ -155,13 +155,25 @@ async function readFileBuffer(part: MultipartFilePart): Promise<Buffer | null> {
 }
 
 export async function registerImportRoutes(fastify: FastifyInstance) {
+  const TEXT_BODY_LIMIT = parsePositiveInt(
+    process.env["IMPORT_TEXT_BODY_LIMIT_BYTES"],
+    2 * 1024 * 1024,
+  );
+
   // POST /upload — multipart file upload
   fastify.post(
     "/upload",
-    { onRequest: [fastify.authenticate] },
+    {
+      onRequest: [fastify.authenticate],
+      bodyLimit: MAX_UPLOAD_BYTES,
+    },
     async (request, reply) => {
       const auth = await authorizeImport(fastify, request, reply);
       if (!auth.ok) return;
+
+      if (!(await enforceImportRateLimits(fastify, auth.workspaceId, auth.userId, reply))) {
+        return;
+      }
 
       if (!request.isMultipart()) {
         return reply.code(400).send({
@@ -171,22 +183,35 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Drain fields + file in a single pass
-      let file: MultipartFilePart | null = null;
+      // Drain fields + file in a single pass. Fields may appear before OR
+      // after the file part (browsers append in the order FormData.append is
+      // called), so we must not break out of the loop early.
+      let fileBuffer: Buffer | null = null;
+      let fileTruncated = false;
+      let fileFilename: string | null = null;
+      let fileDeclaredMime = "";
       let titleHint: string | undefined;
       let explicitIdempotencyKey: string | undefined;
 
       try {
         for await (const part of request.parts()) {
           if (part.type === "file") {
-            if (part.fieldname !== "file") {
+            if (part.fieldname !== "file" || fileBuffer !== null) {
               part.file.resume();
               continue;
             }
-            file = part;
-            break;
-          }
-          if (part.fieldname === "titleHint" && typeof part.value === "string") {
+            fileFilename = part.filename ?? null;
+            fileDeclaredMime = part.mimetype || "";
+            const buf = await readFileBuffer(part);
+            if (!buf) {
+              fileTruncated = true;
+              continue;
+            }
+            fileBuffer = buf;
+          } else if (
+            part.fieldname === "titleHint" &&
+            typeof part.value === "string"
+          ) {
             titleHint = part.value.slice(0, 500);
           } else if (
             part.fieldname === "idempotencyKey" &&
@@ -204,33 +229,7 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         });
       }
 
-      if (!file) {
-        return reply.code(400).send({
-          error: "Bad request",
-          code: ERROR_CODES.IMPORT_FILE_MISSING,
-          details: "No file field in request",
-        });
-      }
-
-      const declaredMime = file.mimetype || "";
-      const inferredMime = extensionToMime(file.filename);
-      const mime =
-        ACCEPTED_UPLOAD_MIMES.has(declaredMime)
-          ? declaredMime
-          : inferredMime && ACCEPTED_UPLOAD_MIMES.has(inferredMime)
-            ? inferredMime
-            : declaredMime;
-
-      if (!ACCEPTED_UPLOAD_MIMES.has(mime)) {
-        return reply.code(400).send({
-          error: "Unsupported file type",
-          code: ERROR_CODES.IMPORT_FILE_UNSUPPORTED,
-          details: `MIME ${declaredMime || "(unknown)"} is not accepted. Allowed: PDF, DOCX, PPTX, XLSX, MD, TXT.`,
-        });
-      }
-
-      const buffer = await readFileBuffer(file);
-      if (!buffer) {
+      if (fileTruncated) {
         return reply.code(413).send({
           error: "File too large",
           code: ERROR_CODES.IMPORT_FILE_TOO_LARGE,
@@ -238,9 +237,31 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         });
       }
 
-      if (!(await enforceImportRateLimits(fastify, auth.workspaceId, auth.userId, reply))) {
-        return;
+      if (!fileBuffer) {
+        return reply.code(400).send({
+          error: "Bad request",
+          code: ERROR_CODES.IMPORT_FILE_MISSING,
+          details: "No file field in request",
+        });
       }
+
+      const inferredMime = extensionToMime(fileFilename ?? undefined);
+      const mime =
+        ACCEPTED_UPLOAD_MIMES.has(fileDeclaredMime)
+          ? fileDeclaredMime
+          : inferredMime && ACCEPTED_UPLOAD_MIMES.has(inferredMime)
+            ? inferredMime
+            : fileDeclaredMime;
+
+      if (!ACCEPTED_UPLOAD_MIMES.has(mime)) {
+        return reply.code(400).send({
+          error: "Unsupported file type",
+          code: ERROR_CODES.IMPORT_FILE_UNSUPPORTED,
+          details: `MIME ${fileDeclaredMime || "(unknown)"} is not accepted. Allowed: PDF, DOCX, PPTX, XLSX, MD, TXT.`,
+        });
+      }
+
+      const buffer = fileBuffer;
 
       let extraction;
       try {
@@ -270,13 +291,13 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         userId: auth.userId,
         apiTokenId,
         sourceName: "manual-upload",
-        externalRef: file.filename ?? null,
+        externalRef: fileFilename,
         idempotencyKey,
         contentType: mime,
-        titleHint: titleHint ?? file.filename ?? null,
+        titleHint: titleHint ?? fileFilename,
         rawPayload: {
           content: extraction.content,
-          originalFilename: file.filename ?? null,
+          originalFilename: fileFilename,
           originalMimeType: mime,
           originalSizeBytes: buffer.byteLength,
           extractorVersion: extraction.extractorVersion,
@@ -299,21 +320,12 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
       const body = importUrlBodySchema.safeParse(request.body);
       if (!body.success) return sendValidationError(reply, body.error.issues);
 
-      if (body.data.mode === "firecrawl" && !process.env["FIRECRAWL_URL"]) {
-        return reply.code(400).send({
-          error: "firecrawl disabled",
-          code: ERROR_CODES.IMPORT_MODE_DISABLED,
-          details: "Set FIRECRAWL_URL to enable firecrawl mode",
-        });
-      }
-
       if (!(await enforceImportRateLimits(fastify, auth.workspaceId, auth.userId, reply))) {
         return;
       }
 
       let extraction;
       try {
-        // MVP: mode=readable only. firecrawl path reserved for a future sidecar.
         extraction = await extractWebPage(body.data.url);
       } catch (err) {
         if (err instanceof WebExtractError) {
@@ -369,7 +381,10 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
   // POST /text — paste raw Markdown/plain text
   fastify.post(
     "/text",
-    { onRequest: [fastify.authenticate] },
+    {
+      onRequest: [fastify.authenticate],
+      bodyLimit: TEXT_BODY_LIMIT,
+    },
     async (request, reply) => {
       const auth = await authorizeImport(fastify, request, reply);
       if (!auth.ok) return;
