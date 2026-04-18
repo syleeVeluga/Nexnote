@@ -1479,7 +1479,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           if (err.code === ERROR_CODES.SLUG_CONFLICT) {
             return reply.code(409).send({
               error:
-                "Another page already uses this slug. Rename it first.",
+                "Another page already uses this slug or path. Rename it first.",
               code: ERROR_CODES.SLUG_CONFLICT,
               details: err.details,
             });

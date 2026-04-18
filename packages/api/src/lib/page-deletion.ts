@@ -11,6 +11,93 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- drizzle tx/db don't share a clean type
 type AnyDb = any;
 
+function toEpochMillis(value: Date | string | null | undefined): number | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  const time = date.getTime();
+  return Number.isNaN(time) ? null : time;
+}
+
+export interface RestorePageSnapshot {
+  id: string;
+  title: string;
+  slug: string;
+  deletedAt: Date | string | null;
+}
+
+export interface RestorePathSnapshot {
+  pageId: string;
+  path: string;
+}
+
+export interface RestoreConflict {
+  kind: "slug" | "path";
+  restoringPageId: string;
+  restoringTitle: string;
+  conflictingPageId: string;
+  conflictingTitle: string;
+  slug?: string;
+  path?: string;
+}
+
+export function selectPagesDeletedWithRoot(
+  pagesToRestore: RestorePageSnapshot[],
+  rootDeletedAt: Date | string | null,
+): RestorePageSnapshot[] {
+  const rootDeletedAtMs = toEpochMillis(rootDeletedAt);
+  if (rootDeletedAtMs === null) return [];
+  return pagesToRestore.filter((page) => toEpochMillis(page.deletedAt) === rootDeletedAtMs);
+}
+
+export function findRestoreConflict(input: {
+  restoringPages: RestorePageSnapshot[];
+  restoringPaths: RestorePathSnapshot[];
+  activePages: Array<{ id: string; title: string; slug: string }>;
+  activePaths: Array<{ pageId: string; title: string; path: string }>;
+}): RestoreConflict | null {
+  const activePageBySlug = new Map(
+    input.activePages.map((page) => [page.slug, page]),
+  );
+
+  for (const page of input.restoringPages) {
+    const conflict = activePageBySlug.get(page.slug);
+    if (conflict) {
+      return {
+        kind: "slug",
+        restoringPageId: page.id,
+        restoringTitle: page.title,
+        conflictingPageId: conflict.id,
+        conflictingTitle: conflict.title,
+        slug: page.slug,
+      };
+    }
+  }
+
+  const restoringPageById = new Map(
+    input.restoringPages.map((page) => [page.id, page]),
+  );
+  const activePathByValue = new Map(
+    input.activePaths.map((path) => [path.path, path]),
+  );
+
+  for (const path of input.restoringPaths) {
+    const conflict = activePathByValue.get(path.path);
+    if (!conflict) continue;
+    const restoringPage = restoringPageById.get(path.pageId);
+    if (!restoringPage) continue;
+    return {
+      kind: "path",
+      restoringPageId: restoringPage.id,
+      restoringTitle: restoringPage.title,
+      conflictingPageId: conflict.pageId,
+      conflictingTitle: conflict.title,
+      path: path.path,
+    };
+  }
+
+  return null;
+}
+
 export class PageDeletionError extends Error {
   constructor(
     public readonly code: string,
@@ -177,9 +264,10 @@ export interface RestoreResult {
   rootTitle: string;
 }
 
+/** Restores only the pages deleted in the same trash operation as the root.    */
 /** Detaches from a still-deleted parent so restored pages have a stable landing */
-/** spot (they reappear at the root). Slug conflicts with an active page surface */
-/** as SLUG_CONFLICT so the user can rename before retrying.                     */
+/** spot (they reappear at the root). Slug/path conflicts surface as             */
+/** SLUG_CONFLICT so the user can rename before retrying.                        */
 export async function restoreSubtree(
   db: AnyDb,
   input: RestoreInput,
@@ -213,28 +301,95 @@ export async function restoreSubtree(
       { includeDeleted: true },
     );
 
+    const subtreePages = await tx
+      .select({
+        id: pages.id,
+        title: pages.title,
+        slug: pages.slug,
+        deletedAt: pages.deletedAt,
+      })
+      .from(pages)
+      .where(inArray(pages.id, subtreeIds));
+
+    const restoringPages = selectPagesDeletedWithRoot(
+      subtreePages,
+      root.deletedAt,
+    );
+    const restoringIds = restoringPages.map((page) => page.id);
+
+    if (restoringIds.length === 0) {
+      return { restoredPageIds: [], rootTitle: root.title };
+    }
+
     await tx.execute(
-      sql`SELECT 1 FROM "pages" WHERE "id" = ANY(${subtreeIds}::uuid[]) FOR UPDATE`,
+      sql`SELECT 1 FROM "pages" WHERE "id" = ANY(${restoringIds}::uuid[]) FOR UPDATE`,
     );
 
-    // Pre-check so we can return the conflicting page's title; relying on the
-    // partial unique index alone would only expose a generic constraint error.
-    const [conflict] = await tx
-      .select({ id: pages.id, title: pages.title })
+    const activePages = await tx
+      .select({ id: pages.id, title: pages.title, slug: pages.slug })
       .from(pages)
       .where(
         and(
           eq(pages.workspaceId, workspaceId),
-          eq(pages.slug, root.slug),
+          inArray(
+            pages.slug,
+            restoringPages.map((page) => page.slug),
+          ),
           isNull(pages.deletedAt),
         ),
-      )
-      .limit(1);
+      );
+
+    const latestPaths = await tx.execute(sql`
+      SELECT DISTINCT ON (pp."page_id")
+        pp."page_id" AS "pageId",
+        pp."path" AS "path"
+      FROM "page_paths" pp
+      WHERE pp."page_id" = ANY(${restoringIds}::uuid[])
+      ORDER BY pp."page_id", pp."created_at" DESC
+    `);
+
+    const latestPathRows =
+      (latestPaths as unknown as {
+        rows?: Array<{ pageId: string; path: string }>;
+      }).rows ??
+      (latestPaths as Array<{ pageId: string; path: string }>);
+    const restoringPaths = Array.isArray(latestPathRows) ? latestPathRows : [];
+
+    const activePathValues = restoringPaths.map((path) => path.path);
+    const activePathsResult = activePathValues.length === 0
+      ? []
+      : await tx.execute(sql`
+        SELECT pp."page_id" AS "pageId", pp."path" AS "path", p."title" AS "title"
+        FROM "page_paths" pp
+        INNER JOIN "pages" p ON p."id" = pp."page_id"
+        WHERE pp."workspace_id" = ${workspaceId}
+          AND pp."is_current" = true
+          AND pp."path" = ANY(${activePathValues}::text[])
+          AND p."deleted_at" IS NULL
+      `);
+
+    const activePathRows = Array.isArray(activePathsResult)
+      ? activePathsResult
+      : ((activePathsResult as unknown as {
+          rows?: Array<{ pageId: string; path: string; title: string }>;
+        }).rows ?? []);
+
+    const conflict = findRestoreConflict({
+      restoringPages,
+      restoringPaths,
+      activePages,
+      activePaths: activePathRows,
+    });
+
     if (conflict) {
       throw new PageDeletionError(ERROR_CODES.SLUG_CONFLICT, {
-        conflictingPageId: conflict.id,
-        conflictingTitle: conflict.title,
-        slug: root.slug,
+        kind: conflict.kind,
+        restoringPageId: conflict.restoringPageId,
+        restoringTitle: conflict.restoringTitle,
+        conflictingPageId: conflict.conflictingPageId,
+        conflictingTitle: conflict.conflictingTitle,
+        slug: conflict.slug,
+        path: conflict.path,
       });
     }
 
@@ -261,14 +416,14 @@ export async function restoreSubtree(
         deletedByUserId: null,
         updatedAt: sql`now()`,
       })
-      .where(inArray(pages.id, subtreeIds));
+      .where(inArray(pages.id, restoringIds));
 
     await tx
       .update(triples)
       .set({ status: "active" })
       .where(
         and(
-          inArray(triples.sourcePageId, subtreeIds),
+          inArray(triples.sourcePageId, restoringIds),
           eq(triples.status, "page_deleted"),
         ),
       );
@@ -279,7 +434,7 @@ export async function restoreSubtree(
       WHERE "id" IN (
         SELECT DISTINCT ON ("page_id") "id"
         FROM "page_paths"
-        WHERE "page_id" = ANY(${subtreeIds}::uuid[])
+        WHERE "page_id" = ANY(${restoringIds}::uuid[])
         ORDER BY "page_id", "created_at" DESC
       )
     `);
@@ -293,12 +448,12 @@ export async function restoreSubtree(
       afterJson: {
         id: root.id,
         title: root.title,
-        restoredIds: subtreeIds,
+        restoredIds: restoringIds,
         detachedFromParent,
       },
     });
 
-    return { restoredPageIds: subtreeIds, rootTitle: root.title };
+    return { restoredPageIds: restoringIds, rootTitle: root.title };
   });
 }
 
