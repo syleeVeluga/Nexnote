@@ -1,5 +1,3 @@
-import type { Redis } from "ioredis";
-
 export interface RateLimitConfig {
   key: string;
   limit: number;
@@ -35,14 +33,19 @@ export async function consumeRateLimit(
   const nowSec = Math.floor(Date.now() / 1000);
   const windowStart = Math.floor(nowSec / cfg.windowSec) * cfg.windowSec;
   const redisKey = `rl:${cfg.key}:${windowStart}`;
+  const resetSec = Math.max(1, windowStart + cfg.windowSec - nowSec);
 
   try {
     const count = await redis.incr(redisKey);
-    if (count === 1) {
-      await redis.expire(redisKey, cfg.windowSec);
-    }
+    // Refresh TTL on every increment. EXPIRE is idempotent, so this is safe,
+    // and it guarantees the key always has a TTL even if a prior EXPIRE
+    // failed transiently (which would otherwise leave a counter without an
+    // expiry, effectively blocking the key forever once the limit is crossed).
+    // TTL aligns with the window end, not cfg.windowSec — on large windows
+    // (e.g., 86400s daily quota) this avoids keeping stale keys alive for
+    // almost an extra full window.
+    await redis.expire(redisKey, resetSec);
     const remaining = Math.max(0, cfg.limit - count);
-    const resetSec = Math.max(1, windowStart + cfg.windowSec - nowSec);
     return {
       allowed: count <= cfg.limit,
       limit: cfg.limit,

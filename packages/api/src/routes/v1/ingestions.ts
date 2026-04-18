@@ -115,17 +115,37 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      const tokenRate = await consumeRateLimit(fastify.redis, {
-        key: `ingest:token:${token.id}`,
+      // Idempotent replays short-circuit before the limiter so safe retries
+      // never consume rate-limit / quota budget.
+      const [existing] = await fastify.db
+        .select()
+        .from(ingestions)
+        .where(
+          and(
+            eq(ingestions.workspaceId, workspaceId),
+            eq(ingestions.idempotencyKey, body.data.idempotencyKey),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        return reply.code(200).send(mapIngestionDto(existing));
+      }
+
+      // Key per authenticated user, not per API token. The route is JWT-auth;
+      // `token.id` above is arbitrarily selected with `.limit(1)` and no
+      // deterministic ordering, so keying on it would let a user with multiple
+      // active tokens dilute their own bucket across requests.
+      const userRate = await consumeRateLimit(fastify.redis, {
+        key: `ingest:api:${userId}`,
         limit: INGESTION_RATE_PER_MIN,
         windowSec: 60,
       });
-      if (!tokenRate.allowed) {
+      if (!userRate.allowed) {
         return sendRateLimitExceeded(
           reply,
-          tokenRate,
+          userRate,
           ERROR_CODES.RATE_LIMIT_EXCEEDED,
-          `Token is limited to ${INGESTION_RATE_PER_MIN} ingestions per minute. Retry after ${tokenRate.resetSec}s.`,
+          `User is limited to ${INGESTION_RATE_PER_MIN} ingestions per minute. Retry after ${userRate.resetSec}s.`,
         );
       }
 
