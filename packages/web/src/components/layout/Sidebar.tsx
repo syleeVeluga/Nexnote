@@ -10,6 +10,80 @@ import {
 } from "../../lib/api-client.js";
 import { LanguageSwitcher } from "./LanguageSwitcher.js";
 import { subscribeDecisionCountsUpdated } from "../../lib/decision-events.js";
+import { ConfirmDialog } from "../modals/ConfirmDialog.js";
+
+const ROOT_PAGE_VALUE = "__root__";
+
+interface MoveDialogState {
+  pageId: string;
+  currentTitle: string;
+  parentPageId: string | null;
+}
+
+interface MoveOption {
+  id: string;
+  label: string;
+}
+
+interface DeleteDialogState {
+  pageId: string;
+  title: string;
+  /** Set when the first DELETE returned 409 PUBLISHED_BLOCK. */
+  publishedBlock?: boolean;
+}
+
+function extractCurrentPageId(pathname: string): string {
+  const m = /^\/pages\/([^/]+)/.exec(pathname);
+  return m ? m[1] : "";
+}
+
+function extractErrorCode(err: unknown): string | null {
+  if (!err || typeof err !== "object") return null;
+  const e = err as { code?: string; body?: { code?: string } };
+  return e.code ?? e.body?.code ?? null;
+}
+
+function comparePages(a: Page, b: Page) {
+  if (a.sortOrder !== b.sortOrder) {
+    return a.sortOrder - b.sortOrder;
+  }
+
+  const createdAtDiff = a.createdAt.localeCompare(b.createdAt);
+  if (createdAtDiff !== 0) {
+    return createdAtDiff;
+  }
+
+  return a.title.localeCompare(b.title);
+}
+
+function buildMoveOptions(
+  pagesByParent: Map<string | null, Page[]>,
+  untitled: string,
+  excludedIds: Set<string>,
+  parentId: string | null = null,
+  depth = 0,
+): MoveOption[] {
+  const siblings = [...(pagesByParent.get(parentId) ?? [])].sort(comparePages);
+  const options: MoveOption[] = [];
+
+  for (const page of siblings) {
+    if (excludedIds.has(page.id)) continue;
+    const title = page.title || untitled;
+    const prefix = depth === 0 ? "" : `${"  ".repeat(depth)}- `;
+    options.push({ id: page.id, label: `${prefix}${title}` });
+    options.push(
+      ...buildMoveOptions(
+        pagesByParent,
+        untitled,
+        excludedIds,
+        page.id,
+        depth + 1,
+      ),
+    );
+  }
+
+  return options;
+}
 
 // ---------------------------------------------------------------------------
 // Context menu
@@ -24,11 +98,13 @@ interface ContextMenuState {
 
 function ContextMenu({
   menu,
+  onMove,
   onRename,
   onDelete,
   onClose,
 }: {
   menu: ContextMenuState;
+  onMove: (id: string, currentTitle: string) => void;
   onRename: (id: string, currentTitle: string) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
@@ -50,6 +126,12 @@ function ContextMenu({
       className="context-menu"
       style={{ position: "fixed", top: menu.y, left: menu.x, zIndex: 9999 }}
     >
+      <button
+        className="context-menu-item"
+        onClick={() => { onMove(menu.pageId, menu.currentTitle); onClose(); }}
+      >
+        {t("move")}
+      </button>
       <button
         className="context-menu-item"
         onClick={() => { onRename(menu.pageId, menu.currentTitle); onClose(); }}
@@ -103,6 +185,14 @@ export function Sidebar({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(
+    null,
+  );
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [moving, setMoving] = useState<MoveDialogState | null>(null);
+  const [moveTargetId, setMoveTargetId] = useState(ROOT_PAGE_VALUE);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const [movePending, setMovePending] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,6 +232,9 @@ export function Sidebar({
       arr.push(p);
       map.set(key, arr);
     }
+    for (const pages of map.values()) {
+      pages.sort(comparePages);
+    }
     return map;
   }, [pageList]);
 
@@ -160,6 +253,24 @@ export function Sidebar({
     setRenaming({ id, value: currentTitle });
   }, []);
 
+  const startMove = useCallback((id: string, currentTitle: string) => {
+    const currentPage = pageList.find((page) => page.id === id);
+    setMoving({
+      pageId: id,
+      currentTitle,
+      parentPageId: currentPage?.parentPageId ?? null,
+    });
+    setMoveTargetId(currentPage?.parentPageId ?? ROOT_PAGE_VALUE);
+    setMoveError(null);
+  }, [pageList]);
+
+  const closeMoveDialog = useCallback(() => {
+    if (movePending) return;
+    setMoving(null);
+    setMoveTargetId(ROOT_PAGE_VALUE);
+    setMoveError(null);
+  }, [movePending]);
+
   const submitRename = useCallback(async () => {
     if (!renaming) return;
     const { id, value } = renaming;
@@ -172,19 +283,113 @@ export function Sidebar({
     } catch { /* leave existing title on failure */ }
   }, [renaming, workspace.id]);
 
-  const handleDelete = useCallback(async (id: string) => {
-    if (!window.confirm(t("deleteConfirm"))) return;
-    await pagesApi.delete(workspace.id, id);
-    setPageList((prev) => {
-      const toRemove = new Set<string>();
-      const collect = (pageId: string) => {
-        toRemove.add(pageId);
-        prev.filter((p) => p.parentPageId === pageId).forEach((c) => collect(c.id));
+  const collectSubtree = useCallback(
+    (rootId: string, list: Page[]) => {
+      const ids = new Set<string>([rootId]);
+      const add = (parent: string) => {
+        for (const p of list) {
+          if (p.parentPageId === parent && !ids.has(p.id)) {
+            ids.add(p.id);
+            add(p.id);
+          }
+        }
       };
-      collect(id);
-      return prev.filter((p) => !toRemove.has(p.id));
-    });
-  }, [workspace.id, t]);
+      add(rootId);
+      return ids;
+    },
+    [],
+  );
+
+  const openDeleteDialog = useCallback(
+    (id: string) => {
+      const page = pageList.find((p) => p.id === id);
+      setDeleteDialog({ pageId: id, title: page?.title || t("untitled") });
+    },
+    [pageList, t],
+  );
+
+  const deleteDescendantCount = useMemo(() => {
+    if (!deleteDialog) return 0;
+    return collectSubtree(deleteDialog.pageId, pageList).size - 1;
+  }, [deleteDialog, collectSubtree, pageList]);
+
+  const applyDelete = useCallback(
+    (pageId: string) => {
+      const subtree = collectSubtree(pageId, pageList);
+      setPageList((prev) => prev.filter((p) => !subtree.has(p.id)));
+      if (subtree.has(extractCurrentPageId(location.pathname))) {
+        navigate("/");
+      }
+    },
+    [collectSubtree, pageList, location.pathname, navigate],
+  );
+
+  const moveOptions = useMemo(() => {
+    if (!moving) return [];
+    const excludedIds = collectSubtree(moving.pageId, pageList);
+    return buildMoveOptions(pagesByParent, t("untitled"), excludedIds);
+  }, [moving, collectSubtree, pageList, pagesByParent, t]);
+
+  const submitMove = useCallback(async () => {
+    if (!moving) return;
+
+    const nextParentPageId =
+      moveTargetId === ROOT_PAGE_VALUE ? null : moveTargetId;
+
+    if (nextParentPageId === moving.parentPageId) {
+      closeMoveDialog();
+      return;
+    }
+
+    setMovePending(true);
+    setMoveError(null);
+    try {
+      const response = await pagesApi.update(workspace.id, moving.pageId, {
+        parentPageId: nextParentPageId,
+      });
+      setPageList((prev) => prev.map((page) => (
+        page.id === moving.pageId ? response.page : page
+      )));
+      if (nextParentPageId) {
+        setExpandedIds((prev) => {
+          const next = new Set(prev);
+          next.add(nextParentPageId);
+          return next;
+        });
+      }
+      setMoving(null);
+      setMoveTargetId(ROOT_PAGE_VALUE);
+      setMoveError(null);
+    } catch (err) {
+      setMoveError(err instanceof Error ? err.message : t("movePageError"));
+    } finally {
+      setMovePending(false);
+    }
+  }, [closeMoveDialog, moveTargetId, moving, t, workspace.id]);
+
+  const runDelete = useCallback(
+    async (unpublishFirst: boolean) => {
+      if (!deleteDialog) return;
+      setDeleteBusy(true);
+      try {
+        if (unpublishFirst) {
+          await pagesApi.unpublish(workspace.id, deleteDialog.pageId);
+        }
+        await pagesApi.delete(workspace.id, deleteDialog.pageId);
+        applyDelete(deleteDialog.pageId);
+        setDeleteDialog(null);
+      } catch (err: unknown) {
+        if (!unpublishFirst && extractErrorCode(err) === "PUBLISHED_BLOCK") {
+          setDeleteDialog({ ...deleteDialog, publishedBlock: true });
+        } else {
+          alert(t("deleteFailed"));
+        }
+      } finally {
+        setDeleteBusy(false);
+      }
+    },
+    [deleteDialog, workspace.id, applyDelete, t],
+  );
 
   const openContextMenu = useCallback(
     (e: React.MouseEvent, pageId: string, currentTitle: string) => {
@@ -330,6 +535,14 @@ export function Sidebar({
             <span className="sidebar-nav-label">{t("queueHealth")}</span>
           </NavLink>
         )}
+        <NavLink
+          to="/trash"
+          className={({ isActive }) =>
+            `sidebar-nav-link${isActive ? " active" : ""}`
+          }
+        >
+          <span className="sidebar-nav-label">{t("trash")}</span>
+        </NavLink>
       </div>
 
       <div className="sidebar-content">
@@ -352,12 +565,145 @@ export function Sidebar({
       {contextMenu && (
         <ContextMenu
           menu={contextMenu}
+          onMove={startMove}
           onRename={startRename}
-          onDelete={handleDelete}
+          onDelete={openDeleteDialog}
           onClose={() => setContextMenu(null)}
         />
       )}
+
+      {moving && (
+        <MovePageDialog
+          currentTitle={moving.currentTitle}
+          moveTargetId={moveTargetId}
+          options={moveOptions}
+          errorMessage={moveError}
+          pending={movePending}
+          onChangeTarget={setMoveTargetId}
+          onClose={closeMoveDialog}
+          onSubmit={submitMove}
+        />
+      )}
+
+      <ConfirmDialog
+        open={!!deleteDialog && !deleteDialog.publishedBlock}
+        title={t("delete")}
+        message={
+          deleteDialog
+            ? deleteDescendantCount > 0
+              ? t("deleteConfirmWithChildren", {
+                  title: deleteDialog.title,
+                  count: deleteDescendantCount,
+                })
+              : t("deleteConfirmNoChildren", { title: deleteDialog.title })
+            : ""
+        }
+        confirmLabel={t("delete")}
+        confirmVariant="danger"
+        onConfirm={() => runDelete(false)}
+        onCancel={() => setDeleteDialog(null)}
+        busy={deleteBusy}
+      />
+
+      <ConfirmDialog
+        open={!!deleteDialog?.publishedBlock}
+        title={t("publishedBlockTitle")}
+        message={t("publishedBlockMessage")}
+        confirmLabel={t("unpublishThenDelete")}
+        confirmVariant="danger"
+        onConfirm={() => runDelete(true)}
+        onCancel={() => setDeleteDialog(null)}
+        busy={deleteBusy}
+      />
     </nav>
+  );
+}
+
+function MovePageDialog({
+  currentTitle,
+  moveTargetId,
+  options,
+  errorMessage,
+  pending,
+  onChangeTarget,
+  onClose,
+  onSubmit,
+}: {
+  currentTitle: string;
+  moveTargetId: string;
+  options: MoveOption[];
+  errorMessage: string | null;
+  pending: boolean;
+  onChangeTarget: (value: string) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const { t } = useTranslation("common");
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="sidebar-dialog-overlay" onClick={onClose}>
+      <div
+        className="sidebar-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="move-page-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="sidebar-dialog-header">
+          <h3 id="move-page-title">{t("movePageTitle", { title: currentTitle })}</h3>
+        </div>
+
+        <div className="sidebar-dialog-body">
+          <label className="sidebar-dialog-label" htmlFor="move-page-parent">
+            {t("movePageParentLabel")}
+          </label>
+          <select
+            id="move-page-parent"
+            className="sidebar-dialog-select"
+            value={moveTargetId}
+            onChange={(event) => onChangeTarget(event.target.value)}
+            disabled={pending}
+          >
+            <option value={ROOT_PAGE_VALUE}>{t("moveToRoot")}</option>
+            {options.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          {errorMessage && <p className="form-error">{errorMessage}</p>}
+        </div>
+
+        <div className="sidebar-dialog-actions">
+          <button
+            className="sidebar-dialog-btn sidebar-dialog-btn-secondary"
+            onClick={onClose}
+            disabled={pending}
+          >
+            {t("cancel")}
+          </button>
+          <button
+            className="sidebar-dialog-btn sidebar-dialog-btn-primary"
+            onClick={onSubmit}
+            disabled={pending}
+          >
+            {pending ? t("loading") : t("move")}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

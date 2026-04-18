@@ -1,6 +1,6 @@
 import { Worker } from "bullmq";
 import type { Job } from "bullmq";
-import { eq, and, sql, desc, inArray } from "drizzle-orm";
+import { eq, and, sql, desc, inArray, isNull } from "drizzle-orm";
 import { createRedisConnection } from "../connection.js";
 import { createJobLogger } from "../logger.js";
 import { getQueue, QUEUE_NAMES, JOB_NAMES } from "../queues.js";
@@ -67,6 +67,7 @@ async function findCandidatePages(
       .where(
         and(
           eq(pages.workspaceId, workspaceId),
+          isNull(pages.deletedAt),
           sql`LOWER(${pages.title}) LIKE LOWER(${"%" + titleHint + "%"})`,
         ),
       )
@@ -108,6 +109,7 @@ async function findCandidatePages(
           .where(
             and(
               eq(pages.workspaceId, workspaceId),
+              isNull(pages.deletedAt),
               sql`TO_TSVECTOR('english', ${pageRevisions.contentMd}) @@ TO_TSQUERY('english', ${tsQuery})`,
             ),
           )
@@ -148,6 +150,7 @@ async function findCandidatePages(
         .where(
           and(
             eq(pages.workspaceId, workspaceId),
+            isNull(pages.deletedAt),
             sql`SIMILARITY(${pages.title}, ${textSnippet}) > 0.1`,
           ),
         )
@@ -197,6 +200,7 @@ async function findCandidatePages(
           .where(
             and(
               eq(pages.workspaceId, workspaceId),
+              isNull(pages.deletedAt),
               inArray(entities.normalizedKey, words),
             ),
           )

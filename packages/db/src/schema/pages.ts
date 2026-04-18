@@ -10,7 +10,7 @@ import {
   index,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
-import { workspaces } from "./users.js";
+import { workspaces, users } from "./users.js";
 
 export const folders = pgTable(
   "folders",
@@ -62,6 +62,10 @@ export const pages = pgTable(
     latestPublishedSnapshotId: uuid("latest_published_snapshot_id"),
     lastAiUpdatedAt: timestamp("last_ai_updated_at", { withTimezone: true }),
     lastHumanEditedAt: timestamp("last_human_edited_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedByUserId: uuid("deleted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -70,12 +74,20 @@ export const pages = pgTable(
       .defaultNow(),
   },
   (t) => [
-    uniqueIndex("pages_workspace_slug_uk").on(t.workspaceId, t.slug),
+    uniqueIndex("pages_workspace_slug_active_uk")
+      .on(t.workspaceId, t.slug)
+      .where(sql`${t.deletedAt} IS NULL`),
     index("pages_workspace_parent_idx").on(
       t.workspaceId,
       t.parentPageId,
       t.sortOrder,
     ),
+    index("pages_workspace_active_idx")
+      .on(t.workspaceId)
+      .where(sql`${t.deletedAt} IS NULL`),
+    index("pages_workspace_trashed_idx")
+      .on(t.workspaceId, t.deletedAt)
+      .where(sql`${t.deletedAt} IS NOT NULL`),
   ],
 );
 

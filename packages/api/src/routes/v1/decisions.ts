@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and, desc, inArray, sql, gte } from "drizzle-orm";
+import { eq, and, desc, inArray, sql, gte, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
   uuidSchema,
@@ -511,7 +511,9 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      // Verify targetPageId belongs to workspace when provided
+      // Verify targetPageId belongs to workspace when provided. A trashed
+      // page is treated as absent so reviewers can't route AI writes to a
+      // deleted target.
       if (body.data.targetPageId) {
         const [pg] = await fastify.db
           .select({ id: pages.id })
@@ -520,6 +522,7 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
             and(
               eq(pages.id, body.data.targetPageId),
               eq(pages.workspaceId, workspaceId),
+              isNull(pages.deletedAt),
             ),
           )
           .limit(1);

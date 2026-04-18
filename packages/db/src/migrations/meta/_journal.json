@@ -43,6 +43,13 @@
       "when": 1776700800000,
       "tag": "0005_triple_mentions_page_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1776787200000,
+      "tag": "0006_soft_delete_pages",
+      "breakpoints": true
     }
   ]
 }

@@ -3,7 +3,16 @@ import type {
   FastifyRequest,
   FastifyReply,
 } from "fastify";
-import { eq, and, sql, desc, count, inArray, isNotNull, gte } from "drizzle-orm";
+import {
+  eq,
+  and,
+  sql,
+  desc,
+  count,
+  inArray,
+  isNotNull,
+  gte,
+} from "drizzle-orm";
 import { z } from "zod";
 import {
   createPageSchema,
@@ -52,6 +61,13 @@ import {
   loadPageHierarchyRow,
   validateParentPageAssignment,
 } from "../../lib/page-hierarchy.js";
+import {
+  softDeleteSubtree,
+  restoreSubtree,
+  purgeSubtree,
+  PageDeletionError,
+  notDeleted,
+} from "../../lib/page-deletion.js";
 
 // ---------------------------------------------------------------------------
 // Param & query schemas
@@ -178,7 +194,9 @@ function mapRevisionSummaryDto(revision: {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Drizzle query builder doesn't expose a clean shared interface for db/tx
 type AnyDb = any;
 
-/** Verify a page belongs to a workspace. Returns the page row or null. */
+/** Verify a page belongs to a workspace. Returns the page row or null.
+ * Soft-deleted pages are treated as non-existent from every read path —
+ * callers that need a trashed row (e.g. restore) must query directly. */
 async function findPageInWorkspace(
   db: AnyDb,
   workspaceId: string,
@@ -188,7 +206,13 @@ async function findPageInWorkspace(
   const [row] = await db
     .select(columns)
     .from(pages)
-    .where(and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)))
+    .where(
+      and(
+        eq(pages.id, pageId),
+        eq(pages.workspaceId, workspaceId),
+        notDeleted(),
+      ),
+    )
     .limit(1);
   return row ?? null;
 }
@@ -405,8 +429,11 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
 
       const { limit, offset, parentPageId, status } = queryResult.data;
 
-      // Build where conditions
-      const conditions = [eq(pages.workspaceId, workspaceId)];
+      // Build where conditions — active pages only; trash is a separate route
+      const conditions = [
+        eq(pages.workspaceId, workspaceId),
+        notDeleted(),
+      ];
       if (parentPageId) {
         conditions.push(eq(pages.parentPageId, parentPageId));
       }
@@ -504,7 +531,11 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           eq(pages.currentRevisionId, pageRevisions.id),
         )
         .where(
-          and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)),
+          and(
+            eq(pages.id, pageId),
+            eq(pages.workspaceId, workspaceId),
+            notDeleted(),
+          ),
         )
         .limit(1);
 
@@ -554,12 +585,17 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      // Check page exists
+      // Check page exists (and is not in the trash — PATCH on a deleted
+      // page would bypass the soft-delete guarantees)
       const [existing] = await fastify.db
         .select()
         .from(pages)
         .where(
-          and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)),
+          and(
+            eq(pages.id, pageId),
+            eq(pages.workspaceId, workspaceId),
+            notDeleted(),
+          ),
         )
         .limit(1);
 
@@ -1101,7 +1137,11 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           })
           .from(pages)
           .where(
-            and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)),
+            and(
+              eq(pages.id, pageId),
+              eq(pages.workspaceId, workspaceId),
+              notDeleted(),
+            ),
           )
           .limit(1);
 
@@ -1194,7 +1234,12 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // -----------------------------------------------------------------------
-  // DELETE /:pageId — Delete page
+  // DELETE /:pageId — Soft-delete (send page + subtree to the trash).
+  // The subtree is moved atomically, triples transition to status
+  // 'page_deleted', and the page's live publish snapshot must be revoked
+  // first (409 PUBLISHED_BLOCK signals the UI to surface "unpublish then
+  // delete"). Permanent removal happens via /purge or the trash-purger
+  // worker after the retention window.
   // -----------------------------------------------------------------------
   fastify.delete(
     "/:pageId",
@@ -1213,45 +1258,283 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       if (!role) return forbidden(reply);
       if (!ADMIN_PLUS_ROLES.includes(role)) return insufficientRole(reply);
 
-      // Verify page exists
-      const [existing] = await fastify.db
-        .select({ id: pages.id, title: pages.title })
-        .from(pages)
-        .where(
-          and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)),
-        )
-        .limit(1);
-
-      if (!existing) {
-        return reply.code(404).send({
-          error: "Page not found",
-          code: ERROR_CODES.PAGE_NOT_FOUND,
+      try {
+        const result = await softDeleteSubtree(fastify.db, {
+          workspaceId,
+          rootPageId: pageId,
+          userId: request.user.sub,
         });
+        return reply.code(200).send({
+          deletedPageIds: result.deletedPageIds,
+          deletedCount: result.deletedPageIds.length,
+          rootTitle: result.rootTitle,
+        });
+      } catch (err) {
+        if (err instanceof PageDeletionError) {
+          if (err.code === ERROR_CODES.PAGE_NOT_FOUND) return pageNotFound(reply);
+          if (err.code === ERROR_CODES.PUBLISHED_BLOCK) {
+            return reply.code(409).send({
+              error:
+                "Page has a live published snapshot. Unpublish it before deleting.",
+              code: ERROR_CODES.PUBLISHED_BLOCK,
+              details: err.details,
+            });
+          }
+        }
+        throw err;
       }
+    },
+  );
 
-      await fastify.db.transaction(async (tx) => {
+  // -----------------------------------------------------------------------
+  // POST /:pageId/unpublish — Revoke the live snapshot for a page.
+  // Preserves the historical snapshot rows (required by the immutability
+  // invariant); only flips is_live = false so the public URL stops
+  // resolving. Needed as a pre-step before deleting a published page.
+  // -----------------------------------------------------------------------
+  fastify.post(
+    "/:pageId/unpublish",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const paramsResult = pageParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return sendValidationError(reply, paramsResult.error.issues);
+      }
+      const { workspaceId, pageId } = paramsResult.data;
+
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
+      if (!role) return forbidden(reply);
+      if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
+
+      const page = await findPageInWorkspace(fastify.db, workspaceId, pageId);
+      if (!page) return pageNotFound(reply);
+
+      const result = await fastify.db.transaction(async (tx) => {
+        const liveRows = await tx
+          .update(publishedSnapshots)
+          .set({ isLive: false })
+          .where(
+            and(
+              eq(publishedSnapshots.pageId, pageId),
+              eq(publishedSnapshots.isLive, true),
+            ),
+          )
+          .returning({ id: publishedSnapshots.id });
+
+        await tx
+          .update(pages)
+          .set({ latestPublishedSnapshotId: null, updatedAt: sql`now()` })
+          .where(eq(pages.id, pageId));
+
         await tx.insert(auditLogs).values({
           workspaceId,
           userId: request.user.sub,
           entityType: "page",
           entityId: pageId,
-          action: "delete",
-          beforeJson: { id: existing.id, title: existing.title },
+          action: "unpublish",
+          beforeJson: {
+            unpublishedSnapshotIds: liveRows.map((r) => r.id),
+          },
         });
 
-        // Clear the FK to page_revisions before cascading delete
-        await tx
-          .update(pages)
-          .set({
-            currentRevisionId: null,
-            latestPublishedSnapshotId: null,
-          })
-          .where(eq(pages.id, pageId));
-
-        await tx.delete(pages).where(eq(pages.id, pageId));
+        return { unpublishedCount: liveRows.length };
       });
 
-      return reply.code(204).send();
+      return reply.code(200).send(result);
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // GET /trash — List soft-deleted pages for the workspace.
+  // Returns the trashed root pages with descendant counts so the UI can
+  // warn how many children come back on restore.
+  // -----------------------------------------------------------------------
+  fastify.get(
+    "/trash",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const paramsResult = workspaceParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return sendValidationError(reply, paramsResult.error.issues);
+      }
+      const { workspaceId } = paramsResult.data;
+
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
+      if (!role) return forbidden(reply);
+
+      const rows = await fastify.db.execute(sql`
+        WITH RECURSIVE trashed AS (
+          SELECT p."id", p."title", p."slug", p."parent_page_id",
+                 p."deleted_at", p."deleted_by_user_id"
+          FROM "pages" p
+          WHERE p."workspace_id" = ${workspaceId}
+            AND p."deleted_at" IS NOT NULL
+            AND (
+              p."parent_page_id" IS NULL
+              OR NOT EXISTS (
+                SELECT 1 FROM "pages" parent
+                WHERE parent."id" = p."parent_page_id"
+                  AND parent."deleted_at" IS NOT NULL
+              )
+            )
+        ),
+        subtree AS (
+          SELECT t."id" AS root_id, t."id" AS node_id
+          FROM trashed t
+          UNION ALL
+          SELECT s."root_id", p."id"
+          FROM subtree s
+          INNER JOIN "pages" p ON p."parent_page_id" = s."node_id"
+          WHERE p."workspace_id" = ${workspaceId}
+            AND p."deleted_at" IS NOT NULL
+        )
+        SELECT t."id", t."title", t."slug", t."deleted_at" AS "deletedAt",
+               t."deleted_by_user_id" AS "deletedByUserId",
+               u."name" AS "deletedByUserName",
+               (SELECT COUNT(*) FROM subtree s WHERE s."root_id" = t."id") - 1
+                 AS "descendantCount"
+        FROM trashed t
+        LEFT JOIN "users" u ON u."id" = t."deleted_by_user_id"
+        ORDER BY t."deleted_at" DESC
+      `);
+
+      const arr =
+        (rows as unknown as { rows?: Array<Record<string, unknown>> }).rows ??
+        (rows as unknown as Array<Record<string, unknown>>);
+      const data = (Array.isArray(arr) ? arr : []).map((row) => ({
+        id: row.id as string,
+        title: row.title as string,
+        slug: row.slug as string,
+        deletedAt: row.deletedAt
+          ? new Date(row.deletedAt as string).toISOString()
+          : null,
+        deletedByUserId: (row.deletedByUserId as string | null) ?? null,
+        deletedByUserName: (row.deletedByUserName as string | null) ?? null,
+        descendantCount: Number(row.descendantCount ?? 0),
+      }));
+
+      return reply.code(200).send({ data, total: data.length });
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // POST /:pageId/restore — Lift a page (and its trashed descendants)
+  // back out of the trash. Detaches from a parent that's still trashed.
+  // -----------------------------------------------------------------------
+  fastify.post(
+    "/:pageId/restore",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const paramsResult = pageParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return sendValidationError(reply, paramsResult.error.issues);
+      }
+      const { workspaceId, pageId } = paramsResult.data;
+
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
+      if (!role) return forbidden(reply);
+      if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
+
+      try {
+        const result = await restoreSubtree(fastify.db, {
+          workspaceId,
+          rootPageId: pageId,
+          userId: request.user.sub,
+        });
+
+        // Re-index restored pages so FTS sees them again. Rebuild inline
+        // rather than enqueuing — the search-index-updater job requires a
+        // specific revisionId, and we already know the current revision
+        // per page is the right one.
+        if (result.restoredPageIds.length > 0) {
+          await fastify.db.execute(sql`
+            UPDATE "pages" p
+            SET "search_vector" = to_tsvector(
+              'simple',
+              coalesce(p."title", '') || ' ' || coalesce(r."content_md", '')
+            )
+            FROM "page_revisions" r
+            WHERE p."id" = ANY(${result.restoredPageIds}::uuid[])
+              AND r."id" = p."current_revision_id"
+          `);
+        }
+
+        return reply.code(200).send({
+          restoredPageIds: result.restoredPageIds,
+          restoredCount: result.restoredPageIds.length,
+          rootTitle: result.rootTitle,
+        });
+      } catch (err) {
+        if (err instanceof PageDeletionError) {
+          if (err.code === ERROR_CODES.PAGE_NOT_FOUND) return pageNotFound(reply);
+          if (err.code === ERROR_CODES.SLUG_CONFLICT) {
+            return reply.code(409).send({
+              error:
+                "Another page already uses this slug. Rename it first.",
+              code: ERROR_CODES.SLUG_CONFLICT,
+              details: err.details,
+            });
+          }
+        }
+        throw err;
+      }
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // DELETE /:pageId/purge — Permanently delete a trashed page and its
+  // soft-deleted descendants. Orphan entities are cleaned up after the
+  // subtree is gone. Admins only.
+  // -----------------------------------------------------------------------
+  fastify.delete(
+    "/:pageId/purge",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const paramsResult = pageParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return sendValidationError(reply, paramsResult.error.issues);
+      }
+      const { workspaceId, pageId } = paramsResult.data;
+
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
+      if (!role) return forbidden(reply);
+      if (!ADMIN_PLUS_ROLES.includes(role)) return insufficientRole(reply);
+
+      try {
+        const result = await purgeSubtree(fastify.db, {
+          workspaceId,
+          rootPageId: pageId,
+          userId: request.user.sub,
+        });
+        return reply.code(200).send({
+          purgedPageIds: result.purgedPageIds,
+          purgedCount: result.purgedPageIds.length,
+        });
+      } catch (err) {
+        if (err instanceof PageDeletionError) {
+          if (err.code === ERROR_CODES.PAGE_NOT_FOUND) return pageNotFound(reply);
+          if (err.code === ERROR_CODES.PAGE_NOT_TRASHED) {
+            return reply.code(400).send({
+              error:
+                "Page is not in the trash. Soft-delete it before purging.",
+              code: err.code,
+            });
+          }
+        }
+        throw err;
+      }
     },
   );
 
@@ -1291,7 +1574,11 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         .from(pages)
         .innerJoin(workspaces, eq(pages.workspaceId, workspaces.id))
         .where(
-          and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)),
+          and(
+            eq(pages.id, pageId),
+            eq(pages.workspaceId, workspaceId),
+            notDeleted(),
+          ),
         )
         .limit(1);
 
@@ -1728,7 +2015,13 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       const [pageRow] = await fastify.db
         .select({ id: pages.id, currentRevisionId: pages.currentRevisionId })
         .from(pages)
-        .where(and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)))
+        .where(
+          and(
+            eq(pages.id, pageId),
+            eq(pages.workspaceId, workspaceId),
+            notDeleted(),
+          ),
+        )
         .limit(1);
 
       if (!pageRow) return pageNotFound(reply);
@@ -1849,6 +2142,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         WHERE
           p.workspace_id = ${workspaceId}
           AND p.status != 'archived'
+          AND p.deleted_at IS NULL
           AND (
             to_tsvector('simple', coalesce(p.title, '') || ' ' || coalesce(r.content_md, ''))
               @@ plainto_tsquery('simple', ${q})

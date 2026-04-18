@@ -9,6 +9,7 @@ import { NewPagePage } from "./pages/NewPagePage.js";
 import { ReviewQueuePage } from "./pages/ReviewQueuePage.js";
 import { ImportPage } from "./pages/ImportPage.js";
 import { QueueHealthPage } from "./pages/QueueHealthPage.js";
+import { TrashPage } from "./pages/TrashPage.js";
 import { PublicDocPage } from "./pages/PublicDocPage.js";
 import { PublicDocListPage } from "./pages/PublicDocListPage.js";
 
@@ -79,6 +80,7 @@ export function App() {
         <Route path="review" element={<ReviewQueuePage />} />
         <Route path="import" element={<ImportPage />} />
         <Route path="admin/queues" element={<QueueHealthPage />} />
+        <Route path="trash" element={<TrashPage />} />
       </Route>
     </Routes>
   );

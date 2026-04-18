@@ -362,9 +362,47 @@ export const pages = {
     );
   },
   delete(workspaceId: string, pageId: string) {
-    return request<void>(`/workspaces/${workspaceId}/pages/${pageId}`, {
-      method: "DELETE",
+    return request<{
+      deletedPageIds: string[];
+      deletedCount: number;
+      rootTitle: string;
+    }>(`/workspaces/${workspaceId}/pages/${pageId}`, { method: "DELETE" });
+  },
+  unpublish(workspaceId: string, pageId: string) {
+    return request<{ unpublishedCount: number }>(
+      `/workspaces/${workspaceId}/pages/${pageId}/unpublish`,
+      { method: "POST", body: "{}" },
+    );
+  },
+  listTrash(workspaceId: string) {
+    return request<{
+      data: Array<{
+        id: string;
+        title: string;
+        slug: string;
+        deletedAt: string | null;
+        deletedByUserId: string | null;
+        deletedByUserName: string | null;
+        descendantCount: number;
+      }>;
+      total: number;
+    }>(`/workspaces/${workspaceId}/pages/trash`);
+  },
+  restore(workspaceId: string, pageId: string) {
+    return request<{
+      restoredPageIds: string[];
+      restoredCount: number;
+      rootTitle: string;
+    }>(`/workspaces/${workspaceId}/pages/${pageId}/restore`, {
+      method: "POST",
+      body: "{}",
     });
+  },
+  purge(workspaceId: string, pageId: string) {
+    return request<{ purgedPageIds: string[]; purgedCount: number }>(
+      `/workspaces/${workspaceId}/pages/${pageId}/purge`,
+      { method: "DELETE" },
+    );
   },
 
   createRevision(

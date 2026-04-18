@@ -92,6 +92,7 @@ export const TRIPLE_STATUSES = [
   "active",
   "deprecated",
   "rejected",
+  "page_deleted",
 ] as const;
 export type TripleStatus = (typeof TRIPLE_STATUSES)[number];
 
@@ -159,4 +160,6 @@ export const ERROR_CODES = {
   IMPORT_URL_UNSAFE: "IMPORT_URL_UNSAFE",
   IMPORT_URL_FETCH_FAILED: "IMPORT_URL_FETCH_FAILED",
   IMPORT_MODE_DISABLED: "IMPORT_MODE_DISABLED",
+  PAGE_NOT_TRASHED: "PAGE_NOT_TRASHED",
+  PUBLISHED_BLOCK: "PUBLISHED_BLOCK",
 } as const;
