@@ -14,5 +14,15 @@
   "deleteConfirm": "정말 삭제하시겠습니까? 하위 페이지도 함께 삭제됩니다.",
   "review": "검토 대기열",
   "import": "지식 가져오기",
-  "queueHealth": "큐 상태"
+  "queueHealth": "큐 상태",
+  "timeAgo": {
+    "empty": "—",
+    "now": "방금",
+    "minutes_one": "{{count}}분 전",
+    "minutes_other": "{{count}}분 전",
+    "hours_one": "{{count}}시간 전",
+    "hours_other": "{{count}}시간 전",
+    "days_one": "{{count}}일 전",
+    "days_other": "{{count}}일 전"
+  }
 }

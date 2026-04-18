@@ -362,13 +362,3 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
-
-/* Sidebar admin nav */
-.sidebar-nav-section-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #94a3b8;
-  padding: 10px 10px 4px;
-}

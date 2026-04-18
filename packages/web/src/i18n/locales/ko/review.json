@@ -49,14 +49,5 @@
   "shortcutHint": "단축키: j/k 탐색, a 승인, r 거절",
   "reviewPending": "검토 대기",
   "review": "검토",
-  "noReason": "사유 없음",
-  "timeAgo": {
-    "now": "방금",
-    "minutes_one": "{{count}}분 전",
-    "minutes_other": "{{count}}분 전",
-    "hours_one": "{{count}}시간 전",
-    "hours_other": "{{count}}시간 전",
-    "days_one": "{{count}}일 전",
-    "days_other": "{{count}}일 전"
-  }
+  "noReason": "사유 없음"
 }

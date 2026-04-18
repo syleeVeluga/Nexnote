@@ -39,10 +39,12 @@ function jobDataWorkspaceId(job: Job): string | null {
   return data && typeof data.workspaceId === "string" ? data.workspaceId : null;
 }
 
-function serializeJob(job: Job) {
+function serializeJob(job: Job, viewerWorkspaceId: string) {
   const data = job.data as Record<string, unknown> | null;
   const read = (key: string): string | null =>
     data && typeof data[key] === "string" ? (data[key] as string) : null;
+
+  const jobWorkspaceId = read("workspaceId");
 
   return {
     id: job.id ?? null,
@@ -58,9 +60,11 @@ function serializeJob(job: Job) {
     finishedOn: job.finishedOn
       ? new Date(job.finishedOn).toISOString()
       : null,
-    workspaceId: read("workspaceId"),
+    workspaceId: jobWorkspaceId,
     ingestionId: read("ingestionId"),
     pageId: read("pageId"),
+    isCrossWorkspace:
+      jobWorkspaceId !== null && jobWorkspaceId !== viewerWorkspaceId,
   };
 }
 
@@ -73,6 +77,11 @@ function isStalled(job: Job, now: number): boolean {
   const started = job.processedOn ?? job.timestamp;
   return !!started && now - started > STALLED_AGE_MS;
 }
+
+// Hard cap on how many active jobs we sample when computing stalled count.
+// If a queue has more active jobs than this, the count is flagged as capped
+// (`stalledCountCapped: true`) so the UI can show it as an approximation.
+const STALLED_SAMPLE_CAP = 500;
 
 async function collectQueueSummary(queue: Queue) {
   const [counts, isPaused] = await Promise.all([
@@ -88,23 +97,35 @@ async function collectQueueSummary(queue: Queue) {
   ]);
 
   let stalledCount = 0;
-  if ((counts.active ?? 0) > 0) {
-    const activeJobs = await queue.getJobs(["active"], 0, 49);
+  let stalledCountCapped = false;
+  const activeCount = counts.active ?? 0;
+  if (activeCount > 0) {
     const now = Date.now();
-    stalledCount = activeJobs.filter((j) => isStalled(j, now)).length;
+    const pageSize = 100;
+    const cap = Math.min(activeCount, STALLED_SAMPLE_CAP);
+    stalledCountCapped = activeCount > STALLED_SAMPLE_CAP;
+
+    for (let start = 0; start < cap; start += pageSize) {
+      const end = Math.min(start + pageSize - 1, cap - 1);
+      const activeJobs = await queue.getJobs(["active"], start, end);
+      if (activeJobs.length === 0) break;
+      stalledCount += activeJobs.filter((j) => isStalled(j, now)).length;
+      if (activeJobs.length < end - start + 1) break;
+    }
   }
 
   return {
     name: queue.name,
     counts: {
       waiting: counts.waiting ?? 0,
-      active: counts.active ?? 0,
+      active: activeCount,
       completed: counts.completed ?? 0,
       failed: counts.failed ?? 0,
       delayed: counts.delayed ?? 0,
       paused: counts.paused ?? 0,
       stalled: stalledCount,
     },
+    stalledCountCapped,
     isPaused,
   };
 }
@@ -154,11 +175,7 @@ const adminQueueRoutes: FastifyPluginAsync = async (fastify) => {
       const queue = queueFromFastify(fastify, queueName);
       const jobs = await queue.getFailed(0, 49);
 
-      const items = jobs
-        .map(serializeJob)
-        .filter(
-          (j) => j.workspaceId === null || j.workspaceId === workspaceId,
-        );
+      const items = jobs.map((job) => serializeJob(job, workspaceId));
 
       return reply.send({ queue: queueName, items });
     },
@@ -184,10 +201,7 @@ const adminQueueRoutes: FastifyPluginAsync = async (fastify) => {
       const now = Date.now();
       const items = jobs
         .filter((j) => isStalled(j, now))
-        .map(serializeJob)
-        .filter(
-          (j) => j.workspaceId === null || j.workspaceId === workspaceId,
-        );
+        .map((job) => serializeJob(job, workspaceId));
 
       return reply.send({ queue: queueName, items });
     },
