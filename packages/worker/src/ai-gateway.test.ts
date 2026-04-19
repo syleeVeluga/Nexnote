@@ -43,6 +43,17 @@ function clearAIEnv(): void {
 // getAIAdapter
 // ---------------------------------------------------------------------------
 describe("getAIAdapter", () => {
+  let saved: EnvSnapshot;
+
+  before(() => {
+    saved = snapshotEnv();
+    clearAIEnv();
+  });
+
+  after(() => {
+    restoreEnv(saved);
+  });
+
   it("returns an adapter for the openai provider", () => {
     const adapter = getAIAdapter("openai");
     assert.ok(adapter, "adapter should be defined");
