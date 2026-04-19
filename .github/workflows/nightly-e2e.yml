@@ -44,13 +44,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Corepack must run before setup-node so that the `cache: pnpm` step
+      # can find the pnpm binary on PATH.
+      - name: Enable Corepack
+        run: corepack enable
+
       - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Install Dependencies
         run: corepack pnpm install --frozen-lockfile
