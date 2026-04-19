@@ -44,26 +44,26 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Enable Corepack
+        run: corepack enable
+
       - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
 
-      - name: Enable Corepack
-        run: corepack enable
-
       - name: Install Dependencies
-        run: corepack pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Install Playwright Browser
-        run: corepack pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Full Nightly Suite
-        run: corepack pnpm run test:e2e:nightly
+        run: pnpm run test:e2e:nightly
 
       - name: Upload Nightly Artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: nightly-e2e-artifacts
           if-no-files-found: ignore

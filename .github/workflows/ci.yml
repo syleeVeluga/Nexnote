@@ -45,35 +45,35 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Enable Corepack
+        run: corepack enable
+
       - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
 
-      - name: Enable Corepack
-        run: corepack enable
-
       - name: Install Dependencies
-        run: corepack pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: corepack pnpm typecheck
+        run: pnpm typecheck
 
       - name: Unit Tests
-        run: corepack pnpm test
+        run: pnpm test
 
       - name: Install Playwright Browser
-        run: corepack pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Integration Smoke
-        run: corepack pnpm run test:integration
+        run: pnpm run test:integration
 
       - name: Browser Smoke
-        run: corepack pnpm run test:e2e:smoke
+        run: pnpm run test:e2e:smoke
 
       - name: Upload Playwright Artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: playwright-artifacts
           if-no-files-found: ignore
