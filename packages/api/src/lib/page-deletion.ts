@@ -15,7 +15,7 @@ type AnyDb = any;
 // record (`('a','b',...)`), which PostgreSQL refuses to cast to `uuid[]`.
 // We render each id as its own parameter and join them so the query becomes
 // `IN ($1::uuid, $2::uuid, …)` — safe and index-friendly.
-function sqlUuidList(ids: string[]) {
+export function sqlUuidList(ids: string[]) {
   return sql.join(
     ids.map((id) => sql`${id}::uuid`),
     sql`, `,
@@ -200,11 +200,10 @@ export async function softDeleteSubtree(
     }
 
     // Lock before the publish check to avoid racing with a concurrent publish.
-    await tx
-      .select({ id: pages.id })
-      .from(pages)
-      .where(inArray(pages.id, subtreeIds))
-      .for("update");
+    // Raw SELECT 1 avoids streaming the locked ids back to the client.
+    await tx.execute(
+      sql`SELECT 1 FROM "pages" WHERE "id" IN (${sqlUuidList(subtreeIds)}) FOR UPDATE`,
+    );
 
     const liveRows = await tx
       .select({ pageId: publishedSnapshots.pageId, id: publishedSnapshots.id })
@@ -342,11 +341,9 @@ export async function restoreSubtree(
       return { restoredPageIds: [], rootTitle: root.title };
     }
 
-    await tx
-      .select({ id: pages.id })
-      .from(pages)
-      .where(inArray(pages.id, restoringIds))
-      .for("update");
+    await tx.execute(
+      sql`SELECT 1 FROM "pages" WHERE "id" IN (${sqlUuidList(restoringIds)}) FOR UPDATE`,
+    );
 
     const activePages = await tx
       .select({ id: pages.id, title: pages.title, slug: pages.slug })
