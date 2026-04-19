@@ -11,6 +11,25 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- drizzle tx/db don't share a clean type
 type AnyDb = any;
 
+// postgres-js renders a JS array interpolated into a sql`` template as a
+// record (`('a','b',...)`), which PostgreSQL refuses to cast to `uuid[]`.
+// We render each id as its own parameter and join them so the query becomes
+// `IN ($1::uuid, $2::uuid, …)` — safe and index-friendly.
+function sqlUuidList(ids: string[]) {
+  return sql.join(
+    ids.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+}
+
+// Same rationale as `sqlUuidList` but for text arrays.
+function sqlTextList(values: string[]) {
+  return sql.join(
+    values.map((v) => sql`${v}`),
+    sql`, `,
+  );
+}
+
 function toEpochMillis(value: Date | string | null | undefined): number | null {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
@@ -181,9 +200,11 @@ export async function softDeleteSubtree(
     }
 
     // Lock before the publish check to avoid racing with a concurrent publish.
-    await tx.execute(
-      sql`SELECT 1 FROM "pages" WHERE "id" = ANY(${subtreeIds}::uuid[]) FOR UPDATE`,
-    );
+    await tx
+      .select({ id: pages.id })
+      .from(pages)
+      .where(inArray(pages.id, subtreeIds))
+      .for("update");
 
     const liveRows = await tx
       .select({ pageId: publishedSnapshots.pageId, id: publishedSnapshots.id })
@@ -213,7 +234,7 @@ export async function softDeleteSubtree(
     // search_vector lives outside the drizzle schema — clear it so FTS hides
     // the page even if a caller forgets the deleted_at filter.
     await tx.execute(
-      sql`UPDATE "pages" SET "search_vector" = NULL WHERE "id" = ANY(${subtreeIds}::uuid[])`,
+      sql`UPDATE "pages" SET "search_vector" = NULL WHERE "id" IN (${sqlUuidList(subtreeIds)})`,
     );
 
     await tx
@@ -321,9 +342,11 @@ export async function restoreSubtree(
       return { restoredPageIds: [], rootTitle: root.title };
     }
 
-    await tx.execute(
-      sql`SELECT 1 FROM "pages" WHERE "id" = ANY(${restoringIds}::uuid[]) FOR UPDATE`,
-    );
+    await tx
+      .select({ id: pages.id })
+      .from(pages)
+      .where(inArray(pages.id, restoringIds))
+      .for("update");
 
     const activePages = await tx
       .select({ id: pages.id, title: pages.title, slug: pages.slug })
@@ -344,7 +367,7 @@ export async function restoreSubtree(
         pp."page_id" AS "pageId",
         pp."path" AS "path"
       FROM "page_paths" pp
-      WHERE pp."page_id" = ANY(${restoringIds}::uuid[])
+      WHERE pp."page_id" IN (${sqlUuidList(restoringIds)})
       ORDER BY pp."page_id", pp."created_at" DESC
     `);
 
@@ -364,7 +387,7 @@ export async function restoreSubtree(
         INNER JOIN "pages" p ON p."id" = pp."page_id"
         WHERE pp."workspace_id" = ${workspaceId}
           AND pp."is_current" = true
-          AND pp."path" = ANY(${activePathValues}::text[])
+          AND pp."path" IN (${sqlTextList(activePathValues)})
           AND p."deleted_at" IS NULL
       `);
 
@@ -434,7 +457,7 @@ export async function restoreSubtree(
       WHERE "id" IN (
         SELECT DISTINCT ON ("page_id") "id"
         FROM "page_paths"
-        WHERE "page_id" = ANY(${restoringIds}::uuid[])
+        WHERE "page_id" IN (${sqlUuidList(restoringIds)})
         ORDER BY "page_id", "created_at" DESC
       )
     `);
