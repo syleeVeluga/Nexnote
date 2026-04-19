@@ -24,7 +24,7 @@
     "test:e2e:smoke": "playwright test --config=playwright.config.ts --grep @smoke",
     "test:e2e": "corepack pnpm run test:integration && corepack pnpm run test:e2e:smoke",
     "test:e2e:nightly": "corepack pnpm run test:integration:nightly && playwright test --config=playwright.config.ts",
-    "typecheck": "corepack pnpm -r run typecheck"
+    "typecheck": "corepack pnpm --filter @nexnote/shared build && corepack pnpm --filter @nexnote/db build && corepack pnpm -r run typecheck"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",
