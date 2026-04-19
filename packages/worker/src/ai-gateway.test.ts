@@ -10,6 +10,7 @@ const ENV_KEYS = [
   "GEMINI_API_KEY",
   "OPENAI_MODEL",
   "GEMINI_MODEL",
+  "AI_TEST_MODE",
 ] as const;
 
 type EnvSnapshot = Record<string, string | undefined>;
