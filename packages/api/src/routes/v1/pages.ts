@@ -1456,6 +1456,10 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         // specific revisionId, and we already know the current revision
         // per page is the right one.
         if (result.restoredPageIds.length > 0) {
+          const idList = sql.join(
+            result.restoredPageIds.map((id) => sql`${id}::uuid`),
+            sql`, `,
+          );
           await fastify.db.execute(sql`
             UPDATE "pages" p
             SET "search_vector" = to_tsvector(
@@ -1463,7 +1467,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
               coalesce(p."title", '') || ' ' || coalesce(r."content_md", '')
             )
             FROM "page_revisions" r
-            WHERE p."id" = ANY(${result.restoredPageIds}::uuid[])
+            WHERE p."id" IN (${idList})
               AND r."id" = p."current_revision_id"
           `);
         }
