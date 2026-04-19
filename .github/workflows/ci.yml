@@ -34,46 +34,46 @@ jobs:
           --health-retries 20
     env:
       DATABASE_URL: postgresql://nexnote:nexnote@127.0.0.1:5432/nexnote
-      REDIS_URL: redis://127.0.0.1:6379
-      API_PORT: 3001
+      REDIS_URL: redis://127.0.0.1:6379/15
+      API_PORT: 3101
       API_HOST: 127.0.0.1
-      WEB_PORT: 5173
+      WEB_PORT: 4173
       JWT_SECRET: test-secret
       NODE_ENV: test
       AI_TEST_MODE: mock
-      E2E_BASE_URL: http://127.0.0.1:5173
+      E2E_BASE_URL: http://127.0.0.1:4173
     steps:
       - uses: actions/checkout@v5
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
 
+      - name: Enable Corepack
+        run: corepack enable
+
       - name: Install Dependencies
-        run: pnpm install --frozen-lockfile
+        run: corepack pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: corepack pnpm typecheck
 
       - name: Unit Tests
-        run: pnpm test
+        run: corepack pnpm test
 
       - name: Install Playwright Browser
-        run: pnpm exec playwright install --with-deps chromium
+        run: corepack pnpm exec playwright install --with-deps chromium
 
       - name: Integration Smoke
-        run: pnpm run test:integration
+        run: corepack pnpm run test:integration
 
       - name: Browser Smoke
-        run: pnpm run test:e2e:smoke
+        run: corepack pnpm run test:e2e:smoke
 
       - name: Upload Playwright Artifacts
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
           name: playwright-artifacts
           if-no-files-found: ignore
