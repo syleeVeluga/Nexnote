@@ -28,7 +28,7 @@ export const lowlight = createLowlight(common);
  */
 export function getEditorExtensions() {
   return [
-    StarterKit.configure({ codeBlock: false }),
+    StarterKit.configure({ codeBlock: false, link: false }),
     Link.configure({ openOnClick: false, autolink: true }),
     Image,
     TaskList,
