@@ -27,6 +27,7 @@
   "import": "Import Knowledge",
   "queueHealth": "Queue Health",
   "trash": "Trash",
+  "pagesSectionTitle": "Pages",
   "trashEmpty": "Trash is empty.",
   "trashDescription": "Deleted pages are kept for 30 days and can be restored at any time.",
   "restore": "Restore",

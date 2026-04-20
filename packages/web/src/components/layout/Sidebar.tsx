@@ -545,6 +545,12 @@ export function Sidebar({
         </NavLink>
       </div>
 
+      <hr className="sidebar-divider" />
+
+      <h2 className="sidebar-section-header">
+        {t("pagesSectionTitle")}
+      </h2>
+
       <div className="sidebar-content">
         {rootPages.map((page) => (
           <PageNode key={page.id} page={page} {...sharedNodeProps} />

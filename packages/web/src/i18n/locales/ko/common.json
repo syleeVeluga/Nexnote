@@ -27,6 +27,7 @@
   "import": "지식 가져오기",
   "queueHealth": "큐 상태",
   "trash": "휴지통",
+  "pagesSectionTitle": "페이지",
   "trashEmpty": "휴지통이 비어 있습니다.",
   "trashDescription": "삭제된 페이지는 30일 동안 보관되며 언제든 복원할 수 있습니다.",
   "restore": "복원",
