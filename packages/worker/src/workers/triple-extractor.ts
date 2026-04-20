@@ -13,11 +13,19 @@ import {
   modelRuns,
   pageRevisions,
 } from "@nexnote/db";
-import { tripleExtractionSchema, normalizeKey } from "@nexnote/shared";
+import {
+  tripleExtractionSchema,
+  normalizeKey,
+  estimateTokens,
+  sliceWithinTokenBudget,
+  getModelContextBudget,
+  MODE_OUTPUT_RESERVE,
+} from "@nexnote/shared";
 import type {
   TripleExtractorJobData,
   TripleExtractorJobResult,
   AIRequest,
+  AIBudgetMeta,
 } from "@nexnote/shared";
 
 const PROMPT_VERSION = "triple-extractor-v2";
@@ -48,15 +56,7 @@ export function createTripleExtractorWorker(): Worker {
       const { provider, model } = getDefaultProvider();
       const adapter = getAIAdapter(provider);
 
-      const aiRequest: AIRequest = {
-        provider,
-        model,
-        mode: "triple_extraction",
-        promptVersion: PROMPT_VERSION,
-        messages: [
-          {
-            role: "system",
-            content: `You are a knowledge extraction engine. Given Markdown document content, extract structured triples (subject-predicate-object relationships).
+      const systemPrompt = `You are a knowledge extraction engine. Given Markdown document content, extract structured triples (subject-predicate-object relationships).
 
 Rules:
 - Extract factual relationships, not opinions or speculation
@@ -81,19 +81,62 @@ Respond with JSON:
       "spans": [{ "start": 0, "end": 50, "excerpt": "text excerpt" }]
     }
   ]
-}`,
+}`;
+
+      const budget = getModelContextBudget(provider, model);
+      const systemTokens = estimateTokens(systemPrompt);
+      const SCAFFOLD_TOKENS = 60;
+      const rawAvailable =
+        budget.inputTokenBudget -
+        MODE_OUTPUT_RESERVE.triple_extraction -
+        systemTokens -
+        SCAFFOLD_TOKENS;
+      const available = Math.max(
+        2_000,
+        Math.floor(rawAvailable * budget.safetyMarginRatio),
+      );
+
+      const contentSlice = sliceWithinTokenBudget(
+        revision.contentMd,
+        available,
+        { preserveStructure: true },
+      );
+
+      const budgetMeta: AIBudgetMeta = {
+        inputTokenBudget: available,
+        estimatedInputTokens:
+          systemTokens + SCAFFOLD_TOKENS + contentSlice.estimatedTokens,
+        inputCharLength: systemPrompt.length + contentSlice.text.length,
+        truncated: contentSlice.truncated,
+        strategy: "single_slot_structure_preserving",
+        slotAllocations: {
+          content: {
+            allocatedTokens: available,
+            estimatedTokens: contentSlice.estimatedTokens,
+            truncated: contentSlice.truncated,
           },
+        },
+      };
+
+      const aiRequest: AIRequest = {
+        provider,
+        model,
+        mode: "triple_extraction",
+        promptVersion: PROMPT_VERSION,
+        messages: [
+          { role: "system", content: systemPrompt },
           {
             role: "user",
             content: `Extract triples from this document:
 \`\`\`markdown
-${revision.contentMd.slice(0, 6000)}
+${contentSlice.text}
 \`\`\``,
           },
         ],
         temperature: 0.1,
-        maxTokens: 8192,
+        maxTokens: MODE_OUTPUT_RESERVE.triple_extraction,
         responseFormat: "json",
+        budgetMeta,
       };
 
       const aiResponse = await adapter.chat(aiRequest);
@@ -123,7 +166,7 @@ ${revision.contentMd.slice(0, 6000)}
           tokenOutput: aiResponse.tokenOutput,
           latencyMs: aiResponse.latencyMs,
           status: parseFailed ? "failed" : "success",
-          requestMetaJson: { pageId, revisionId },
+          requestMetaJson: { pageId, revisionId, budget: budgetMeta },
           responseMetaJson: parseFailed
             ? { error: "parse_failed", raw: aiResponse.content.slice(0, 500) }
             : { tripleCount: extracted.triples.length },

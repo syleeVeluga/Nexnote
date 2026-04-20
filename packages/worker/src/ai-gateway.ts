@@ -205,6 +205,10 @@ class GeminiAdapter implements AIAdapter {
   }
 }
 
+// TODO(claude): register Anthropic adapter here once the `AIProvider` union in
+// @nexnote/shared includes "anthropic" and an AnthropicAdapter is added — the
+// large-context pre-chunk rollout (Phase 0) is provider-aware but ships with
+// only OpenAI + Gemini wired.
 const adapters: Record<AIProvider, AIAdapter> = {
   openai: new OpenAIAdapter(),
   gemini: new GeminiAdapter(),

@@ -14,12 +14,22 @@ import {
   revisionDiffs,
   auditLogs,
 } from "@nexnote/db";
-import { computeDiff, extractIngestionText, DEFAULT_JOB_OPTIONS } from "@nexnote/shared";
+import {
+  computeDiff,
+  extractIngestionText,
+  DEFAULT_JOB_OPTIONS,
+  estimateTokens,
+  sliceWithinTokenBudget,
+  allocateBudgets,
+  getModelContextBudget,
+  MODE_OUTPUT_RESERVE,
+} from "@nexnote/shared";
 import type {
   PatchGeneratorJobData,
   PatchGeneratorJobResult,
   TripleExtractorJobData,
   AIRequest,
+  AIBudgetMeta,
 } from "@nexnote/shared";
 import { createJobLogger } from "../logger.js";
 
@@ -88,15 +98,7 @@ export function createPatchGeneratorWorker(): Worker {
         const { provider, model } = getDefaultProvider();
         const adapter = getAIAdapter(provider);
 
-        const aiRequest: AIRequest = {
-          provider,
-          model,
-          mode: "patch_generation",
-          promptVersion: PROMPT_VERSION,
-          messages: [
-            {
-              role: "system",
-              content: `You are a document editor for a Markdown knowledge wiki.
+        const systemPrompt = `You are a document editor for a Markdown knowledge wiki.
 You will receive an existing page's Markdown content and incoming new content that should update it.
 Merge the incoming content into the existing document intelligently:
 - Preserve the existing structure where it makes sense
@@ -104,25 +106,100 @@ Merge the incoming content into the existing document intelligently:
 - Remove outdated information that the new content replaces
 - Maintain consistent Markdown formatting
 
-Return ONLY the final merged Markdown content, nothing else.`,
+Return ONLY the final merged Markdown content, nothing else.`;
+
+        const budget = getModelContextBudget(provider, model);
+        const systemTokens = estimateTokens(systemPrompt);
+        const SCAFFOLD_TOKENS = 100;
+        const rawAvailable =
+          budget.inputTokenBudget -
+          MODE_OUTPUT_RESERVE.patch_generation -
+          systemTokens -
+          SCAFFOLD_TOKENS;
+        const available = Math.max(
+          2_000,
+          Math.floor(rawAvailable * budget.safetyMarginRatio),
+        );
+
+        // Incoming-priority: the ingestion payload is the source of truth for
+        // this merge, so it gets a large floor first; existing content gets a
+        // smaller floor for merge context and absorbs only what's left over.
+        // weight:0 on existing ensures remainder flows to incoming (via slack
+        // redistribution when incoming still has unmet need).
+        const allocations = allocateBudgets(
+          [
+            {
+              key: "incoming",
+              text: incomingText,
+              minTokens: 100_000,
+              weight: 1,
             },
+            {
+              key: "existing",
+              text: existingContent,
+              minTokens: 10_000,
+              weight: 0,
+            },
+          ],
+          available,
+          { preserveStructure: true },
+        );
+
+        const existingSlot = allocations.existing;
+        const incomingSlot = allocations.incoming;
+
+        const budgetMeta: AIBudgetMeta = {
+          inputTokenBudget: available,
+          estimatedInputTokens:
+            systemTokens +
+            SCAFFOLD_TOKENS +
+            existingSlot.estimatedTokens +
+            incomingSlot.estimatedTokens,
+          inputCharLength:
+            systemPrompt.length +
+            existingSlot.text.length +
+            incomingSlot.text.length,
+          truncated: existingSlot.truncated || incomingSlot.truncated,
+          strategy: "incoming_priority_structure_preserving",
+          slotAllocations: {
+            existing: {
+              allocatedTokens: existingSlot.allocatedTokens,
+              estimatedTokens: existingSlot.estimatedTokens,
+              truncated: existingSlot.truncated,
+            },
+            incoming: {
+              allocatedTokens: incomingSlot.allocatedTokens,
+              estimatedTokens: incomingSlot.estimatedTokens,
+              truncated: incomingSlot.truncated,
+            },
+          },
+        };
+
+        const aiRequest: AIRequest = {
+          provider,
+          model,
+          mode: "patch_generation",
+          promptVersion: PROMPT_VERSION,
+          messages: [
+            { role: "system", content: systemPrompt },
             {
               role: "user",
               content: `## Existing page content:
 \`\`\`markdown
-${existingContent.slice(0, 8000)}
+${existingSlot.text}
 \`\`\`
 
 ## Incoming content to merge:
 \`\`\`markdown
-${incomingText.slice(0, 4000)}
+${incomingSlot.text}
 \`\`\`
 
 Produce the merged Markdown:`,
             },
           ],
           temperature: 0.2,
-          maxTokens: 4096,
+          maxTokens: MODE_OUTPUT_RESERVE.patch_generation,
+          budgetMeta,
         };
 
         const aiResponse = await adapter.chat(aiRequest);
@@ -140,7 +217,12 @@ Produce the merged Markdown:`,
             tokenOutput: aiResponse.tokenOutput,
             latencyMs: aiResponse.latencyMs,
             status: "success",
-            requestMetaJson: { ingestionId, targetPageId, action },
+            requestMetaJson: {
+              ingestionId,
+              targetPageId,
+              action,
+              budget: budgetMeta,
+            },
             responseMetaJson: { contentLength: newContent.length },
           })
           .returning();

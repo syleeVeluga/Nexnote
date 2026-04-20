@@ -24,6 +24,11 @@ import {
   extractIngestionText,
   normalizeKey,
   slugify,
+  estimateTokens,
+  sliceWithinTokenBudget,
+  allocateBudgets,
+  getModelContextBudget,
+  MODE_OUTPUT_RESERVE,
 } from "@nexnote/shared";
 import type {
   RouteClassifierJobData,
@@ -31,23 +36,33 @@ import type {
   PatchGeneratorJobData,
   TripleExtractorJobData,
   AIRequest,
+  AIBudgetMeta,
+  AIProvider,
 } from "@nexnote/shared";
 
 const PROMPT_VERSION = "route-classifier-v1";
 const moduleLog = createJobLogger("route-classifier");
+
+interface CandidatePage {
+  id: string;
+  title: string;
+  slug: string;
+  contentMd: string;
+}
+
+// Server-side cap on fetched candidate markdown. Well above any realistic
+// per-candidate token budget (≈12.5k tokens of mixed text) but small enough
+// to bound DB bandwidth + worker memory across ~10 candidates × N concurrency.
+const CANDIDATE_CONTENT_CHAR_CAP = 50_000;
+const candidateContentSql = sql<string>`SUBSTRING(${pageRevisions.contentMd}, 1, ${CANDIDATE_CONTENT_CHAR_CAP})`;
 
 async function findCandidatePages(
   db: ReturnType<typeof getDb>,
   workspaceId: string,
   titleHint: string | null,
   normalizedText: string | null,
-): Promise<Array<{ id: string; title: string; slug: string; excerpt: string }>> {
-  const candidates: Array<{
-    id: string;
-    title: string;
-    slug: string;
-    excerpt: string;
-  }> = [];
+): Promise<CandidatePage[]> {
+  const candidates: CandidatePage[] = [];
   const existingIds = new Set<string>();
 
   // Title match with current revision excerpt
@@ -57,7 +72,7 @@ async function findCandidatePages(
         id: pages.id,
         title: pages.title,
         slug: pages.slug,
-        contentMd: pageRevisions.contentMd,
+        contentMd: candidateContentSql,
       })
       .from(pages)
       .leftJoin(
@@ -79,7 +94,7 @@ async function findCandidatePages(
         id: row.id,
         title: row.title,
         slug: row.slug,
-        excerpt: row.contentMd ? row.contentMd.slice(0, 500) : "",
+        contentMd: row.contentMd ?? "",
       });
     }
   }
@@ -102,7 +117,7 @@ async function findCandidatePages(
             id: pages.id,
             title: pages.title,
             slug: pages.slug,
-            contentMd: pageRevisions.contentMd,
+            contentMd: candidateContentSql,
           })
           .from(pages)
           .innerJoin(pageRevisions, eq(pageRevisions.id, pages.currentRevisionId))
@@ -125,7 +140,7 @@ async function findCandidatePages(
             id: row.id,
             title: row.title,
             slug: row.slug,
-            excerpt: row.contentMd ? row.contentMd.slice(0, 500) : "",
+            contentMd: row.contentMd ?? "",
           });
         }
       } catch (err) {
@@ -143,7 +158,7 @@ async function findCandidatePages(
           id: pages.id,
           title: pages.title,
           slug: pages.slug,
-          contentMd: pageRevisions.contentMd,
+          contentMd: candidateContentSql,
         })
         .from(pages)
         .innerJoin(pageRevisions, eq(pageRevisions.id, pages.currentRevisionId))
@@ -164,7 +179,7 @@ async function findCandidatePages(
           id: row.id,
           title: row.title,
           slug: row.slug,
-          excerpt: row.contentMd ? row.contentMd.slice(0, 500) : "",
+          contentMd: row.contentMd ?? "",
         });
       }
     } catch (err) {
@@ -191,7 +206,7 @@ async function findCandidatePages(
             id: pages.id,
             title: pages.title,
             slug: pages.slug,
-            contentMd: pageRevisions.contentMd,
+            contentMd: candidateContentSql,
           })
           .from(pages)
           .innerJoin(pageRevisions, eq(pageRevisions.id, pages.currentRevisionId))
@@ -215,7 +230,7 @@ async function findCandidatePages(
             id: row.id,
             title: row.title,
             slug: row.slug,
-            excerpt: row.contentMd ? row.contentMd.slice(0, 500) : "",
+            contentMd: row.contentMd ?? "",
           });
         }
       }
@@ -227,37 +242,7 @@ async function findCandidatePages(
   return candidates.slice(0, 10);
 }
 
-function buildRoutePrompt(
-  ingestion: {
-    sourceName: string;
-    titleHint: string | null;
-    normalizedText: string | null;
-    rawPayload: unknown;
-    contentType: string;
-  },
-  candidates: Array<{
-    id: string;
-    title: string;
-    slug: string;
-    excerpt: string;
-  }>,
-): AIRequest["messages"] {
-  const incomingContent = extractIngestionText(ingestion);
-
-  const candidateList =
-    candidates.length > 0
-      ? candidates
-          .map(
-            (c, i) =>
-              `[${i + 1}] id=${c.id}, title="${c.title}", excerpt="${c.excerpt.slice(0, 300)}"`,
-          )
-          .join("\n")
-      : "(no existing pages found)";
-
-  return [
-    {
-      role: "system",
-      content: `You are a route-decision engine for a knowledge wiki.
+const ROUTE_SYSTEM_PROMPT = `You are a route-decision engine for a knowledge wiki.
 Given an incoming document and a list of existing candidate pages, decide what to do.
 
 Possible actions:
@@ -276,22 +261,109 @@ Respond with JSON matching this schema:
   "proposedTitle": "<suggested title if action=create>"
 }
 
-Be conservative — prefer "needs_review" if confidence < 0.6.`,
-    },
+Be conservative — prefer "needs_review" if confidence < 0.6.`;
+
+function buildRoutePrompt(
+  ingestion: {
+    sourceName: string;
+    titleHint: string | null;
+    normalizedText: string | null;
+    rawPayload: unknown;
+    contentType: string;
+  },
+  candidates: CandidatePage[],
+  provider: AIProvider,
+  model: string,
+): { messages: AIRequest["messages"]; budgetMeta: AIBudgetMeta } {
+  const incomingContent = extractIngestionText(ingestion);
+
+  const budget = getModelContextBudget(provider, model);
+  const systemTokens = estimateTokens(ROUTE_SYSTEM_PROMPT);
+  // Coarse fixed overhead for the user-message scaffolding (labels, separators).
+  const SCAFFOLD_TOKENS = 200;
+  const rawAvailable =
+    budget.inputTokenBudget -
+    MODE_OUTPUT_RESERVE.route_decision -
+    systemTokens -
+    SCAFFOLD_TOKENS;
+  const available = Math.max(
+    1_000,
+    Math.floor(rawAvailable * budget.safetyMarginRatio),
+  );
+
+  // Incoming-first: the ingestion payload drives the decision, candidates are
+  // just identification hints. Send only the top 3 (by search ordering) into
+  // the prompt with small floors; incoming gets a large floor + most of the
+  // slack. The rest of findCandidatePages's results stay DB-side for recall.
+  const PROMPT_CANDIDATE_LIMIT = 3;
+  const promptCandidates = candidates.slice(0, PROMPT_CANDIDATE_LIMIT);
+  const candidateSlots = promptCandidates.map((c, i) => ({
+    key: `candidate_${i}`,
+    text: c.contentMd,
+    minTokens: 100,
+    weight: 1,
+  }));
+  const slots = [
+    { key: "incoming", text: incomingContent, minTokens: 80_000, weight: 10 },
+    ...candidateSlots,
+  ];
+  const allocations = allocateBudgets(slots, available, {
+    preserveStructure: true,
+  });
+
+  const incomingSliced = allocations.incoming;
+  const candidateList =
+    promptCandidates.length > 0
+      ? promptCandidates
+          .map((c, i) => {
+            const excerpt = allocations[`candidate_${i}`].text;
+            return `[${i + 1}] id=${c.id}, title="${c.title}", excerpt="${excerpt}"`;
+          })
+          .join("\n")
+      : "(no existing pages found)";
+
+  const messages: AIRequest["messages"] = [
+    { role: "system", content: ROUTE_SYSTEM_PROMPT },
     {
       role: "user",
       content: `Source: ${ingestion.sourceName}
 Title hint: ${ingestion.titleHint ?? "(none)"}
 Content type: ${ingestion.contentType}
-Incoming content (truncated):
+Incoming content:
 ---
-${incomingContent.slice(0, 2000)}
+${incomingSliced.text}
 ---
 
 Existing candidate pages:
 ${candidateList}`,
     },
   ];
+
+  const slotAllocations: AIBudgetMeta["slotAllocations"] = {};
+  let anyTruncated = false;
+  let estimatedInputTokens = systemTokens + SCAFFOLD_TOKENS;
+  let inputCharLength = ROUTE_SYSTEM_PROMPT.length;
+  for (const [key, alloc] of Object.entries(allocations)) {
+    slotAllocations[key] = {
+      allocatedTokens: alloc.allocatedTokens,
+      estimatedTokens: alloc.estimatedTokens,
+      truncated: alloc.truncated,
+    };
+    if (alloc.truncated) anyTruncated = true;
+    estimatedInputTokens += alloc.estimatedTokens;
+    inputCharLength += alloc.text.length;
+  }
+
+  const budgetMeta: AIBudgetMeta = {
+    inputTokenBudget: available,
+    estimatedInputTokens,
+    inputCharLength,
+    truncated: anyTruncated,
+    strategy: "incoming_priority_structure_preserving",
+    slotAllocations,
+  };
+
+  return { messages, budgetMeta };
 }
 
 export function createRouteClassifierWorker(): Worker {
@@ -345,9 +417,11 @@ export function createRouteClassifierWorker(): Worker {
       const { provider, model } = getDefaultProvider();
       const adapter = getAIAdapter(provider);
 
-      const messages = buildRoutePrompt(
+      const { messages, budgetMeta } = buildRoutePrompt(
         { ...ingestion, normalizedText },
         candidates,
+        provider,
+        model,
       );
 
       const aiRequest: AIRequest = {
@@ -359,6 +433,7 @@ export function createRouteClassifierWorker(): Worker {
         temperature: 0.1,
         maxTokens: 1024,
         responseFormat: "json",
+        budgetMeta,
       };
 
       const aiResponse = await adapter.chat(aiRequest);
@@ -394,7 +469,11 @@ export function createRouteClassifierWorker(): Worker {
           tokenOutput: aiResponse.tokenOutput,
           latencyMs: aiResponse.latencyMs,
           status: parseFailed ? "failed" : "success",
-          requestMetaJson: { ingestionId, candidateCount: candidates.length },
+          requestMetaJson: {
+            ingestionId,
+            candidateCount: candidates.length,
+            budget: budgetMeta,
+          },
           responseMetaJson: parseFailed
             ? { error: "parse_failed", raw: aiResponse.content.slice(0, 500) }
             : { action: parsed.action, confidence: parsed.confidence },

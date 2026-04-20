@@ -101,6 +101,53 @@ export const CONFIDENCE = {
   SUGGESTION_MIN: 0.6,
 } as const;
 
+// Per-model input budget (in tokens) for large-context-first prompt assembly.
+// `inputTokenBudget` is the *total* input window we're willing to consume
+// (leaves headroom for provider overhead + streaming). Callers further subtract
+// `MODE_OUTPUT_RESERVE[mode]` and any fixed system-prompt cost before
+// distributing the remainder across dynamic slots (existing/incoming/etc.).
+// `safetyMarginRatio` is applied multiplicatively after slot allocation to
+// absorb tokenizer drift from our character-based estimator.
+export interface ModelContextBudget {
+  inputTokenBudget: number;
+  safetyMarginRatio: number;
+}
+
+export const MODEL_CONTEXT_BUDGETS: Record<string, ModelContextBudget> = {
+  "openai:gpt-5.4": { inputTokenBudget: 180_000, safetyMarginRatio: 0.9 },
+  "openai:gpt-5.4-pro": { inputTokenBudget: 400_000, safetyMarginRatio: 0.9 },
+  "gemini:gemini-3.1-pro": {
+    inputTokenBudget: 800_000,
+    safetyMarginRatio: 0.9,
+  },
+};
+
+// Conservative fallback for unregistered provider/model pairs. Chosen small
+// enough that any modern frontier model will accept it without 413s.
+export const DEFAULT_MODEL_CONTEXT_BUDGET: ModelContextBudget = {
+  inputTokenBudget: 32_000,
+  safetyMarginRatio: 0.85,
+};
+
+// Output token reserve per mode — mirrors the `maxTokens` currently passed on
+// each worker's AIRequest so budgeting math matches actual request shape.
+// triple_extraction caps at ~40 triples × ~200 chars ≈ 2k tokens in practice,
+// so 4k leaves comfortable headroom while freeing input budget.
+export const MODE_OUTPUT_RESERVE: Record<ModelRunMode, number> = {
+  route_decision: 2_048,
+  patch_generation: 8_192,
+  triple_extraction: 4_096,
+};
+
+export function getModelContextBudget(
+  provider: AIProvider,
+  model: string,
+): ModelContextBudget {
+  return (
+    MODEL_CONTEXT_BUDGETS[`${provider}:${model}`] ?? DEFAULT_MODEL_CONTEXT_BUDGET
+  );
+}
+
 export const DEFAULT_JOB_OPTIONS = {
   attempts: 3,
   backoff: { type: "exponential" as const, delay: 5000 },

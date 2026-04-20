@@ -4,6 +4,30 @@
 > Last updated: 2026-04-21
 > Scope: Design only, no implementation in this document
 
+## 0. Phase 0 — Large-context-first pre-chunk rollout (shipped)
+
+Before any chunk persistence or vector layer, the hardcoded `slice(0, N)` cutoffs inside `route-classifier`, `patch-generator` (update merge), and `triple-extractor` were replaced with provider-aware budgeted prompt assembly. No schema changes, no new worker, no embeddings — this tranche only lets the existing pipeline actually use the large-context windows of the configured models.
+
+Delivered building blocks that the later chunking stages will reuse:
+
+- `MODEL_CONTEXT_BUDGETS` + `MODE_OUTPUT_RESERVE` + `getModelContextBudget()` in [packages/shared/src/constants/index.ts](packages/shared/src/constants/index.ts) — per-model input budget + safety margin, and per-mode output reserve matching each worker's `maxTokens`.
+- `estimateTokens`, `sliceWithinTokenBudget` (structure-preserving, cuts on blank-line → sentence → char boundaries), and `allocateBudgets` (multi-slot weighted allocation with slack redistribution) in [packages/shared/src/lib/token-budget.ts](packages/shared/src/lib/token-budget.ts).
+- Optional `AIRequest.budgetMeta` read-through field ([packages/shared/src/types/ai-gateway.ts](packages/shared/src/types/ai-gateway.ts)) so every worker records `inputTokenBudget`, `estimatedInputTokens`, `truncated`, `strategy`, and per-slot allocations on `model_runs.requestMetaJson`.
+
+Where the old cutoffs used to live (allocation policy is **incoming-priority**, not fair-split — the ingestion payload is treated as the source of truth and given a large floor before any other slot):
+
+- [route-classifier.ts](packages/worker/src/workers/route-classifier.ts) — candidate excerpts are no longer pre-sliced inside the worker; the DB query applies a `SUBSTRING` cap of 50k chars per candidate for bandwidth, and only the top 3 candidates by search rank are rendered in the prompt. `incoming` gets `minTokens: 80_000, weight: 10` and absorbs almost all slack; each prompted candidate gets `minTokens: 100, weight: 1` — enough to identify the page, not to rewrite it. Remaining matches from `findCandidatePages` stay DB-side for recall statistics.
+- [patch-generator.ts](packages/worker/src/workers/patch-generator.ts) — update merge uses `incoming { minTokens: 100_000, weight: 1 }` and `existing { minTokens: 10_000, weight: 0 }`. Incoming is guaranteed up to 100k tokens and gets the entire remainder; existing only receives its floor plus any slack incoming can't use. `append` remains a plain concat.
+- [triple-extractor.ts](packages/worker/src/workers/triple-extractor.ts) — the 6000-char cap is gone; the full `revision.contentMd` is sent up to the per-model budget. Output reserve tightened from 8k to 4k tokens (actual triple output rarely exceeds 2k), freeing ~4k more input tokens. `MODEL_RUNS` now logs truncation stats so the actual need for sub-page chunking can be measured instead of assumed.
+
+Out of scope for Phase 0 and still owned by the remaining sections of this plan:
+
+- Persisted `chunks` / `chunk_embeddings` tables, revision-scoped splitting, and retrieval-aware triple extraction.
+- Any Claude adapter (only a `TODO(claude)` marker was left in [ai-gateway.ts](packages/worker/src/ai-gateway.ts)).
+- Workspace-wide vector search, cross-page dedup, and conflict detection.
+
+The signal that Phase 0 has done its job (and that the full chunking plan below needs to land) is `model_runs.requestMetaJson.budget.truncated = true` for a non-trivial fraction of large ingests — especially `triple_extraction`, where any truncation is a direct recall loss.
+
 ## 1. Background
 
 NexNote aims to solve the long-term maintenance problem of knowledge systems whose content continuously changes. The operating model is:
