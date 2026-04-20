@@ -685,13 +685,14 @@ export const ingestions = {
   async importFile(
     workspaceId: string,
     file: File,
-    options?: { titleHint?: string; idempotencyKey?: string },
+    options?: { titleHint?: string; idempotencyKey?: string; forceRefresh?: boolean },
   ): Promise<IngestionSummary & { replayed: boolean }> {
     const form = new FormData();
     form.append("file", file);
     if (options?.titleHint) form.append("titleHint", options.titleHint);
     if (options?.idempotencyKey)
       form.append("idempotencyKey", options.idempotencyKey);
+    if (options?.forceRefresh) form.append("forceRefresh", "true");
 
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;

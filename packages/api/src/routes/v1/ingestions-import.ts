@@ -190,6 +190,7 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
       let fileDeclaredMime = "";
       let titleHint: string | undefined;
       let explicitIdempotencyKey: string | undefined;
+      let forceRefresh = false;
 
       try {
         for await (const part of request.parts()) {
@@ -216,6 +217,11 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
             typeof part.value === "string"
           ) {
             explicitIdempotencyKey = part.value.slice(0, 200);
+          } else if (
+            part.fieldname === "forceRefresh" &&
+            typeof part.value === "string"
+          ) {
+            forceRefresh = part.value === "true";
           }
         }
       } catch (err) {
@@ -275,8 +281,9 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         throw err;
       }
 
+      const forcePart = forceRefresh ? `:force:${Date.now()}` : "";
       const idempotencyKey =
-        explicitIdempotencyKey ?? `upload:${sha256(buffer)}:${auth.workspaceId}`;
+        explicitIdempotencyKey ?? `upload:${sha256(buffer)}:${auth.workspaceId}${forcePart}`;
 
       const { ingestion, replayed } = await enqueueIngestion(fastify, {
         workspaceId: auth.workspaceId,

@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../hooks/use-workspace.js";
 import { ApiError, ingestions as ingestionsApi } from "../lib/api-client.js";
+import { ApiGuidePanel } from "../components/import/ApiGuidePanel.js";
 
-type TabKey = "file" | "url" | "text";
+type TabKey = "file" | "url" | "text" | "api";
 
 interface FileRowStatus {
   id: string;
@@ -56,6 +57,7 @@ export function ImportPage() {
   const [fileTitleHint, setFileTitleHint] = useState("");
   const [fileRows, setFileRows] = useState<FileRowStatus[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [fileForce, setFileForce] = useState(false);
 
   const [url, setUrl] = useState("");
   const [urlTitleHint, setUrlTitleHint] = useState("");
@@ -83,6 +85,7 @@ export function ImportPage() {
       try {
         const res = await ingestionsApi.importFile(workspaceId, row.file, {
           titleHint: fileTitleHint || undefined,
+          forceRefresh: fileForce || undefined,
         });
         setFileRows((prev) =>
           prev.map((r) =>
@@ -112,7 +115,7 @@ export function ImportPage() {
         );
       }
     },
-    [fileTitleHint, t, workspaceId],
+    [fileTitleHint, fileForce, t, workspaceId],
   );
 
   const enqueueFiles = useCallback(
@@ -223,16 +226,20 @@ export function ImportPage() {
       </div>
 
       <div className="import-tabs">
-        {(["file", "url", "text"] as const).map((tab) => (
+        {(["file", "url", "text", "api"] as const).map((tab) => (
           <button
             key={tab}
             type="button"
             className={`import-tab${activeTab === tab ? " active" : ""}`}
             onClick={() => setActiveTab(tab)}
           >
-            {t(
-              tab === "file" ? "tabFile" : tab === "url" ? "tabUrl" : "tabText",
-            )}
+            {tab === "file"
+              ? t("tabFile")
+              : tab === "url"
+                ? t("tabUrl")
+                : tab === "text"
+                  ? t("tabText")
+                  : t("tabApi")}
           </button>
         ))}
       </div>
@@ -294,6 +301,14 @@ export function ImportPage() {
                 placeholder={t("titleHintPlaceholder")}
                 maxLength={500}
               />
+            </label>
+            <label className="import-checkbox">
+              <input
+                type="checkbox"
+                checked={fileForce}
+                onChange={(e) => setFileForce(e.target.checked)}
+              />
+              <span>{t("fileForceRefresh")}</span>
             </label>
 
             {fileRows.length > 0 && (
@@ -442,6 +457,12 @@ export function ImportPage() {
               </div>
             )}
           </form>
+        )}
+
+        {activeTab === "api" && workspaceId && (
+          <div className="import-panel">
+            <ApiGuidePanel workspaceId={workspaceId} />
+          </div>
         )}
       </div>
     </div>

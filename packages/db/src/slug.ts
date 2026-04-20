@@ -10,7 +10,7 @@ import type { Database } from "./client.js";
 
 const SLUG_ALLOC_MAX_ATTEMPTS = 20;
 const PG_UNIQUE_VIOLATION = "23505";
-const PAGES_SLUG_CONSTRAINT = "pages_workspace_slug_uk";
+const PAGES_SLUG_CONSTRAINT = "pages_workspace_slug_active_uk";
 
 function isPageSlugCollision(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;
