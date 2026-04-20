@@ -28,7 +28,7 @@ import type {
   AIBudgetMeta,
 } from "@nexnote/shared";
 
-const PROMPT_VERSION = "triple-extractor-v2";
+const PROMPT_VERSION = "triple-extractor-v3";
 
 export function createTripleExtractorWorker(): Worker {
   const db = getDb();
@@ -56,20 +56,45 @@ export function createTripleExtractorWorker(): Worker {
       const { provider, model } = getDefaultProvider();
       const adapter = getAIAdapter(provider);
 
-      const systemPrompt = `You are a knowledge extraction engine. Given Markdown document content, extract structured triples (subject-predicate-object relationships).
+      const systemPrompt = `You are a grounded triple extraction engine. From the Markdown document provided in the user message, extract only explicit, text-supported subject-predicate-object facts.
 
-Rules:
-- Extract factual relationships, not opinions or speculation
-- Each triple should have a subject (entity name), predicate (relationship), and object (entity name OR literal value)
-- Set objectType to "entity" if the object refers to a named entity, or "literal" if it's a value/description
-- Assign confidence 0.0–1.0 based on how explicit the relationship is in the text
-- Include spans showing where in the text each triple was found; keep each excerpt under 120 characters
-- **Language fidelity (critical):** Preserve the original language of the source document verbatim for subjects, objects, and literal values. If the document is Korean, entity names (people, organizations, places, concepts) MUST stay in Korean — do NOT translate, romanize, or transliterate them to English (e.g., "이순신" stays "이순신", not "Lee Sun-sin"). The same rule applies to Japanese, Chinese, or any other non-English source. Only use English when the term appears in English in the source.
-- Predicates SHOULD be short snake_case identifiers in English (e.g., works_at, located_in, born_in) since they are relationship types, not content — but if a predicate has no natural English equivalent, keep it in the source language.
-- Normalize entity names by using the canonical surface form that appears in the text (e.g., unify "홍길동"/"길동" to the most complete form used in the document). Do NOT change scripts or languages.
-- Extract at most 40 of the most important, clearly-stated triples. Prioritize high-signal facts over exhaustive coverage.
+## Relation rules
+- Extract only directly and clearly stated relationships. Do not infer causality, intent, or background knowledge not present in the text.
+- If a single sentence contains an n-ary fact, decompose it into separate binary triples only when each binary relation is directly supported by the text.
+- Do not output duplicate or near-duplicate triples.
 
-Respond with JSON:
+## Entity rules
+- Use the most complete surface form that appears in the document (e.g., unify "홍길동"/"길동" to the fullest form used).
+- Preserve the original script and language for subjects and objects. Do NOT translate, romanize, or transliterate (e.g., "이순신" stays "이순신", not "Lee Sun-sin"). Same for Japanese, Chinese, and other non-English sources.
+- Use explicit nouns, not pronouns. If a sentence uses a pronoun ("he", "그", "그녀", "the company"), resolve it to the explicit named entity as the subject/object.
+
+## Predicate rules
+- Predicates MUST be short, repeatable snake_case relation labels in English, because they represent relationship types, not content.
+- Reuse the same predicate for semantically identical relations across the document (do not invent synonyms like \`located_in\` vs \`based_in\` vs \`headquartered_in\` — pick one).
+- Prefer stable labels when applicable: \`is_a\`, \`part_of\`, \`located_in\`, \`works_at\`, \`founded_by\`, \`founded_in\`, \`born_in\`, \`announced_on\`, \`has_amount\`, \`has_date\`.
+- If you cannot assign a stable predicate without guessing, SKIP that triple.
+
+## objectType rules
+- \`entity\` — named entities, organizations, places, products, events, documents, or concepts explicitly referred to as entities.
+- \`literal\` — dates, numbers, measurements, statuses, titles, and short descriptive values.
+
+## Evidence rules (critical)
+- Every triple MUST be supported by at least one exact span from the document provided in the user message.
+- \`start\` and \`end\` are 0-based character offsets into that exact Markdown content. \`end\` is exclusive.
+- \`excerpt\` MUST be the exact substring \`content.slice(start, end)\`. You may trim the excerpt only to stay under 120 characters; if you trim, adjust \`start\`/\`end\` accordingly so \`content.slice(start, end) === excerpt\`.
+- If you cannot determine exact offsets, SKIP that triple. Do not invent offsets.
+
+## Coverage rules
+- Scan the entire document, not only the beginning. For long documents, balance high-signal facts across early, middle, and late sections.
+- Extract at most 40 triples total. Prioritize high-signal, clearly-stated facts over exhaustive coverage.
+
+## Confidence
+- Assign 0.0–1.0 based on how explicit and unambiguous the relationship is in the text.
+
+## Output rules
+- Return valid JSON only, matching the schema below exactly. No markdown fences. No commentary.
+
+Schema:
 {
   "triples": [
     {
@@ -81,7 +106,67 @@ Respond with JSON:
       "spans": [{ "start": 0, "end": 50, "excerpt": "text excerpt" }]
     }
   ]
-}`;
+}
+
+## Examples
+
+Example 1 — Korean source:
+Input content (exact): "이순신은 조선 수군의 장군이었다. 그는 1545년에 태어났다."
+Expected output:
+{
+  "triples": [
+    {
+      "subject": "이순신",
+      "predicate": "is_a",
+      "object": "장군",
+      "objectType": "entity",
+      "confidence": 0.95,
+      "spans": [{ "start": 0, "end": 18, "excerpt": "이순신은 조선 수군의 장군이었다." }]
+    },
+    {
+      "subject": "이순신",
+      "predicate": "born_in",
+      "object": "1545년",
+      "objectType": "literal",
+      "confidence": 0.95,
+      "spans": [{ "start": 19, "end": 34, "excerpt": "그는 1545년에 태어났다." }]
+    }
+  ]
+}
+(Note: "그는" is resolved to the explicit subject "이순신" per entity rules, while the span still shows the supporting text.)
+
+Example 2 — English source:
+Input content (exact): "Acme Corp was founded in 2010 by Jane Lee. The company is based in Seoul."
+Expected output:
+{
+  "triples": [
+    {
+      "subject": "Acme Corp",
+      "predicate": "founded_by",
+      "object": "Jane Lee",
+      "objectType": "entity",
+      "confidence": 0.95,
+      "spans": [{ "start": 0, "end": 42, "excerpt": "Acme Corp was founded in 2010 by Jane Lee." }]
+    },
+    {
+      "subject": "Acme Corp",
+      "predicate": "founded_in",
+      "object": "2010",
+      "objectType": "literal",
+      "confidence": 0.95,
+      "spans": [{ "start": 0, "end": 42, "excerpt": "Acme Corp was founded in 2010 by Jane Lee." }]
+    },
+    {
+      "subject": "Acme Corp",
+      "predicate": "located_in",
+      "object": "Seoul",
+      "objectType": "entity",
+      "confidence": 0.9,
+      "spans": [{ "start": 43, "end": 73, "excerpt": "The company is based in Seoul." }]
+    }
+  ]
+}
+(Note: "The company" is resolved to "Acme Corp" per entity rules.)`;
 
       const budget = getModelContextBudget(provider, model);
       const systemTokens = estimateTokens(systemPrompt);
