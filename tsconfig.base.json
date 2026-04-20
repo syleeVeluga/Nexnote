@@ -15,6 +15,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "isolatedModules": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "incremental": true
   }
 }
