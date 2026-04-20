@@ -3,7 +3,7 @@ import type { Database } from "./client.js";
 
 // Race-safe page insert with automatic slug disambiguation.
 // Tries {baseSlug}, {baseSlug}-2, -3, … re-catching the
-// `pages_workspace_slug_uk` unique-violation until the insert succeeds.
+// `pages_workspace_slug_active_uk` unique-violation until the insert succeeds.
 // Used by route-classifier auto-create and apply-decision approve-create
 // so two ingestions with the same titleHint don't deadlock the queue
 // and don't race each other to the same slug.

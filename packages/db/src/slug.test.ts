@@ -5,8 +5,8 @@ import type { Database } from "./client.js";
 
 // Mocks drizzle's insert(...).values(...).returning() chain, capturing the
 // slug passed on each attempt. `takenSlugs` simulates the
-// `pages_workspace_slug_uk` unique constraint: if the caller tries to
-// insert a slug already in the set, the call throws a pg unique-violation
+// `pages_workspace_slug_active_uk` unique constraint: if the caller tries
+// to insert a slug already in the set, the call throws a pg unique-violation
 // error (code 23505, constraint_name set) — mirroring what postgres raises.
 function makeFakeDb(takenSlugs: Iterable<string>): {
   db: Database;
@@ -21,10 +21,10 @@ function makeFakeDb(takenSlugs: Iterable<string>): {
           attemptedSlugs.push(row.slug);
           if (taken.has(row.slug)) {
             const err = new Error(
-              'duplicate key value violates unique constraint "pages_workspace_slug_uk"',
+              'duplicate key value violates unique constraint "pages_workspace_slug_active_uk"',
             ) as Error & { code: string; constraint_name: string };
             err.code = "23505";
-            err.constraint_name = "pages_workspace_slug_uk";
+            err.constraint_name = "pages_workspace_slug_active_uk";
             throw err;
           }
           taken.add(row.slug);
