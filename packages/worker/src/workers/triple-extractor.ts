@@ -26,9 +26,125 @@ import type {
   TripleExtractorJobResult,
   AIRequest,
   AIBudgetMeta,
+  TripleExtraction,
 } from "@nexnote/shared";
 
 const PROMPT_VERSION = "triple-extractor-v3";
+
+type ExtractedTriple = TripleExtraction["triples"][number];
+type ExtractedSpan = ExtractedTriple["spans"][number];
+
+export type PreparedTriple = {
+  workspaceId: string;
+  subjectEntityId: string;
+  predicate: string;
+  objectEntityId: string | null;
+  objectLiteral: string | null;
+  confidence: number;
+  sourcePageId: string;
+  sourceRevisionId: string;
+  extractionModelRunId: string;
+  status: string;
+  spans: ExtractedSpan[];
+};
+
+function buildTripleKey(triple: Omit<PreparedTriple, "spans" | "confidence">) {
+  return [
+    triple.workspaceId,
+    triple.sourcePageId,
+    triple.subjectEntityId,
+    triple.predicate,
+    triple.objectEntityId ?? `literal:${triple.objectLiteral ?? ""}`,
+  ].join("|");
+}
+
+function buildSpanKey(span: ExtractedSpan) {
+  return [span.start, span.end, span.excerpt ?? ""].join("|");
+}
+
+function mergeSpans(
+  existing: ExtractedSpan[],
+  incoming: ExtractedSpan[],
+): ExtractedSpan[] {
+  const merged = [...existing];
+  const seen = new Set(existing.map(buildSpanKey));
+
+  for (const span of incoming) {
+    const key = buildSpanKey(span);
+    if (seen.has(key)) {
+      continue;
+    }
+    merged.push(span);
+    seen.add(key);
+  }
+
+  return merged;
+}
+
+export function prepareTriplesForInsert({
+  extractedTriples,
+  entityIdMap,
+  workspaceId,
+  pageId,
+  revisionId,
+  modelRunId,
+}: {
+  extractedTriples: ExtractedTriple[];
+  entityIdMap: Map<string, string>;
+  workspaceId: string;
+  pageId: string;
+  revisionId: string;
+  modelRunId: string;
+}): PreparedTriple[] {
+  const preparedByKey = new Map<string, PreparedTriple>();
+
+  for (const triple of extractedTriples) {
+    const subjectEntityId = entityIdMap.get(normalizeKey(triple.subject));
+    if (!subjectEntityId) {
+      continue;
+    }
+
+    let objectEntityId: string | null = null;
+    let objectLiteral: string | null = null;
+
+    if (triple.objectType === "entity") {
+      objectEntityId = entityIdMap.get(normalizeKey(triple.object)) ?? null;
+      if (!objectEntityId) {
+        continue;
+      }
+    } else {
+      objectLiteral = triple.object;
+    }
+
+    const baseTriple = {
+      workspaceId,
+      subjectEntityId,
+      predicate: triple.predicate,
+      objectEntityId,
+      objectLiteral,
+      sourcePageId: pageId,
+      sourceRevisionId: revisionId,
+      extractionModelRunId: modelRunId,
+      status: "active",
+    };
+    const tripleKey = buildTripleKey(baseTriple);
+    const existing = preparedByKey.get(tripleKey);
+
+    if (existing) {
+      existing.confidence = Math.max(existing.confidence, triple.confidence);
+      existing.spans = mergeSpans(existing.spans, triple.spans);
+      continue;
+    }
+
+    preparedByKey.set(tripleKey, {
+      ...baseTriple,
+      confidence: triple.confidence,
+      spans: mergeSpans([], triple.spans),
+    });
+  }
+
+  return [...preparedByKey.values()];
+}
 
 export function createTripleExtractorWorker(): Worker {
   const db = getDb();
@@ -260,109 +376,83 @@ ${contentSlice.text}
 
       await job.updateProgress(60);
 
-      if (extracted.triples.length === 0) {
-        await job.updateProgress(100);
-        return { pageId, triplesCreated: 0 };
-      }
+      const triplesCreated = await db.transaction(async (tx) => {
+        await tx
+          .update(triples)
+          .set({ status: "superseded" })
+          .where(
+            and(
+              eq(triples.workspaceId, workspaceId),
+              eq(triples.sourcePageId, pageId),
+              eq(triples.status, "active"),
+            ),
+          );
 
-      // Batch entity resolution: collect all unique entity names, then bulk upsert
-      const entityNames = new Map<string, { name: string; type: string }>();
-      for (const t of extracted.triples) {
-        const subKey = normalizeKey(t.subject);
-        if (!entityNames.has(subKey)) {
-          entityNames.set(subKey, { name: t.subject, type: "concept" });
+        if (extracted.triples.length === 0) {
+          return 0;
         }
-        if (t.objectType === "entity") {
-          const objKey = normalizeKey(t.object);
-          if (!entityNames.has(objKey)) {
-            entityNames.set(objKey, { name: t.object, type: "concept" });
+
+        // Batch entity resolution: collect all unique entity names, then bulk upsert
+        const entityNames = new Map<string, { name: string; type: string }>();
+        for (const t of extracted.triples) {
+          const subKey = normalizeKey(t.subject);
+          if (!entityNames.has(subKey)) {
+            entityNames.set(subKey, { name: t.subject, type: "concept" });
+          }
+          if (t.objectType === "entity") {
+            const objKey = normalizeKey(t.object);
+            if (!entityNames.has(objKey)) {
+              entityNames.set(objKey, { name: t.object, type: "concept" });
+            }
           }
         }
-      }
 
-      // Bulk insert new entities (skip conflicts)
-      const entityValues = [...entityNames.entries()].map(([key, val]) => ({
-        workspaceId,
-        canonicalName: val.name,
-        normalizedKey: key,
-        entityType: val.type,
-      }));
+        // Bulk insert new entities (skip conflicts)
+        const entityValues = [...entityNames.entries()].map(([key, val]) => ({
+          workspaceId,
+          canonicalName: val.name,
+          normalizedKey: key,
+          entityType: val.type,
+        }));
 
-      await db.insert(entities).values(entityValues).onConflictDoNothing();
+        await tx.insert(entities).values(entityValues).onConflictDoNothing();
 
-      // Bulk fetch all entity ids
-      const allKeys = [...entityNames.keys()];
-      const existingEntities = await db
-        .select({ id: entities.id, normalizedKey: entities.normalizedKey })
-        .from(entities)
-        .where(
-          and(
-            eq(entities.workspaceId, workspaceId),
-            inArray(entities.normalizedKey, allKeys),
-          ),
-        );
+        // Bulk fetch all entity ids
+        const allKeys = [...entityNames.keys()];
+        const existingEntities = await tx
+          .select({ id: entities.id, normalizedKey: entities.normalizedKey })
+          .from(entities)
+          .where(
+            and(
+              eq(entities.workspaceId, workspaceId),
+              inArray(entities.normalizedKey, allKeys),
+            ),
+          );
 
-      const entityIdMap = new Map<string, string>();
-      for (const e of existingEntities) {
-        entityIdMap.set(e.normalizedKey, e.id);
-      }
-
-      await job.updateProgress(80);
-
-      // Build triple value rows, filtering out those with missing entity references
-      const tripleValues: Array<{
-        workspaceId: string;
-        subjectEntityId: string;
-        predicate: string;
-        objectEntityId: string | null;
-        objectLiteral: string | null;
-        confidence: number;
-        sourcePageId: string;
-        sourceRevisionId: string;
-        extractionModelRunId: string;
-        status: string;
-      }> = [];
-      // Track which extracted triple index maps to which insert row
-      const tripleSourceIndices: number[] = [];
-
-      for (let i = 0; i < extracted.triples.length; i++) {
-        const t = extracted.triples[i];
-        const subjectEntityId = entityIdMap.get(normalizeKey(t.subject));
-        if (!subjectEntityId) continue;
-
-        let objectEntityId: string | null = null;
-        let objectLiteral: string | null = null;
-
-        if (t.objectType === "entity") {
-          objectEntityId = entityIdMap.get(normalizeKey(t.object)) ?? null;
-          if (!objectEntityId) continue;
-        } else {
-          objectLiteral = t.object;
+        const entityIdMap = new Map<string, string>();
+        for (const e of existingEntities) {
+          entityIdMap.set(e.normalizedKey, e.id);
         }
 
-        tripleValues.push({
+        const preparedTriples = prepareTriplesForInsert({
+          extractedTriples: extracted.triples,
+          entityIdMap,
           workspaceId,
-          subjectEntityId,
-          predicate: t.predicate,
-          objectEntityId,
-          objectLiteral,
-          confidence: t.confidence,
-          sourcePageId: pageId,
-          sourceRevisionId: revisionId,
-          extractionModelRunId: modelRun.id,
-          status: "active",
+          pageId,
+          revisionId,
+          modelRunId: modelRun.id,
         });
-        tripleSourceIndices.push(i);
-      }
 
-      let triplesCreated = 0;
-      if (tripleValues.length > 0) {
-        const insertedTriples = await db
+        const tripleValues = preparedTriples.map(({ spans, ...triple }) => triple);
+
+        if (tripleValues.length === 0) {
+          return 0;
+        }
+
+        const insertedTriples = await tx
           .insert(triples)
           .values(tripleValues)
           .returning({ id: triples.id });
-
-        triplesCreated = insertedTriples.length;
 
         // Build mention rows from inserted triples
         const mentionRows: Array<{
@@ -375,9 +465,7 @@ ${contentSlice.text}
         }> = [];
 
         for (let i = 0; i < insertedTriples.length; i++) {
-          const sourceIdx = tripleSourceIndices[i];
-          const t = extracted.triples[sourceIdx];
-          for (const span of t.spans) {
+          for (const span of preparedTriples[i].spans) {
             mentionRows.push({
               tripleId: insertedTriples[i].id,
               pageId,
@@ -390,9 +478,13 @@ ${contentSlice.text}
         }
 
         if (mentionRows.length > 0) {
-          await db.insert(tripleMentions).values(mentionRows);
+          await tx.insert(tripleMentions).values(mentionRows);
         }
-      }
+
+        return insertedTriples.length;
+      });
+
+      await job.updateProgress(80);
 
       await job.updateProgress(100);
 

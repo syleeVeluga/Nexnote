@@ -124,10 +124,10 @@ const entityRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (rankedPageIds.length > 0) {
         const rankedEvidence = sql`(
-          SELECT triple_id, page_id, span_start, span_end, excerpt, predicate, page_rn
+          SELECT triple_id, page_id, subject_entity_id, object_entity_id, object_literal, span_start, span_end, excerpt, predicate, page_rn
           FROM (
             SELECT
-              triple_id, page_id, span_start, span_end, excerpt, predicate,
+              triple_id, page_id, subject_entity_id, object_entity_id, object_literal, span_start, span_end, excerpt, predicate,
               ROW_NUMBER() OVER (
                 PARTITION BY page_id
                 ORDER BY span_start, triple_id
@@ -136,6 +136,9 @@ const entityRoutes: FastifyPluginAsync = async (fastify) => {
               SELECT
                 ${tripleMentions.tripleId} AS triple_id,
                 ${tripleMentions.pageId} AS page_id,
+                ${triples.subjectEntityId} AS subject_entity_id,
+                ${triples.objectEntityId} AS object_entity_id,
+                ${triples.objectLiteral} AS object_literal,
                 ${tripleMentions.spanStart} AS span_start,
                 ${tripleMentions.spanEnd} AS span_end,
                 ${tripleMentions.excerpt} AS excerpt,
@@ -160,6 +163,9 @@ const entityRoutes: FastifyPluginAsync = async (fastify) => {
           .select({
             tripleId: sql<string>`evidence.triple_id`,
             pageId: sql<string>`evidence.page_id`,
+            subjectEntityId: sql<string>`evidence.subject_entity_id`,
+            objectEntityId: sql<string | null>`evidence.object_entity_id`,
+            objectLiteral: sql<string | null>`evidence.object_literal`,
             spanStart: sql<number>`evidence.span_start`,
             spanEnd: sql<number>`evidence.span_end`,
             excerpt: sql<string>`evidence.excerpt`,
