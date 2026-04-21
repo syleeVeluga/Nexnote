@@ -7,6 +7,7 @@ import { PageListPage } from "./pages/PageListPage.js";
 import { PageEditorPage } from "./pages/PageEditorPage.js";
 import { NewPagePage } from "./pages/NewPagePage.js";
 import { ReviewQueuePage } from "./pages/ReviewQueuePage.js";
+import { ActivityPage } from "./pages/ActivityPage.js";
 import { IngestionDetailPage } from "./pages/IngestionDetailPage.js";
 import { ImportPage } from "./pages/ImportPage.js";
 import { QueueHealthPage } from "./pages/QueueHealthPage.js";
@@ -79,6 +80,7 @@ export function App() {
         <Route path="pages/new" element={<NewPagePage />} />
         <Route path="pages/:pageId" element={<PageEditorPage />} />
         <Route path="review" element={<ReviewQueuePage />} />
+        <Route path="activity" element={<ActivityPage />} />
         <Route
           path="ingestions/:ingestionId"
           element={<IngestionDetailPage />}

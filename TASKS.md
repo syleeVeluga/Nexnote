@@ -15,7 +15,9 @@ Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH]
 >
 > **S4-2 landed (2026-04-22):** route-classifier persists its candidate snapshot into `ingestion_decisions.rationaleJson.candidates` (id/title/slug + matchSources[]); `GET /decisions/:id` surfaces them as a first-class `candidates` array; new `/ingestions/:ingestionId` page shows ingestion meta, payload, per-decision panels with candidate lists + match-source chips + chosen-target indicator + inline approve/reject + proposed diff; ReviewQueuePage detail pane links out.
 >
-> **S5-3 landed (2026-04-22):** patch-generator accepts `baseRevisionId` from the classifier's enqueue snapshot; before auto-applying it runs `detectHumanConflict()` on `page_revisions` and, if any `actor_type='user'` revision landed after the base, writes the proposed revision as `suggested` with `rationaleJson.conflict = { type: 'conflict_with_human_edit', humanRevisionId, humanEditedAt, humanRevisionNote, baseRevisionId }` instead of promoting to current. Decision list returns `hasConflict`; detail returns full `conflict` object. ReviewQueuePage list chips and ReviewDetail / IngestionDetailPage banners highlight these with an "approve will stack on human edits" warning. Next up: S6-1 (activity feed), S5-4 (triple contradictions).
+> **S5-3 landed (2026-04-22):** patch-generator accepts `baseRevisionId` from the classifier's enqueue snapshot; before auto-applying it runs `detectHumanConflict()` on `page_revisions` and, if any `actor_type='user'` revision landed after the base, writes the proposed revision as `suggested` with `rationaleJson.conflict = { type: 'conflict_with_human_edit', humanRevisionId, humanEditedAt, humanRevisionNote, baseRevisionId }` instead of promoting to current. Decision list returns `hasConflict`; detail returns full `conflict` object. ReviewQueuePage list chips and ReviewDetail / IngestionDetailPage banners highlight these with an "approve will stack on human edits" warning.
+>
+> **S6-1 landed (2026-04-22):** member-readable `GET /workspaces/:id/activity` endpoint joins `audit_logs` with `users` + `model_runs`, batch-loads page/ingestion/folder labels, derives `actor_type` (ai/user/system). New `/activity` page renders "AI (gpt-5.4) updated *Page X* from ingestion *Slack*" style rows with actor/entity/action/date filters and load-more pagination; sidebar gains an Activity nav link. Next up: S5-4 (triple contradictions), S6-2 (sidebar badges).
 
 ---
 
@@ -82,9 +84,11 @@ Cron job: flag pages with no AI update in N days AND no human edit in M days as 
 
 Reviewers and workspace owners need to see the AI's work in aggregate, not just by clicking into individual pages.
 
-### S6-1 · [HIGH] Workspace activity feed
-- `/workspaces/:slug/activity` — paginated list of `audit_logs` joined with `model_runs`, rendered as "AI updated *Foo* from ingestion *Slack*", "Alice approved suggestion for *Bar*"
-- Filters: actor_type, entity_type, action, date range
+### S6-1 · [DONE · 2026-04-22] Workspace activity feed
+- New member-readable endpoint `GET /workspaces/:id/activity` ([activity.ts](packages/api/src/routes/v1/activity.ts)) joins `audit_logs` with `users` + `model_runs`, batch-loads referenced pages/ingestions/folders for labels, and derives `actor_type` from `userId` / `modelRunId` (ai / user / system). Filters: `actorType`, `entityType`, `action`, `from`, `to`, `limit`, `offset`.
+- `/activity` page ([ActivityPage.tsx](packages/web/src/pages/ActivityPage.tsx)) renders each row as `<actor-chip> <action> <entity-link> <from ingestion ...>` with AI/user/system actor chips, click-through links into the page editor or ingestion detail page, "from ingestion X" clause pulled from `afterJson.ingestionId`, date/actor/entity/action filter bar, reset + load-more pagination.
+- Sidebar gets an "Activity" nav link above "Import", translations in [en/activity.json](packages/web/src/i18n/locales/en/activity.json) + [ko/activity.json](packages/web/src/i18n/locales/ko/activity.json), CSS in [activity.css](packages/web/src/styles/activity.css).
+- Follow-up: S6-2 (sidebar counts for pending decisions/conflicts/failed jobs, optional webhook/email digest).
 
 ### S6-2 · [MED] Sidebar badges & in-app notifications
 - Sidebar shows counts: pending decisions, conflicts, failed jobs

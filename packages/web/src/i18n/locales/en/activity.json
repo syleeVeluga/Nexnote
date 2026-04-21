@@ -1,0 +1,64 @@
+{
+  "title": "Activity",
+  "subtitle": "Recent changes by AI, reviewers, and the system",
+  "filters": {
+    "actor": {
+      "label": "Actor",
+      "all": "Anyone",
+      "ai": "AI",
+      "user": "Humans",
+      "system": "System"
+    },
+    "entity": {
+      "label": "Entity",
+      "all": "All",
+      "page": "Pages",
+      "ingestion": "Ingestions",
+      "folder": "Folders",
+      "workspace": "Workspace",
+      "decision": "Decisions"
+    },
+    "action": {
+      "label": "Action",
+      "all": "All actions"
+    },
+    "from": "From",
+    "to": "To",
+    "reset": "Reset filters"
+  },
+  "actor": {
+    "ai": "AI",
+    "aiWithModel": "AI ({{model}})",
+    "system": "System",
+    "unknownUser": "Someone"
+  },
+  "action": {
+    "create": "created",
+    "update": "updated",
+    "append": "appended to",
+    "rollback": "rolled back",
+    "publish": "published",
+    "unpublish": "unpublished",
+    "delete": "deleted",
+    "restore": "restored",
+    "purge": "permanently deleted",
+    "reformat": "reformatted",
+    "acknowledge": "acknowledged",
+    "reject": "rejected",
+    "edit_decision": "edited decision for",
+    "workspace.create": "created workspace",
+    "workspace.update": "updated workspace",
+    "member.add": "added member",
+    "folder.create": "created folder",
+    "folder.update": "renamed folder",
+    "folder.delete": "deleted folder"
+  },
+  "fallbackEntity": "{{type}}",
+  "untitled": "Untitled",
+  "fromIngestion": "from ingestion {{source}}",
+  "empty": "No activity yet",
+  "emptyFiltered": "No activity matches these filters",
+  "loading": "Loading...",
+  "loadMore": "Load more",
+  "total": "{{count}} items"
+}

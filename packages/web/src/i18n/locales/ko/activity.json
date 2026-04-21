@@ -1,0 +1,64 @@
+{
+  "title": "활동",
+  "subtitle": "AI, 검토자, 시스템이 최근에 수행한 변경 내역",
+  "filters": {
+    "actor": {
+      "label": "수행자",
+      "all": "전체",
+      "ai": "AI",
+      "user": "사람",
+      "system": "시스템"
+    },
+    "entity": {
+      "label": "대상",
+      "all": "전체",
+      "page": "페이지",
+      "ingestion": "인제스트",
+      "folder": "폴더",
+      "workspace": "워크스페이스",
+      "decision": "결정"
+    },
+    "action": {
+      "label": "작업",
+      "all": "모든 작업"
+    },
+    "from": "시작",
+    "to": "종료",
+    "reset": "필터 초기화"
+  },
+  "actor": {
+    "ai": "AI",
+    "aiWithModel": "AI ({{model}})",
+    "system": "시스템",
+    "unknownUser": "사용자"
+  },
+  "action": {
+    "create": "생성",
+    "update": "업데이트",
+    "append": "내용 추가",
+    "rollback": "되돌림",
+    "publish": "발행",
+    "unpublish": "발행 해제",
+    "delete": "삭제",
+    "restore": "복원",
+    "purge": "영구 삭제",
+    "reformat": "재구성",
+    "acknowledge": "확인 처리",
+    "reject": "거부",
+    "edit_decision": "결정 수정",
+    "workspace.create": "워크스페이스 생성",
+    "workspace.update": "워크스페이스 업데이트",
+    "member.add": "멤버 추가",
+    "folder.create": "폴더 생성",
+    "folder.update": "폴더 이름 변경",
+    "folder.delete": "폴더 삭제"
+  },
+  "fallbackEntity": "{{type}}",
+  "untitled": "제목 없음",
+  "fromIngestion": "인제스트 '{{source}}' 에서",
+  "empty": "아직 활동 내역이 없습니다",
+  "emptyFiltered": "필터 조건에 해당하는 활동이 없습니다",
+  "loading": "불러오는 중...",
+  "loadMore": "더 보기",
+  "total": "{{count}}건"
+}

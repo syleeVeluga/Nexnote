@@ -12,6 +12,7 @@ import "./styles/graph.css";
 import "./styles/review.css";
 import "./styles/import.css";
 import "./styles/admin.css";
+import "./styles/activity.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

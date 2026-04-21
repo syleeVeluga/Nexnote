@@ -946,6 +946,74 @@ export const decisions = {
 };
 
 // ---------------------------------------------------------------------------
+// Activity feed
+// ---------------------------------------------------------------------------
+
+export type ActivityActorType = "ai" | "user" | "system";
+export type ActivityEntityType =
+  | "page"
+  | "ingestion"
+  | "folder"
+  | "workspace"
+  | "decision";
+
+export interface ActivityItem {
+  id: string;
+  createdAt: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  actor: {
+    type: ActivityActorType;
+    user: { id: string; name: string; email: string } | null;
+    aiModel: { provider: string; modelName: string } | null;
+  };
+  entity: {
+    type: string;
+    id: string;
+    label: string | null;
+    slug: string | null;
+    deleted: boolean;
+  } | null;
+  context: {
+    source: string | null;
+    ingestion: { id: string; sourceName: string } | null;
+    decisionId: string | null;
+    revisionId: string | null;
+  };
+}
+
+export interface ActivityListParams {
+  actorType?: ActivityActorType;
+  entityType?: ActivityEntityType;
+  action?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export const activity = {
+  list(workspaceId: string, params?: ActivityListParams) {
+    const q = buildQuery({
+      actorType: params?.actorType,
+      entityType: params?.entityType,
+      action: params?.action,
+      from: params?.from,
+      to: params?.to,
+      limit: params?.limit,
+      offset: params?.offset,
+    });
+    return request<{
+      data: ActivityItem[];
+      total: number;
+      limit: number;
+      offset: number;
+    }>(`/workspaces/${workspaceId}/activity${q}`);
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Admin — Queue health (BullMQ visibility)
 // ---------------------------------------------------------------------------
 

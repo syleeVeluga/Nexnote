@@ -11,6 +11,7 @@ import docRoutes from "./v1/docs.js";
 import auditLogRoutes from "./v1/audit-logs.js";
 import modelRunRoutes from "./v1/model-runs.js";
 import adminQueueRoutes from "./v1/admin-queues.js";
+import activityRoutes from "./v1/activity.js";
 
 export const routes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(healthRoutes);
@@ -42,6 +43,9 @@ export const routes: FastifyPluginAsync = async (fastify) => {
       });
       await scoped.register(adminQueueRoutes, {
         prefix: "/workspaces/:workspaceId/admin/queues",
+      });
+      await scoped.register(activityRoutes, {
+        prefix: "/workspaces/:workspaceId/activity",
       });
       // Public docs — no auth required (handled inside the plugin)
       await scoped.register(docRoutes, { prefix: "/docs" });

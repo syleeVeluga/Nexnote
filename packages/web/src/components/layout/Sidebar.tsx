@@ -518,6 +518,14 @@ export function Sidebar({
           )}
         </NavLink>
         <NavLink
+          to="/activity"
+          className={({ isActive }) =>
+            `sidebar-nav-link${isActive ? " active" : ""}`
+          }
+        >
+          <span className="sidebar-nav-label">{t("activity")}</span>
+        </NavLink>
+        <NavLink
           to="/import"
           className={({ isActive }) =>
             `sidebar-nav-link${isActive ? " active" : ""}`
