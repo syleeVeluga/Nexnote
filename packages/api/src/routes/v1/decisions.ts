@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and, desc, inArray, sql, gte, isNull } from "drizzle-orm";
+import { eq, and, or, desc, inArray, notInArray, sql, gte, isNull, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import {
   uuidSchema,
@@ -142,6 +142,15 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
         const since = new Date(Date.now() - sinceDays * 86400_000);
         conditions.push(gte(ingestionDecisions.createdAt, since));
       }
+      conditions.push(
+        or(
+          and(isNotNull(ingestionDecisions.targetPageId), isNull(pages.deletedAt)),
+          and(
+            isNull(ingestionDecisions.targetPageId),
+            notInArray(ingestionDecisions.status, ["auto_applied", "approved"]),
+          ),
+        )!,
+      );
       const where = and(...conditions);
 
       const [rows, [totalRow]] = await Promise.all([
@@ -181,6 +190,7 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
             ingestions,
             eq(ingestions.id, ingestionDecisions.ingestionId),
           )
+          .leftJoin(pages, eq(pages.id, ingestionDecisions.targetPageId))
           .where(where),
       ]);
 
@@ -217,7 +227,19 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
           ingestions,
           eq(ingestions.id, ingestionDecisions.ingestionId),
         )
-        .where(eq(ingestions.workspaceId, workspaceId))
+        .leftJoin(pages, eq(pages.id, ingestionDecisions.targetPageId))
+        .where(
+          and(
+            eq(ingestions.workspaceId, workspaceId),
+            or(
+              and(isNotNull(ingestionDecisions.targetPageId), isNull(pages.deletedAt)),
+              and(
+                isNull(ingestionDecisions.targetPageId),
+                notInArray(ingestionDecisions.status, ["auto_applied", "approved"]),
+              ),
+            ),
+          ),
+        )
         .groupBy(ingestionDecisions.status);
 
       const counts: Record<string, number> = {};

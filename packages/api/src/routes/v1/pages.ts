@@ -28,11 +28,18 @@ import {
   searchQuerySchema,
   PAGE_STATUSES,
   JOB_NAMES,
+  QUEUE_NAMES,
   DEFAULT_JOB_OPTIONS,
   ERROR_CODES,
+  IMPORT_SOURCE_NAMES,
   computeDiff,
 } from "@nexnote/shared";
-import type { PublishRendererJobData, TripleExtractorJobData, SearchIndexUpdaterJobData } from "@nexnote/shared";
+import type {
+  PublishRendererJobData,
+  TripleExtractorJobData,
+  SearchIndexUpdaterJobData,
+  ContentReformatterJobData,
+} from "@nexnote/shared";
 import {
   pages,
   pageRevisions,
@@ -43,6 +50,8 @@ import {
   triples,
   publishedSnapshots,
   workspaces,
+  ingestions,
+  ingestionDecisions,
 } from "@nexnote/db";
 import {
   getMemberRole,
@@ -2095,6 +2104,80 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       } finally {
         reply.raw.end();
       }
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // POST /:pageId/reformat — AI-driven content restructure (queued, reviewed)
+  // -----------------------------------------------------------------------
+  fastify.post(
+    "/:pageId/reformat",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const paramsResult = pageParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return sendValidationError(reply, paramsResult.error.issues);
+      }
+      const { workspaceId, pageId } = paramsResult.data;
+
+      const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
+      if (!role) return forbidden(reply);
+      if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
+
+      const bodyResult = z
+        .object({ instructions: z.string().max(500).optional() })
+        .safeParse(request.body ?? {});
+      if (!bodyResult.success) {
+        return sendValidationError(reply, bodyResult.error.issues);
+      }
+
+      const [page] = await fastify.db
+        .select({ id: pages.id, currentRevisionId: pages.currentRevisionId })
+        .from(pages)
+        .where(and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)))
+        .limit(1);
+
+      if (!page) {
+        return reply.code(404).send({ error: "Page not found", code: ERROR_CODES.PAGE_NOT_FOUND });
+      }
+      if (!page.currentRevisionId) {
+        return reply.code(400).send({ error: "Page has no content to reformat", code: ERROR_CODES.NO_REVISION });
+      }
+
+      // Pre-flight dedup: return existing pending decision without enqueuing a duplicate job
+      const [pendingDecision] = await fastify.db
+        .select({ id: ingestionDecisions.id })
+        .from(ingestionDecisions)
+        .innerJoin(ingestions, eq(ingestions.id, ingestionDecisions.ingestionId))
+        .where(
+          and(
+            eq(ingestionDecisions.targetPageId, pageId),
+            eq(ingestions.sourceName, IMPORT_SOURCE_NAMES.REFORMAT_REQUEST),
+            inArray(ingestionDecisions.status, ["suggested", "needs_review"]),
+          ),
+        )
+        .limit(1);
+
+      if (pendingDecision) {
+        return reply.code(202).send({
+          jobId: null,
+          status: "already_pending",
+          decisionId: pendingDecision.id,
+        });
+      }
+
+      const jobData: ContentReformatterJobData = {
+        pageId,
+        workspaceId,
+        requestedByUserId: request.user.sub,
+        instructions: bodyResult.data.instructions ?? null,
+      };
+      const job = await fastify.queues.reformat.add(
+        JOB_NAMES.CONTENT_REFORMATTER,
+        jobData,
+        DEFAULT_JOB_OPTIONS,
+      );
+
+      return reply.code(202).send({ jobId: job.id, status: "queued" });
     },
   );
 

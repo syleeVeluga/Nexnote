@@ -70,3 +70,18 @@ export interface SearchIndexUpdaterJobResult {
   pageId: string;
   indexed: boolean;
 }
+
+/** Data passed to the content-reformatter job */
+export interface ContentReformatterJobData {
+  pageId: string;
+  workspaceId: string;
+  requestedByUserId: string;
+  instructions?: string | null;
+}
+
+/** Result returned from the content-reformatter job */
+export interface ContentReformatterJobResult {
+  status: "queued" | "skipped" | "already_pending";
+  decisionId?: string;
+  reason?: string;
+}
