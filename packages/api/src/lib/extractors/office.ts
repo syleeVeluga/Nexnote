@@ -23,6 +23,21 @@ export const ACCEPTED_UPLOAD_MIMES: ReadonlySet<string> = new Set([
   ...TEXT_MIMES,
 ]);
 
+const TEXT_MIME_TO_EXT: Record<string, string> = {
+  "text/markdown": ".md",
+  "text/x-markdown": ".md",
+  "text/plain": ".txt",
+  "text/html": ".html",
+};
+
+export function extensionForMime(mime: string): string | null {
+  const officeKind = (
+    OFFICE_MIME_TO_KIND as Record<string, string | undefined>
+  )[mime];
+  if (officeKind) return `.${officeKind}`;
+  return TEXT_MIME_TO_EXT[mime] ?? null;
+}
+
 export interface FileExtractionResult {
   content: string;
   warnings: string[];

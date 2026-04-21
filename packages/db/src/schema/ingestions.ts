@@ -6,6 +6,7 @@ import {
   uuid,
   jsonb,
   real,
+  bigint,
   uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
@@ -48,6 +49,9 @@ export const ingestions = pgTable(
     titleHint: text("title_hint"),
     rawPayload: jsonb("raw_payload").notNull(),
     normalizedText: text("normalized_text"),
+    storageKey: text("storage_key"),
+    storageBytes: bigint("storage_bytes", { mode: "number" }),
+    storageSha256: text("storage_sha256"),
     status: text("status").notNull().default("pending"),
     receivedAt: timestamp("received_at", { withTimezone: true })
       .notNull()
@@ -99,6 +103,7 @@ export const ingestionDecisions = pgTable(
       t.createdAt,
     ),
     index("ingestion_decisions_status_idx").on(t.status, t.createdAt),
+    index("ingestion_decisions_target_page_idx").on(t.targetPageId),
   ],
 );
 

@@ -287,6 +287,8 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
           ingestionRawPayload: ingestions.rawPayload,
           ingestionContentType: ingestions.contentType,
           ingestionExternalRef: ingestions.externalRef,
+          ingestionStorageKey: ingestions.storageKey,
+          ingestionStorageBytes: ingestions.storageBytes,
           targetPageTitle: pages.title,
           targetPageSlug: pages.slug,
         })
@@ -359,6 +361,8 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
           rawPayload: row.ingestionRawPayload,
           contentType: row.ingestionContentType,
           externalRef: row.ingestionExternalRef,
+          hasOriginal: Boolean(row.ingestionStorageKey),
+          originalSizeBytes: row.ingestionStorageBytes ?? null,
         },
         targetPage:
           row.targetPageId && row.targetPageTitle

@@ -655,6 +655,8 @@ export interface DecisionDetail extends Omit<DecisionListItem, "ingestion"> {
     rawPayload: Record<string, unknown>;
     contentType: string;
     externalRef: string | null;
+    hasOriginal: boolean;
+    originalSizeBytes: number | null;
   };
   proposedRevision: {
     id: string;
@@ -696,6 +698,44 @@ export const ingestions = {
     return request<IngestionDetail>(
       `/workspaces/${workspaceId}/ingestions/${ingestionId}`,
     );
+  },
+  async downloadOriginal(
+    workspaceId: string,
+    ingestionId: string,
+  ): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(
+      `${BASE_URL}/workspaces/${workspaceId}/ingestions/${ingestionId}/original`,
+      { method: "GET", headers },
+    );
+    if (!res.ok) {
+      let body: { code?: string; error?: string } = {};
+      try {
+        body = await res.json();
+      } catch {
+        /* non-JSON body, ignore */
+      }
+      throw new ApiError(
+        res.status,
+        body.code ?? "UNKNOWN",
+        body.error ?? res.statusText,
+      );
+    }
+    // Pull the filename the server suggested; fall back to a generic one.
+    const disposition = res.headers.get("Content-Disposition") ?? "";
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const filename = match ? decodeURIComponent(match[1]) : `ingestion-${ingestionId}`;
+
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
   },
   async importFile(
     workspaceId: string,

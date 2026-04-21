@@ -62,6 +62,10 @@ export interface EnqueueIngestionInput {
   contentType: string;
   titleHint?: string | null;
   rawPayload: Record<string, unknown>;
+  /** S3 object key for the archived original. Null for paths without a blob (e.g. /text). */
+  storageKey?: string | null;
+  storageBytes?: number | null;
+  storageSha256?: string | null;
 }
 
 export interface EnqueueIngestionResult {
@@ -98,6 +102,9 @@ export async function enqueueIngestion(
         contentType: input.contentType,
         titleHint: input.titleHint ?? null,
         rawPayload: input.rawPayload,
+        storageKey: input.storageKey ?? null,
+        storageBytes: input.storageBytes ?? null,
+        storageSha256: input.storageSha256 ?? null,
         status: "pending",
       })
       .returning();

@@ -13,6 +13,8 @@ export interface WebExtractionResult {
   extractorVersion: string;
   finalUrl: string;
   contentType: string;
+  /** Raw upstream body before Readability/Turndown, for archival. */
+  rawBody: string;
 }
 
 export class WebExtractError extends Error {
@@ -199,6 +201,7 @@ export async function extractWebPage(
       extractorVersion: "raw-text",
       finalUrl,
       contentType,
+      rawBody: html,
     };
   }
 
@@ -230,6 +233,7 @@ export async function extractWebPage(
       extractorVersion: "readability@0.5+turndown@7",
       finalUrl,
       contentType,
+      rawBody: html,
     };
   } finally {
     dom.window.close();

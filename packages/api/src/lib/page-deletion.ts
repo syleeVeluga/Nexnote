@@ -2,11 +2,14 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { ERROR_CODES } from "@nexnote/shared";
 import {
   auditLogs,
+  ingestionDecisions,
+  ingestions,
   pagePaths,
   pages,
   publishedSnapshots,
   triples,
 } from "@nexnote/db";
+import { deleteOriginals, storageEnabled } from "./storage/s3.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- drizzle tx/db don't share a clean type
 type AnyDb = any;
@@ -513,7 +516,7 @@ export async function purgeSubtree(
       { includeDeleted: true },
     );
     if (subtreeIds.length === 0) {
-      return { purgedPageIds: [] };
+      return { purgedPageIds: [], storageKeys: [] as string[] };
     }
 
     await tx
@@ -530,9 +533,30 @@ export async function purgeSubtree(
       beforeJson: { id: root.id, title: root.title, purgedIds: subtreeIds },
     });
 
+    // Collect archived object keys tied to the subtree's ingestions before
+    // the DB rows disappear. Done inside the tx so we see a consistent view,
+    // but the actual S3 deletes run outside the tx — if the network blip,
+    // a DB rollback shouldn't re-add objects we already removed.
+    const blobRows = await tx
+      .selectDistinct({ storageKey: ingestions.storageKey })
+      .from(ingestions)
+      .innerJoin(
+        ingestionDecisions,
+        eq(ingestionDecisions.ingestionId, ingestions.id),
+      )
+      .where(
+        and(
+          inArray(ingestionDecisions.targetPageId, subtreeIds),
+          sql`${ingestions.storageKey} IS NOT NULL`,
+        ),
+      );
+    const storageKeys = (blobRows as Array<{ storageKey: string | null }>)
+      .map((r) => r.storageKey)
+      .filter((k): k is string => typeof k === "string" && k.length > 0);
+
     await tx.delete(pages).where(inArray(pages.id, subtreeIds));
 
-    return { purgedPageIds: subtreeIds };
+    return { purgedPageIds: subtreeIds, storageKeys };
   });
 
   await db.execute(sql`
@@ -546,7 +570,20 @@ export async function purgeSubtree(
       )
   `);
 
-  return result;
+  if (storageEnabled && result.storageKeys.length > 0) {
+    // Best-effort: orphaned S3 objects are cheaper to recover than blocking
+    // the user's purge on a storage outage. A future GC sweep can catch them.
+    try {
+      await deleteOriginals(result.storageKeys);
+    } catch (err) {
+      console.warn(
+        `[page-deletion] Failed to delete ${result.storageKeys.length} archived originals after purge`,
+        err,
+      );
+    }
+  }
+
+  return { purgedPageIds: result.purgedPageIds };
 }
 
 /** Filter shorthand for all READ paths — spread into `and(...)` clauses. */

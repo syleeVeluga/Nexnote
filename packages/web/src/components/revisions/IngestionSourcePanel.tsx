@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   decisions as decisionsApi,
+  ingestions as ingestionsApi,
   type DecisionDetail,
 } from "../../lib/api-client.js";
 
@@ -20,6 +21,8 @@ export function IngestionSourcePanel({
   const [detail, setDetail] = useState<DecisionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,6 +50,21 @@ export function IngestionSourcePanel({
     },
     [onClose],
   );
+
+  const handleDownload = useCallback(async () => {
+    if (!detail) return;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      await ingestionsApi.downloadOriginal(workspaceId, detail.ingestion.id);
+    } catch (err) {
+      setDownloadError(
+        err instanceof Error ? err.message : t("sourceDownloadFailed"),
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }, [detail, workspaceId, t]);
 
   return (
     <div className="diff-viewer-overlay" onClick={handleOverlayClick}>
@@ -101,6 +119,27 @@ export function IngestionSourcePanel({
                   <pre className="review-content-preview">
                     {detail.ingestion.normalizedText}
                   </pre>
+                </div>
+              )}
+
+              {detail.ingestion.hasOriginal && (
+                <div className="source-panel-section">
+                  <div className="source-panel-label">
+                    {t("sourceOriginal")}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleDownload}
+                    disabled={downloading}
+                  >
+                    {downloading
+                      ? t("common:loading")
+                      : t("sourceDownloadOriginal")}
+                  </button>
+                  {downloadError && (
+                    <div className="source-panel-error">{downloadError}</div>
+                  )}
                 </div>
               )}
 

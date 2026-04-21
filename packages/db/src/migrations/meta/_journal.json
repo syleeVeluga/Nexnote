@@ -50,6 +50,13 @@
       "when": 1776787200000,
       "tag": "0006_soft_delete_pages",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777046400000,
+      "tag": "0007_ingestion_original_storage",
+      "breakpoints": true
     }
   ]
 }
