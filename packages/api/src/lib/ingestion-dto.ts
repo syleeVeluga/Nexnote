@@ -10,6 +10,8 @@ export interface IngestionDtoRow {
   status: string;
   receivedAt: Date;
   processedAt: Date | null;
+  storageKey?: string | null;
+  storageBytes?: number | null;
 }
 
 export function mapIngestionDto(row: IngestionDtoRow) {
@@ -25,5 +27,9 @@ export function mapIngestionDto(row: IngestionDtoRow) {
     status: row.status,
     receivedAt: row.receivedAt.toISOString(),
     processedAt: row.processedAt?.toISOString() ?? null,
+    // Storage_key itself stays server-side; the UI only needs to know whether
+    // a download is available and how big it is.
+    hasOriginal: Boolean(row.storageKey),
+    originalSizeBytes: row.storageBytes ?? null,
   };
 }

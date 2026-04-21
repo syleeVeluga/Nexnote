@@ -26,6 +26,7 @@ import { enqueueIngestion } from "../../lib/enqueue-ingestion.js";
 import {
   ACCEPTED_UPLOAD_MIMES,
   ExtractError,
+  extensionForMime,
   extractUploadedFile,
 } from "../../lib/extractors/office.js";
 import {
@@ -33,6 +34,11 @@ import {
   WebExtractError,
 } from "../../lib/extractors/web.js";
 import { mapIngestionDto } from "../../lib/ingestion-dto.js";
+import {
+  buildKey as buildStorageKey,
+  putOriginal,
+  storageEnabled,
+} from "../../lib/storage/s3.js";
 
 const IMPORT_RATE_PER_MIN = parsePositiveInt(
   process.env["IMPORT_RATE_LIMIT_PER_MINUTE"],
@@ -49,6 +55,50 @@ const MAX_UPLOAD_BYTES = parsePositiveInt(
 
 function sha256(input: string | Buffer): string {
   return createHash("sha256").update(input).digest("hex");
+}
+
+interface ArchivedBlob {
+  storageKey: string;
+  storageBytes: number;
+  storageSha256: string;
+}
+
+async function archiveOriginal(
+  fastify: FastifyInstance,
+  reply: FastifyReply,
+  params: {
+    workspaceId: string;
+    buffer: Buffer;
+    sha256Hex: string;
+    mime: string;
+    sourceLabel: string;
+  },
+): Promise<ArchivedBlob | null | "error"> {
+  if (!storageEnabled) return null;
+  const storageKey = buildStorageKey(
+    params.workspaceId,
+    params.sha256Hex,
+    extensionForMime(params.mime),
+  );
+  try {
+    await putOriginal(storageKey, params.buffer, params.mime);
+    return {
+      storageKey,
+      storageBytes: params.buffer.byteLength,
+      storageSha256: params.sha256Hex,
+    };
+  } catch (err) {
+    fastify.log.error(
+      { err, storageKey },
+      `Failed to archive ${params.sourceLabel} original to object storage`,
+    );
+    reply.code(503).send({
+      error: "Storage unavailable",
+      code: ERROR_CODES.IMPORT_STORAGE_UNAVAILABLE,
+      details: `Failed to archive the ${params.sourceLabel}. Please retry.`,
+    });
+    return "error";
+  }
 }
 
 function extensionToMime(filename: string | undefined): string | undefined {
@@ -281,9 +331,19 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         throw err;
       }
 
+      const bufferSha256 = sha256(buffer);
       const forcePart = forceRefresh ? `:force:${Date.now()}` : "";
       const idempotencyKey =
-        explicitIdempotencyKey ?? `upload:${sha256(buffer)}:${auth.workspaceId}${forcePart}`;
+        explicitIdempotencyKey ?? `upload:${bufferSha256}:${auth.workspaceId}${forcePart}`;
+
+      const archive = await archiveOriginal(fastify, reply, {
+        workspaceId: auth.workspaceId,
+        buffer,
+        sha256Hex: bufferSha256,
+        mime,
+        sourceLabel: "uploaded file",
+      });
+      if (archive === "error") return;
 
       const { ingestion, replayed } = await enqueueIngestion(fastify, {
         workspaceId: auth.workspaceId,
@@ -301,6 +361,9 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
           extractorVersion: extraction.extractorVersion,
           extractionWarnings: extraction.warnings,
         },
+        storageKey: archive?.storageKey ?? null,
+        storageBytes: archive?.storageBytes ?? null,
+        storageSha256: archive?.storageSha256 ?? null,
       });
 
       return reply.code(replayed ? 200 : 202).send(mapIngestionDto(ingestion));
@@ -346,6 +409,23 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         body.data.idempotencyKey ??
         `url:${sha256(`${auth.workspaceId}|${body.data.url}`)}${forcePart}`;
 
+      let archive: ArchivedBlob | null = null;
+      if (extraction.rawBody) {
+        const rawMime = extraction.contentType.startsWith("text/plain")
+          ? "text/plain"
+          : "text/html";
+        const rawBuffer = Buffer.from(extraction.rawBody, "utf-8");
+        const result = await archiveOriginal(fastify, reply, {
+          workspaceId: auth.workspaceId,
+          buffer: rawBuffer,
+          sha256Hex: sha256(rawBuffer),
+          mime: rawMime,
+          sourceLabel: "fetched page",
+        });
+        if (result === "error") return;
+        archive = result;
+      }
+
       const { ingestion, replayed } = await enqueueIngestion(fastify, {
         workspaceId: auth.workspaceId,
         userId: auth.userId,
@@ -363,6 +443,9 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
           extractionWarnings: extraction.warnings,
           extractedTitle: extraction.title ?? null,
         },
+        storageKey: archive?.storageKey ?? null,
+        storageBytes: archive?.storageBytes ?? null,
+        storageSha256: archive?.storageSha256 ?? null,
       });
 
       return reply.code(replayed ? 200 : 202).send(mapIngestionDto(ingestion));

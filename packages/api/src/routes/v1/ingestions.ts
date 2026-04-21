@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyInstance, FastifyPluginAsync, FastifyReply } from "fastify";
 import { eq, and, desc, count, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -9,7 +9,7 @@ import {
   ERROR_CODES,
 } from "@nexnote/shared";
 import { ingestions, ingestionDecisions, apiTokens } from "@nexnote/db";
-import type { IngestionDecision } from "@nexnote/db";
+import type { Ingestion, IngestionDecision } from "@nexnote/db";
 import {
   getMemberRole,
   forbidden,
@@ -26,6 +26,11 @@ import { consumeRateLimit, parsePositiveInt } from "../../lib/rate-limit.js";
 import { enqueueIngestion } from "../../lib/enqueue-ingestion.js";
 import { mapIngestionDto } from "../../lib/ingestion-dto.js";
 import { registerImportRoutes } from "./ingestions-import.js";
+import {
+  getOriginalStream,
+  OriginalNotFoundError,
+  storageEnabled,
+} from "../../lib/storage/s3.js";
 
 const INGESTION_RATE_PER_MIN = parsePositiveInt(
   process.env["INGESTION_RATE_LIMIT_PER_MINUTE"],
@@ -53,6 +58,72 @@ const applyBodySchema = z.object({
   decisionId: uuidSchema,
   approved: z.boolean(),
 });
+
+async function loadIngestion(
+  fastify: FastifyInstance,
+  reply: FastifyReply,
+  workspaceId: string,
+  ingestionId: string,
+  userId: string,
+): Promise<Ingestion | null> {
+  const role = await getMemberRole(fastify.db, workspaceId, userId);
+  if (!role) {
+    forbidden(reply);
+    return null;
+  }
+  const [row] = await fastify.db
+    .select()
+    .from(ingestions)
+    .where(
+      and(
+        eq(ingestions.id, ingestionId),
+        eq(ingestions.workspaceId, workspaceId),
+      ),
+    )
+    .limit(1);
+  if (!row) {
+    reply.code(404).send({
+      error: "Not found",
+      code: ERROR_CODES.NOT_FOUND,
+      details: "Ingestion not found",
+    });
+    return null;
+  }
+  return row;
+}
+
+// RFC 5987: ASCII-only `filename="..."` plus UTF-8 `filename*=...` for
+// non-ASCII filenames. Browsers that understand filename* prefer it.
+function buildContentDisposition(filename: string): string {
+  const ascii = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  const encoded = encodeURIComponent(filename);
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
+function deriveDownloadFilename(row: Ingestion): string {
+  const payload = row.rawPayload as Record<string, unknown> | null;
+  const original = payload && typeof payload["originalFilename"] === "string"
+    ? (payload["originalFilename"] as string)
+    : null;
+  if (original && original.trim()) return original.trim();
+
+  const sourceUrl =
+    payload && typeof payload["finalUrl"] === "string"
+      ? (payload["finalUrl"] as string)
+      : payload && typeof payload["sourceUrl"] === "string"
+        ? (payload["sourceUrl"] as string)
+        : null;
+  if (sourceUrl) {
+    try {
+      const u = new URL(sourceUrl);
+      const date = row.receivedAt.toISOString().slice(0, 10).replace(/-/g, "");
+      return `${u.hostname}-${date}.html`;
+    } catch {
+      /* fall through */
+    }
+  }
+  return `ingestion-${row.id}.bin`;
+}
 
 function mapDecisionDto(row: IngestionDecision) {
   return {
@@ -251,29 +322,14 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
       if (!params.success) return sendValidationError(reply, params.error.issues);
 
       const { workspaceId, ingestionId } = params.data;
-      const userId = request.user.sub;
-
-      const role = await getMemberRole(fastify.db, workspaceId, userId);
-      if (!role) return forbidden(reply);
-
-      const [row] = await fastify.db
-        .select()
-        .from(ingestions)
-        .where(
-          and(
-            eq(ingestions.id, ingestionId),
-            eq(ingestions.workspaceId, workspaceId),
-          ),
-        )
-        .limit(1);
-
-      if (!row) {
-        return reply.code(404).send({
-          error: "Not found",
-          code: ERROR_CODES.NOT_FOUND,
-          details: "Ingestion not found",
-        });
-      }
+      const row = await loadIngestion(
+        fastify,
+        reply,
+        workspaceId,
+        ingestionId,
+        request.user.sub,
+      );
+      if (!row) return;
 
       const decisions = await fastify.db
         .select()
@@ -287,6 +343,74 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
         normalizedText: row.normalizedText,
         decisions: decisions.map(mapDecisionDto),
       });
+    },
+  );
+
+  // GET /:ingestionId/original — Stream the archived raw upload/HTML back to the client
+  fastify.get(
+    "/:ingestionId/original",
+    { onRequest: [fastify.authenticate] },
+    async (request, reply) => {
+      const params = ingestionParamsSchema.safeParse(request.params);
+      if (!params.success) return sendValidationError(reply, params.error.issues);
+
+      const { workspaceId, ingestionId } = params.data;
+      const row = await loadIngestion(
+        fastify,
+        reply,
+        workspaceId,
+        ingestionId,
+        request.user.sub,
+      );
+      if (!row) return;
+
+      if (!row.storageKey) {
+        return reply.code(410).send({
+          error: "Original not archived",
+          code: ERROR_CODES.INGESTION_ORIGINAL_NOT_FOUND,
+          details: "This ingestion has no archived original (e.g. text paste).",
+        });
+      }
+
+      if (!storageEnabled) {
+        return reply.code(503).send({
+          error: "Storage unavailable",
+          code: ERROR_CODES.IMPORT_STORAGE_UNAVAILABLE,
+          details: "Object storage is not configured on this server.",
+        });
+      }
+
+      try {
+        const { stream, contentType, contentLength } = await getOriginalStream(
+          row.storageKey,
+        );
+        reply.header("Content-Type", contentType);
+        if (contentLength !== null) {
+          reply.header("Content-Length", String(contentLength));
+        }
+        reply.header(
+          "Content-Disposition",
+          buildContentDisposition(deriveDownloadFilename(row)),
+        );
+        return reply.send(stream);
+      } catch (err) {
+        if (err instanceof OriginalNotFoundError) {
+          return reply.code(410).send({
+            error: "Original missing",
+            code: ERROR_CODES.INGESTION_ORIGINAL_NOT_FOUND,
+            details: "The archived object is no longer available.",
+          });
+        }
+        fastify.log.error(
+          { err, storageKey: row.storageKey },
+          "Failed to stream archived original",
+        );
+        return reply.code(503).send({
+          error: "Storage unavailable",
+          code: ERROR_CODES.IMPORT_STORAGE_UNAVAILABLE,
+          details: "Failed to fetch the archived file.",
+        });
+      }
     },
   );
 
