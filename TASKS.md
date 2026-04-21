@@ -11,7 +11,11 @@ Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH]
 >
 > **Tranche 2 landed (2026-04-17):** dedicated `/workspaces/:id/decisions` API (list with joined ingestion/page context, per-status counts, detail with proposed diff, `approve` / `reject` / `PATCH` endpoints writing `audit_logs`); `apply-decision.ts` helper shared between the old apply endpoint and the new approve flow; `api-client.ts` gains `ingestions` + `decisions` surfaces; `/review` page with tabs (suggested / needs review / failed / recent), j/k/a/r keyboard shortcuts, and a detail panel that renders the proposed diff and reject-with-reason form; sidebar shows a pending-review badge.
 >
-> **Tranche 3 landed (2026-04-17):** migration `0004_page_freshness` adds `pages.last_ai_updated_at` + `last_human_edited_at` (backfilled from existing revisions), bumped by every revision writer (route-classifier create, patch-generator, apply-decision, editor save, rollback); `FreshnessBadge` renders in the editor status bar in three tones (ai/human/stale) with a hover tooltip carrying both timestamps; revision summary DTO now returns `sourceIngestionId` + `sourceDecisionId`, surfaced in `RevisionHistoryPanel` as a "⛓" chip + "View source" button that opens `IngestionSourcePanel` — a drill-down reusing the existing `GET /workspaces/:id/decisions/:decisionId` endpoint to show action, confidence, decision reason, normalized text, and raw payload. Next up: S4-2 (ingestion detail drill-down from the review queue), S5-3 (concurrent-edit guard), S6-1 (activity feed).
+> **Tranche 3 landed (2026-04-17):** migration `0004_page_freshness` adds `pages.last_ai_updated_at` + `last_human_edited_at` (backfilled from existing revisions), bumped by every revision writer (route-classifier create, patch-generator, apply-decision, editor save, rollback); `FreshnessBadge` renders in the editor status bar in three tones (ai/human/stale) with a hover tooltip carrying both timestamps; revision summary DTO now returns `sourceIngestionId` + `sourceDecisionId`, surfaced in `RevisionHistoryPanel` as a "⛓" chip + "View source" button that opens `IngestionSourcePanel` — a drill-down reusing the existing `GET /workspaces/:id/decisions/:decisionId` endpoint to show action, confidence, decision reason, normalized text, and raw payload.
+>
+> **S4-2 landed (2026-04-22):** route-classifier persists its candidate snapshot into `ingestion_decisions.rationaleJson.candidates` (id/title/slug + matchSources[]); `GET /decisions/:id` surfaces them as a first-class `candidates` array; new `/ingestions/:ingestionId` page shows ingestion meta, payload, per-decision panels with candidate lists + match-source chips + chosen-target indicator + inline approve/reject + proposed diff; ReviewQueuePage detail pane links out.
+>
+> **S5-3 landed (2026-04-22):** patch-generator accepts `baseRevisionId` from the classifier's enqueue snapshot; before auto-applying it runs `detectHumanConflict()` on `page_revisions` and, if any `actor_type='user'` revision landed after the base, writes the proposed revision as `suggested` with `rationaleJson.conflict = { type: 'conflict_with_human_edit', humanRevisionId, humanEditedAt, humanRevisionNote, baseRevisionId }` instead of promoting to current. Decision list returns `hasConflict`; detail returns full `conflict` object. ReviewQueuePage list chips and ReviewDetail / IngestionDetailPage banners highlight these with an "approve will stack on human edits" warning. Next up: S6-1 (activity feed), S5-4 (triple contradictions).
 
 ---
 
@@ -32,10 +36,15 @@ Currently a failed patch-generator sets `ingestions.status="failed"` and logs. T
 
 The primary review surface shipped in Tranche 2: [/review](packages/web/src/pages/ReviewQueuePage.tsx) with tabs, list + detail panes, keyboard shortcuts, and a sidebar badge. Remaining work drills deeper into individual ingestions and makes onboarding of new ingestion sources self-serve.
 
-### S4-2 · [HIGH] Ingestion detail view
-- Route: `/workspaces/:slug/ingestions/:id`
-- Shows raw payload, normalized text, all classification candidates the AI considered, the chosen decision, and the resulting revision (if any)
-- From the detail view, reviewer can re-run classification with a different LLM / override the target page
+### S4-2 · [DONE · 2026-04-22] Ingestion detail view
+- Route: `/ingestions/:ingestionId` ([IngestionDetailPage.tsx](packages/web/src/pages/IngestionDetailPage.tsx))
+- Shows ingestion meta (source, external ref, content-type, receivedAt), raw payload + normalized text (collapsible), "Download original" when the MinIO archive is present, and one panel per decision in reverse-chronological order.
+- Each decision panel renders the AI's reason, the chosen target, and the **candidate pages the classifier was choosing from** with per-candidate match-source chips (title / FTS / trigram / entity overlap) and a "chosen target" indicator on the selected one. Proposed diff and approve/reject controls are inline so the reviewer doesn't bounce back to `/review` to act.
+- Route-classifier now persists its candidate snapshot into `ingestion_decisions.rationaleJson.candidates` (id/title/slug + matchSources[]); the `GET /workspaces/:id/decisions/:decisionId` endpoint returns them as a first-class `candidates` array.
+- ReviewQueuePage detail pane links out via "View full ingestion detail →".
+
+### S4-2-followup · [MED] Re-run classification + target-page override UI
+Deferred from S4-2. The PATCH `/decisions/:id` endpoint already accepts `{action, targetPageId, proposedPageTitle}` — needs a small page-search dropdown inside the decision panel to mutate `targetPageId` before approving. "Re-run with a different LLM" is a net-new feature: new endpoint + new BullMQ job that re-enqueues the classifier with an explicit `{provider, model}` override on the payload, writes a second `ingestion_decisions` row, and lets the UI diff the two.
 
 ### S4-4 · [MED] API token management UI (prerequisite for onboarding external AI sources)
 `api_tokens` table exists; the only way to mint one is via DB seed. Without this, onboarding a new ingestion source requires a DBA.
@@ -53,10 +62,13 @@ Tranche 3 added `last_ai_updated_at` / `last_human_edited_at` + the editor-heade
 - `/workspaces/:slug/pages` list view: sort by "most recently AI-updated" / "most recently human-edited" / "stalest first"
 - Extend the editor-header freshness tooltip to include "from ingestion *X*" when the latest change was an AI write — query the latest `page_revisions` row with `source_ingestion_id` set
 
-### S5-3 · [MED] Concurrent-edit guard
-When a patch-generator job runs, verify no human session has modified the page since `base_revision_id`. If so:
-- Do NOT auto-apply; downgrade the decision to `"suggested"` with reason `"conflict_with_human_edit"`
-- Review UI surfaces these prominently
+### S5-3 · [DONE · 2026-04-22] Concurrent-edit guard
+- Route-classifier snapshots `pages.current_revision_id` at enqueue time and passes it to the patch-generator via `PatchGeneratorJobData.baseRevisionId`; also records it on `ingestion_decisions.rationaleJson.baseRevisionId` for auditing.
+- Patch-generator runs `detectHumanConflict()` after merging but before applying — the query finds the most recent `page_revisions` row on the target page with `actor_type='user'` and `createdAt > base.createdAt`. If one exists, the job still writes the proposed revision + diff (so the reviewer has something to inspect) but sets the decision status to `suggested` (not `auto_applied`), stamps `rationaleJson.conflict = { type: 'conflict_with_human_edit', humanRevisionId, humanUserId, humanEditedAt, humanRevisionNote, baseRevisionId }`, and skips the promote-to-current + `lastAiUpdatedAt` bump + triple-extractor enqueue. Audit-log source is `patch_generator_conflict_downgrade`.
+- AI-to-AI drift is not treated as a conflict — the patch merges against current head regardless so output is never stale; only `actor_type='user'` rows trigger the downgrade, matching the spec wording "human session".
+- API: `GET /decisions/:id` returns `conflict` as a first-class field; list endpoint returns `hasConflict: boolean` for list items.
+- UI: ReviewQueuePage list items show a red "⚠ conflict" chip next to the status badge; [ReviewDetail.tsx](packages/web/src/components/review/ReviewDetail.tsx) and the IngestionDetailPage decision panels render a prominent conflict banner with the human's edit timestamp + revision note and an "approving will stack on top of human edits" warning.
+- Follow-up: approve-of-conflicted decision is currently permissive (creates a new AI revision on top of the human's edits; history is preserved). A stricter mode would require `{ force: true }` on the approve endpoint or auto-regenerate against current head. Punt until users report the permissive behavior as surprising.
 
 ### S5-4 · [MED] Contradicting-triple detection
 When triple-extractor produces a triple `(S, P, O1)` but `(S, P, O2)` already exists with different object and overlapping time window, mark both as `conflict=true` and surface in a workspace "Contradictions" view. Do not auto-delete — let a human resolve.

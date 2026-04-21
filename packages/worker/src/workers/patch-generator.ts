@@ -1,6 +1,6 @@
 import { Worker } from "bullmq";
 import type { Job } from "bullmq";
-import { eq } from "drizzle-orm";
+import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { createRedisConnection } from "../connection.js";
 import { getQueue, QUEUE_NAMES, JOB_NAMES } from "../queues.js";
 import { getAIAdapter, getDefaultProvider } from "../ai-gateway.js";
@@ -35,14 +35,82 @@ import { createJobLogger } from "../logger.js";
 
 const PROMPT_VERSION = "patch-generator-v1";
 
+type ConflictingRevision = {
+  id: string;
+  actorUserId: string | null;
+  createdAt: Date;
+  revisionNote: string | null;
+};
+
+/**
+ * Check whether the target page has been modified by a human since the
+ * classifier snapshotted `baseRevisionId`. Returns the most recent
+ * human-authored revision if so, or null when the AI is still safe to
+ * auto-apply.
+ *
+ * Drift from AI→AI (e.g., another ingestion patched the page in between)
+ * is NOT treated as a conflict — the patch-generator re-merges against
+ * current head regardless, so the AI output is never stale. The spec
+ * specifically calls out "human session" as the race we need to guard.
+ */
+async function detectHumanConflict(
+  db: ReturnType<typeof getDb>,
+  targetPageId: string,
+  baseRevisionId: string | null,
+): Promise<ConflictingRevision | null> {
+  let baseCreatedAt: Date | null = null;
+  if (baseRevisionId) {
+    const [baseRev] = await db
+      .select({ createdAt: pageRevisions.createdAt })
+      .from(pageRevisions)
+      .where(eq(pageRevisions.id, baseRevisionId))
+      .limit(1);
+    // A classifier snapshot pointing at a revision that no longer exists
+    // means the history was rewritten under us; treat that as drift too.
+    if (!baseRev) {
+      baseCreatedAt = new Date(0);
+    } else {
+      baseCreatedAt = baseRev.createdAt;
+    }
+  }
+
+  const conditions = [
+    eq(pageRevisions.pageId, targetPageId),
+    eq(pageRevisions.actorType, "user"),
+  ];
+  if (baseCreatedAt) {
+    conditions.push(gt(pageRevisions.createdAt, baseCreatedAt));
+  }
+
+  const [intruder] = await db
+    .select({
+      id: pageRevisions.id,
+      actorUserId: pageRevisions.actorUserId,
+      createdAt: pageRevisions.createdAt,
+      revisionNote: pageRevisions.revisionNote,
+    })
+    .from(pageRevisions)
+    .where(and(...conditions))
+    .orderBy(desc(pageRevisions.createdAt))
+    .limit(1);
+
+  return intruder ?? null;
+}
+
 export function createPatchGeneratorWorker(): Worker {
   const db = getDb();
 
   const worker = new Worker<PatchGeneratorJobData, PatchGeneratorJobResult>(
     QUEUE_NAMES.PATCH,
     async (job: Job<PatchGeneratorJobData>) => {
-      const { ingestionId, decisionId, workspaceId, targetPageId, action } =
-        job.data;
+      const {
+        ingestionId,
+        decisionId,
+        workspaceId,
+        targetPageId,
+        action,
+        baseRevisionId,
+      } = job.data;
       const log = createJobLogger("patch-generator", job.id);
 
       log.info({ ingestionId, action }, "Processing ingestion");
@@ -232,6 +300,15 @@ Produce the merged Markdown:`,
 
       await job.updateProgress(60);
 
+      // Detect human edits that landed between classification and now. The
+      // conflict check runs AFTER the merge so the reviewer still gets a
+      // useful proposed revision — we just refuse to auto-apply it.
+      const conflict = await detectHumanConflict(
+        db,
+        targetPageId,
+        baseRevisionId,
+      );
+
       const [revision] = await db
         .insert(pageRevisions)
         .values({
@@ -243,13 +320,88 @@ Produce the merged Markdown:`,
           sourceIngestionId: ingestionId,
           sourceDecisionId: decisionId,
           contentMd: newContent,
-          revisionNote: `Auto-${action} from ingestion ${ingestion.sourceName}`,
+          revisionNote: conflict
+            ? `Conflict-deferred ${action} from ingestion ${ingestion.sourceName}`
+            : `Auto-${action} from ingestion ${ingestion.sourceName}`,
         })
         .returning();
 
-      // Compute diff + store it, then update page/decision/ingestion in parallel
       const diff = computeDiff(existingContent, newContent, null, null);
       const now = new Date();
+
+      if (conflict) {
+        // Human edit intervened since the classifier snapshot. Write the
+        // proposed revision + diff, downgrade the decision to `suggested`,
+        // and do NOT promote to current. Triple extraction waits until the
+        // reviewer approves via apply-decision.
+        await Promise.all([
+          db.insert(revisionDiffs).values({
+            revisionId: revision.id,
+            diffMd: diff.diffMd,
+            diffOpsJson: diff.diffOpsJson,
+            changedBlocks: diff.changedBlocks,
+          }),
+          db
+            .update(ingestionDecisions)
+            .set({
+              proposedRevisionId: revision.id,
+              status: "suggested",
+              rationaleJson: sql`
+                jsonb_set(
+                  COALESCE(${ingestionDecisions.rationaleJson}, '{}'::jsonb),
+                  '{conflict}',
+                  ${JSON.stringify({
+                    type: "conflict_with_human_edit",
+                    humanRevisionId: conflict.id,
+                    humanUserId: conflict.actorUserId,
+                    humanEditedAt: conflict.createdAt.toISOString(),
+                    humanRevisionNote: conflict.revisionNote,
+                    baseRevisionId,
+                  })}::jsonb
+                )
+              `,
+            })
+            .where(eq(ingestionDecisions.id, decisionId)),
+          db
+            .update(ingestions)
+            .set({ status: "completed", processedAt: now })
+            .where(eq(ingestions.id, ingestionId)),
+          db.insert(auditLogs).values({
+            workspaceId,
+            modelRunId: modelRunId ?? undefined,
+            entityType: "page",
+            entityId: targetPageId,
+            action,
+            afterJson: {
+              source: "patch_generator_conflict_downgrade",
+              ingestionId,
+              decisionId,
+              revisionId: revision.id,
+              conflict: {
+                humanRevisionId: conflict.id,
+                humanEditedAt: conflict.createdAt.toISOString(),
+              },
+            },
+          }),
+        ]);
+
+        log.info(
+          {
+            decisionId,
+            targetPageId,
+            baseRevisionId,
+            humanRevisionId: conflict.id,
+          },
+          "Downgraded auto-apply to suggested due to concurrent human edit",
+        );
+
+        await job.updateProgress(100);
+        return {
+          ingestionId,
+          revisionId: revision.id,
+          pageId: targetPageId,
+        };
+      }
 
       await Promise.all([
         db.insert(revisionDiffs).values({

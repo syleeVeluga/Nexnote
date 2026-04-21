@@ -606,6 +606,8 @@ export interface IngestionSummary {
   status: IngestionStatus;
   receivedAt: string;
   processedAt: string | null;
+  hasOriginal?: boolean;
+  originalSizeBytes?: number | null;
 }
 
 export interface IngestionDetail extends IngestionSummary {
@@ -627,12 +629,36 @@ interface DecisionBase {
   createdAt: string;
 }
 
+export type CandidateMatchSource = "title" | "fts" | "trigram" | "entity";
+
+export interface DecisionCandidate {
+  id: string;
+  title: string;
+  slug: string;
+  matchSources?: CandidateMatchSource[];
+}
+
+export interface DecisionConflict {
+  type: "conflict_with_human_edit";
+  humanRevisionId: string;
+  humanUserId: string | null;
+  humanEditedAt: string;
+  humanRevisionNote: string | null;
+  baseRevisionId: string | null;
+}
+
 export interface DecisionSummary extends DecisionBase {
-  rationale: { reason?: string } | null;
+  rationale: {
+    reason?: string;
+    candidates?: DecisionCandidate[];
+    baseRevisionId?: string | null;
+    conflict?: DecisionConflict;
+  } | null;
 }
 
 export interface DecisionListItem extends DecisionBase {
   reason: string | null;
+  hasConflict?: boolean;
   ingestion: {
     sourceName: string;
     titleHint: string | null;
@@ -646,6 +672,8 @@ export interface DecisionListItem extends DecisionBase {
 }
 
 export interface DecisionDetail extends Omit<DecisionListItem, "ingestion"> {
+  candidates: DecisionCandidate[];
+  conflict: DecisionConflict | null;
   ingestion: {
     id: string;
     sourceName: string;

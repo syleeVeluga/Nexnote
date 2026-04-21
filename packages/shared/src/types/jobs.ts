@@ -21,6 +21,14 @@ export interface PatchGeneratorJobData {
   workspaceId: string;
   targetPageId: string;
   action: "update" | "append";
+  /**
+   * Snapshot of `pages.current_revision_id` taken at enqueue time (the
+   * classifier's view of the page). If the page has advanced past this by
+   * the time the patch-generator runs, the job must downgrade the decision
+   * to `suggested` with reason `conflict_with_human_edit` instead of
+   * auto-applying. `null` means the page had no content yet.
+   */
+  baseRevisionId: string | null;
 }
 
 /** Result returned from the patch-generator job */

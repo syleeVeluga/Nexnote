@@ -80,7 +80,14 @@ interface DecisionListRow extends IngestionDecision {
 }
 
 function mapDecisionListItem(row: DecisionListRow) {
-  const rationale = row.rationaleJson as { reason?: string } | null;
+  const rationale = row.rationaleJson as {
+    reason?: string;
+    conflict?: {
+      type: string;
+      humanEditedAt: string;
+      humanUserId: string | null;
+    };
+  } | null;
   return {
     id: row.id,
     ingestionId: row.ingestionId,
@@ -92,6 +99,7 @@ function mapDecisionListItem(row: DecisionListRow) {
     proposedPageTitle: row.proposedPageTitle,
     confidence: row.confidence,
     reason: rationale?.reason ?? null,
+    hasConflict: Boolean(rationale?.conflict),
     createdAt: row.createdAt.toISOString(),
     ingestion: {
       sourceName: row.ingestionSourceName,
@@ -338,7 +346,24 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      const rationale = row.rationaleJson as { reason?: string } | null;
+      const rationale = row.rationaleJson as {
+        reason?: string;
+        candidates?: Array<{
+          id: string;
+          title: string;
+          slug: string;
+          matchSources?: string[];
+        }>;
+        baseRevisionId?: string | null;
+        conflict?: {
+          type: "conflict_with_human_edit";
+          humanRevisionId: string;
+          humanUserId: string | null;
+          humanEditedAt: string;
+          humanRevisionNote: string | null;
+          baseRevisionId: string | null;
+        };
+      } | null;
 
       return reply.send({
         id: row.id,
@@ -351,6 +376,8 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
         proposedPageTitle: row.proposedPageTitle,
         confidence: row.confidence,
         reason: rationale?.reason ?? null,
+        candidates: rationale?.candidates ?? [],
+        conflict: rationale?.conflict ?? null,
         createdAt: row.createdAt.toISOString(),
         ingestion: {
           id: row.ingestionId,

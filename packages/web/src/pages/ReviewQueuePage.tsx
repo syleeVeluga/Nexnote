@@ -222,6 +222,14 @@ export function ReviewQueuePage() {
                       defaultValue: item.status,
                     })}
                   </span>
+                  {item.hasConflict && (
+                    <span
+                      className="review-conflict-chip"
+                      title={t("conflict.tooltip")}
+                    >
+                      ⚠ {t("conflict.chip")}
+                    </span>
+                  )}
                   <span className="review-confidence">
                     {Math.round(item.confidence * 100)}%
                   </span>
