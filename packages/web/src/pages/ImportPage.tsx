@@ -77,7 +77,7 @@ export function ImportPage() {
   const workspaceId = current?.id;
 
   const uploadOne = useCallback(
-    async (row: FileRowStatus) => {
+    async (row: FileRowStatus, force = false) => {
       if (!workspaceId) return;
       setFileRows((prev) =>
         prev.map((r) => (r.id === row.id ? { ...r, state: "uploading" } : r)),
@@ -85,7 +85,7 @@ export function ImportPage() {
       try {
         const res = await ingestionsApi.importFile(workspaceId, row.file, {
           titleHint: fileTitleHint || undefined,
-          forceRefresh: fileForce || undefined,
+          forceRefresh: force || fileForce || undefined,
         });
         setFileRows((prev) =>
           prev.map((r) =>
@@ -326,6 +326,15 @@ export function ImportPage() {
                       <span className="import-row-status">
                         {statusLabel(row.state)}
                       </span>
+                      {row.state === "replayed" && (
+                        <button
+                          type="button"
+                          className="import-link-btn"
+                          onClick={() => uploadOne(row, true)}
+                        >
+                          {t("replayForce")}
+                        </button>
+                      )}
                     </div>
                     {row.message && (
                       <div className="import-row-message">{row.message}</div>

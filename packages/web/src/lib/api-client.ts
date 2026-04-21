@@ -573,6 +573,21 @@ export const pages = {
       }
     }
   },
+
+  reformat(
+    workspaceId: string,
+    pageId: string,
+    data?: { instructions?: string },
+  ) {
+    return request<{
+      jobId: string | null;
+      status: "queued" | "already_pending";
+      decisionId?: string;
+    }>(`/workspaces/${workspaceId}/pages/${pageId}/reformat`, {
+      method: "POST",
+      body: JSON.stringify(data ?? {}),
+    });
+  },
 };
 
 // ---------------------------------------------------------------------------

@@ -40,6 +40,13 @@ export function PageEditorPage() {
     | { status: "confirm" }
     | null
   >(null);
+  const [reformatting, setReformatting] = useState(false);
+  const [reformatResult, setReformatResult] = useState<
+    | { status: "queued" }
+    | { status: "already_pending"; decisionId: string }
+    | { status: "error" }
+    | null
+  >(null);
 
   const editorRef = useRef<TiptapEditorHandle>(null);
   const saveRef = useRef<() => void>(() => {});
@@ -150,6 +157,24 @@ export function PageEditorPage() {
     setPublishResult({ status: "confirm" });
   }, []);
 
+  const handleReformatClick = useCallback(async () => {
+    if (!workspace || !pageId || reformatting) return;
+    setReformatting(true);
+    setReformatResult(null);
+    try {
+      const res = await pagesApi.reformat(workspace.id, pageId);
+      if (res.status === "already_pending") {
+        setReformatResult({ status: "already_pending", decisionId: res.decisionId ?? "" });
+      } else {
+        setReformatResult({ status: "queued" });
+      }
+    } catch {
+      setReformatResult({ status: "error" });
+    } finally {
+      setReformatting(false);
+    }
+  }, [workspace, pageId, reformatting]);
+
   const handlePublishConfirm = useCallback(async () => {
     if (!workspace || !pageId || publishing) return;
 
@@ -242,6 +267,14 @@ export function PageEditorPage() {
               {saving ? t("saving") : dirty ? t("save") : t("saved")}
             </button>
             <button
+              className="btn-reformat"
+              onClick={handleReformatClick}
+              disabled={reformatting || loading}
+              title="AI가 문서를 검토 후 구조를 재편성합니다"
+            >
+              {reformatting ? "분석 중..." : "재구성"}
+            </button>
+            <button
               className="btn-publish"
               onClick={handlePublishClick}
               disabled={publishing || dirty}
@@ -251,6 +284,34 @@ export function PageEditorPage() {
             </button>
           </div>
         </div>
+
+        {(reformatResult?.status === "queued" || reformatResult?.status === "already_pending") && (
+          <div className="publish-banner">
+            <span>
+              {reformatResult.status === "queued"
+                ? "AI가 재구성 중입니다. 잠시 후 검토 대기열 → 제안됨 탭에서 확인하세요."
+                : "이미 검토 대기 중인 재구성 요청이 있습니다."}
+            </span>
+            <button
+              className="publish-banner-link"
+              onClick={() => navigate("/review")}
+            >
+              제안됨 탭 열기
+            </button>
+            <button className="btn-close-panel" onClick={() => setReformatResult(null)}>
+              &times;
+            </button>
+          </div>
+        )}
+
+        {reformatResult?.status === "error" && (
+          <div className="publish-banner publish-banner-error">
+            <span>재구성 요청에 실패했습니다. 다시 시도해주세요.</span>
+            <button className="btn-close-panel" onClick={() => setReformatResult(null)}>
+              &times;
+            </button>
+          </div>
+        )}
 
         {publishResult?.status === "confirm" && (
           <div className="publish-banner publish-banner-confirm">

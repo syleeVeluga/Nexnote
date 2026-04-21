@@ -23,6 +23,7 @@
   "statusUploading": "업로드 중",
   "statusQueued": "큐에 등록됨",
   "statusReplayed": "이미 가져옴",
+  "replayForce": "삭제 후 재등록",
   "statusError": "오류",
   "successCta": "검토 대기열 열기",
   "removeFile": "제거",

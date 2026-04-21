@@ -23,6 +23,7 @@
   "statusUploading": "Uploading",
   "statusQueued": "Queued",
   "statusReplayed": "Already imported",
+  "replayForce": "Re-import (force)",
   "statusError": "Error",
   "successCta": "Open review queue",
   "removeFile": "Remove",

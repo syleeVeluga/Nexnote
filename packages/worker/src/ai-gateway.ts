@@ -20,6 +20,7 @@ interface MockFixtureFile {
       route_decision?: Record<string, unknown>;
       patch_generation?: string;
       triple_extraction?: Record<string, unknown>;
+      content_reformat?: string;
     }
   >;
 }

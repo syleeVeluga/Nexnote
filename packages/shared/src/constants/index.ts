@@ -24,6 +24,7 @@ export const IMPORT_SOURCE_NAMES = {
   MANUAL_UPLOAD: "manual-upload",
   WEB_URL: "web-url",
   MANUAL_PASTE: "manual-paste",
+  REFORMAT_REQUEST: "reformat_request",
 } as const;
 export type ImportSourceName =
   (typeof IMPORT_SOURCE_NAMES)[keyof typeof IMPORT_SOURCE_NAMES];
@@ -66,6 +67,7 @@ export const MODEL_RUN_MODES = [
   "route_decision",
   "patch_generation",
   "triple_extraction",
+  "content_reformat",
 ] as const;
 export type ModelRunMode = (typeof MODEL_RUN_MODES)[number];
 
@@ -116,10 +118,9 @@ export interface ModelContextBudget {
 export const MODEL_CONTEXT_BUDGETS: Record<string, ModelContextBudget> = {
   "openai:gpt-5.4": { inputTokenBudget: 180_000, safetyMarginRatio: 0.9 },
   "openai:gpt-5.4-pro": { inputTokenBudget: 400_000, safetyMarginRatio: 0.9 },
-  "gemini:gemini-3.1-pro": {
-    inputTokenBudget: 800_000,
-    safetyMarginRatio: 0.9,
-  },
+  "openai:gpt-5.4-mini": { inputTokenBudget: 120_000, safetyMarginRatio: 0.9 },
+  "gemini:gemini-3.1-pro": { inputTokenBudget: 800_000, safetyMarginRatio: 0.9 },
+  "gemini:gemini-3.1-flash-lite": { inputTokenBudget: 500_000, safetyMarginRatio: 0.9 },
 };
 
 // Conservative fallback for unregistered provider/model pairs. Chosen small
@@ -137,6 +138,7 @@ export const MODE_OUTPUT_RESERVE: Record<ModelRunMode, number> = {
   route_decision: 2_048,
   patch_generation: 8_192,
   triple_extraction: 4_096,
+  content_reformat: 8_192,
 };
 
 export function getModelContextBudget(
@@ -159,6 +161,7 @@ export const QUEUE_NAMES = {
   EXTRACTION: "extraction",
   PUBLISH: "publish",
   SEARCH: "search",
+  REFORMAT: "reformat",
 } as const;
 
 export const QUEUE_KEYS = [
@@ -167,6 +170,7 @@ export const QUEUE_KEYS = [
   QUEUE_NAMES.EXTRACTION,
   QUEUE_NAMES.PUBLISH,
   QUEUE_NAMES.SEARCH,
+  QUEUE_NAMES.REFORMAT,
 ] as const;
 export type QueueKey = (typeof QUEUE_KEYS)[number];
 
@@ -176,6 +180,7 @@ export const JOB_NAMES = {
   TRIPLE_EXTRACTOR: "triple-extractor",
   PUBLISH_RENDERER: "publish-renderer",
   SEARCH_INDEX_UPDATER: "search-index-updater",
+  CONTENT_REFORMATTER: "content-reformatter",
 } as const;
 
 export const ERROR_CODES = {
