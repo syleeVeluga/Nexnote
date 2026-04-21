@@ -149,7 +149,7 @@ export function GraphPanel({
     setLoading(true);
     setError(null);
     pagesApi
-      .graph(workspaceId, pageId, { depth, limit: 60 })
+      .graph(workspaceId, pageId, { depth, limit: 250 })
       .then((res) => setGraphData(res))
       .catch((err) => {
         setError(err instanceof Error ? err.message : t("noGraphData"));
@@ -226,17 +226,44 @@ export function GraphPanel({
 
   const paintLink = useCallback(
     (link: GLink, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      const fontSize = Math.max(8 / globalScale, 1);
       const src = link.source as GNode;
       const tgt = link.target as GNode;
       if (!src || !tgt || src.x == null || tgt.x == null) return;
+      const label = link.predicate ?? "";
+      if (!label) return;
+
+      const fontSize = Math.max(8 / globalScale, 1.5);
+      const dx = (tgt.x ?? 0) - (src.x ?? 0);
+      const dy = (tgt.y ?? 0) - (src.y ?? 0);
+      const angle = Math.atan2(dy, dx);
       const midX = ((src.x ?? 0) + (tgt.x ?? 0)) / 2;
       const midY = ((src.y ?? 0) + (tgt.y ?? 0)) / 2;
+
+      ctx.save();
+      ctx.translate(midX, midY);
+      // keep text readable left-to-right
+      const displayAngle =
+        Math.abs(angle) > Math.PI / 2 ? angle + Math.PI : angle;
+      ctx.rotate(displayAngle);
+
       ctx.font = `${fontSize}px sans-serif`;
+      const textW = ctx.measureText(label).width;
+      const pad = 1.5 / globalScale;
+      const offsetY = -(fontSize + pad * 2 + 2 / globalScale);
+
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.fillRect(
+        -textW / 2 - pad,
+        offsetY - pad,
+        textW + pad * 2,
+        fontSize + pad * 2,
+      );
+
       ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillStyle = "#9ca3af";
-      ctx.fillText(link.predicate ?? "", midX, midY);
+      ctx.textBaseline = "top";
+      ctx.fillStyle = "#6b7280";
+      ctx.fillText(label, 0, offsetY);
+      ctx.restore();
     },
     [],
   );
