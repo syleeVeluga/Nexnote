@@ -11,6 +11,7 @@ export interface GraphEdge {
   source: string;
   target: string;
   predicate: string;
+  displayPredicate?: string | null;
   confidence: number;
   sourcePageId: string;
 }
@@ -30,6 +31,7 @@ export interface GraphData {
 export interface EntityProvenanceExcerpt {
   tripleId: string;
   predicate: string;
+  displayPredicate?: string | null;
   excerpt: string;
   spanStart: number;
   spanEnd: number;

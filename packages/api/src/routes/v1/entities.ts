@@ -13,6 +13,7 @@ import {
   groupEvidenceByPage,
   type RawEvidenceRow,
 } from "../../lib/entity-provenance.js";
+import { loadPredicateDisplayLabels } from "../../lib/predicate-display-labels.js";
 
 const entityParamsSchema = workspaceParamsSchema.extend({
   entityId: uuidSchema,
@@ -20,6 +21,7 @@ const entityParamsSchema = workspaceParamsSchema.extend({
 
 const entityProvenanceQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(20).default(5),
+  locale: z.enum(["ko", "en"]).optional(),
 });
 
 function entityNotFound(reply: FastifyReply) {
@@ -52,7 +54,7 @@ const entityRoutes: FastifyPluginAsync = async (fastify) => {
       if (!queryResult.success) {
         return sendValidationError(reply, queryResult.error.issues);
       }
-      const { limit } = queryResult.data;
+      const { limit, locale } = queryResult.data;
 
       const [entityRow] = await fastify.db
         .select({
@@ -176,7 +178,13 @@ const entityRoutes: FastifyPluginAsync = async (fastify) => {
           .orderBy(sql`evidence.page_id`, sql`evidence.page_rn`);
       }
 
-      const evidenceByPage = groupEvidenceByPage(evidenceRows);
+      const predicateLabelMap = await loadPredicateDisplayLabels(
+        fastify.db,
+        evidenceRows.map((row) => row.predicate),
+        locale,
+      );
+
+      const evidenceByPage = groupEvidenceByPage(evidenceRows, predicateLabelMap);
 
       return reply.code(200).send({
         entity: {

@@ -13,6 +13,7 @@ export interface RawEvidenceRow {
 export interface EvidenceExcerpt {
   tripleId: string;
   predicate: string;
+  displayPredicate?: string | null;
   excerpt: string;
   spanStart: number;
   spanEnd: number;
@@ -36,6 +37,7 @@ function buildEvidenceKey(row: RawEvidenceRow) {
 
 export function groupEvidenceByPage(
   rows: RawEvidenceRow[],
+  predicateLabelMap: Map<string, string> = new Map(),
 ): Map<string, EvidenceExcerpt[]> {
   const byPage = new Map<string, EvidenceExcerpt[]>();
   const seen = new Map<string, Set<string>>();
@@ -52,6 +54,7 @@ export function groupEvidenceByPage(
     items.push({
       tripleId: row.tripleId,
       predicate: row.predicate,
+      displayPredicate: predicateLabelMap.get(row.predicate) ?? null,
       excerpt: row.excerpt,
       spanStart: Number(row.spanStart),
       spanEnd: Number(row.spanEnd),

@@ -17,6 +17,7 @@ import type {
   GraphData,
 } from "@nexnote/shared";
 import { pages as pagesApi } from "../../lib/api-client.js";
+import { resolveSupportedLocale } from "../../i18n/locale.js";
 import { NodeInspector } from "./NodeInspector.js";
 import { getPredicateDisplayLabel } from "./predicate-label.js";
 import {
@@ -101,7 +102,7 @@ export function GraphPanel({
   onNavigateToPage,
 }: GraphPanelProps) {
   const { t, i18n } = useTranslation(["editor", "common"]);
-  const locale = i18n.resolvedLanguage === "en" ? "en" : "ko";
+  const locale = resolveSupportedLocale(i18n.resolvedLanguage ?? i18n.language);
   const [depth, setDepth] = useState<1 | 2>(1);
   const [mode, setMode] = useState<"2d" | "3d">("2d");
   const [minConfidence, setMinConfidence] = useState(0);

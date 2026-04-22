@@ -465,12 +465,18 @@ export const pages = {
   graph(
     workspaceId: string,
     pageId: string,
-    params?: { depth?: number; limit?: number; minConfidence?: number },
+    params?: {
+      depth?: number;
+      limit?: number;
+      minConfidence?: number;
+      locale?: "ko" | "en";
+    },
   ) {
     const q = buildQuery({
       depth: params?.depth,
       limit: params?.limit,
       minConfidence: params?.minConfidence,
+      locale: params?.locale,
     });
     return request<GraphData>(
       `/workspaces/${workspaceId}/pages/${pageId}/graph${q}`,
@@ -480,9 +486,9 @@ export const pages = {
   entityProvenance(
     workspaceId: string,
     entityId: string,
-    params?: { limit?: number; signal?: AbortSignal },
+    params?: { limit?: number; locale?: "ko" | "en"; signal?: AbortSignal },
   ) {
-    const q = buildQuery({ limit: params?.limit });
+    const q = buildQuery({ limit: params?.limit, locale: params?.locale });
     return request<EntityProvenance>(
       `/workspaces/${workspaceId}/entities/${entityId}/provenance${q}`,
       { signal: params?.signal },

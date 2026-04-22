@@ -5,6 +5,7 @@ import {
   type EntityProvenance,
   type GraphData,
 } from "../../lib/api-client.js";
+import { resolveSupportedLocale } from "../../i18n/locale.js";
 import { getEntityRelations } from "./graph-helpers.js";
 import { getPredicateDisplayLabel } from "./predicate-label.js";
 
@@ -37,7 +38,8 @@ export function NodeInspector({
   onNavigateToPage,
   getTypeColor,
 }: NodeInspectorProps) {
-  const { t } = useTranslation(["editor", "common"]);
+  const { t, i18n } = useTranslation(["editor", "common"]);
+  const locale = resolveSupportedLocale(i18n.resolvedLanguage ?? i18n.language);
   const [detail, setDetail] = useState<EntityProvenance | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +53,7 @@ export function NodeInspector({
     pagesApi
       .entityProvenance(workspaceId, entityId, {
         limit: 5,
+        locale,
         signal: controller.signal,
       })
       .then((res) => setDetail(res))
@@ -66,7 +69,7 @@ export function NodeInspector({
       });
 
     return () => controller.abort();
-  }, [workspaceId, entityId, t]);
+  }, [workspaceId, entityId, locale, t]);
 
   const hiddenPageCount = useMemo(() => {
     if (!detail?.truncated) return 0;
@@ -157,7 +160,11 @@ export function NodeInspector({
                         onClick={() => onSelectEntity(relation.entity.id)}
                       >
                         <span className="node-relation-predicate">
-                          {getPredicateDisplayLabel(t, relation.predicate)}
+                          {getPredicateDisplayLabel(
+                            t,
+                            relation.predicate,
+                            relation.displayPredicate,
+                          )}
                         </span>
                         <span className="node-relation-target">
                           {relation.entity.label}
@@ -193,7 +200,11 @@ export function NodeInspector({
                         onClick={() => onSelectEntity(relation.entity.id)}
                       >
                         <span className="node-relation-predicate">
-                          {getPredicateDisplayLabel(t, relation.predicate)}
+                          {getPredicateDisplayLabel(
+                            t,
+                            relation.predicate,
+                            relation.displayPredicate,
+                          )}
                         </span>
                         <span className="node-relation-target">
                           {relation.entity.label}
@@ -275,7 +286,11 @@ export function NodeInspector({
                               key={excerpt.tripleId}
                             >
                               <span className="node-evidence-predicate">
-                                {getPredicateDisplayLabel(t, excerpt.predicate)}
+                                {getPredicateDisplayLabel(
+                                  t,
+                                  excerpt.predicate,
+                                  excerpt.displayPredicate,
+                                )}
                               </span>
                               <span>{excerpt.excerpt}</span>
                             </div>

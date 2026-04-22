@@ -204,6 +204,7 @@ Clicking a node currently doesn't open anything meaningful.
 ### G-6 · [MED] Graph filters + confidence encoding
 The force-graph renders all edges at equal weight, which hides signal.
 - Update: predicate multiselect, confidence slider, entity-type toggles, and edge opacity/width encoding are now shipped in the editor graph panel.
+- Update: predicate labels can now be served from a locale-aware cache (`ko` / `en`) in graph edges and provenance excerpts, with regional browser locales normalized on the client and a worker backfill script for existing triples.
 - Remaining: add time-range filtering and conflict-specific styling once `conflict=true` triples land.
 - Filters: predicate multiselect, confidence slider, entity-type toggles, time range (based on `triples.created_at`)
 - Visual encoding: edge opacity/width ∝ confidence; dashed edges for `conflict=true` triples (from S5-4)
