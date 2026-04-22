@@ -57,9 +57,6 @@ type GNode = NodeObject<{
   type: string;
   isCenter: boolean;
   val: number;
-  isDimmed: boolean;
-  isSelected: boolean;
-  isFocused: boolean;
 }>;
 
 type GLink = LinkObject<
@@ -69,16 +66,11 @@ type GLink = LinkObject<
     type: string;
     isCenter: boolean;
     val: number;
-    isDimmed: boolean;
-    isSelected: boolean;
-    isFocused: boolean;
   },
   {
     id: string;
     predicate: string;
     confidence: number;
-    isDimmed: boolean;
-    showLabelByDefault: boolean;
   }
 >;
 
@@ -108,7 +100,8 @@ export function GraphPanel({
   onClose,
   onNavigateToPage,
 }: GraphPanelProps) {
-  const { t } = useTranslation(["editor", "common"]);
+  const { t, i18n } = useTranslation(["editor", "common"]);
+  const locale = i18n.resolvedLanguage === "en" ? "en" : "ko";
   const [depth, setDepth] = useState<1 | 2>(1);
   const [mode, setMode] = useState<"2d" | "3d">("2d");
   const [minConfidence, setMinConfidence] = useState(0);
@@ -201,14 +194,19 @@ export function GraphPanel({
     setLoading(true);
     setError(null);
     pagesApi
-      .graph(workspaceId, pageId, { depth, limit: 250, minConfidence })
+      .graph(workspaceId, pageId, {
+        depth,
+        limit: 250,
+        minConfidence,
+        locale,
+      })
       .then((res) => setGraphData(res))
       .catch((err) => {
         setError(err instanceof Error ? err.message : t("noGraphData"));
         setGraphData(null);
       })
       .finally(() => setLoading(false));
-  }, [workspaceId, pageId, depth, minConfidence, t]);
+  }, [workspaceId, pageId, depth, minConfidence, locale, t]);
 
   const filterCandidates = useMemo(
     () =>
@@ -280,14 +278,22 @@ export function GraphPanel({
   );
 
   const predicateLabels = useMemo(
-    () =>
-      new Map(
+    () => {
+      const apiLabels = new Map<string, string>();
+      for (const edge of graphData?.edges ?? []) {
+        if (edge.displayPredicate) {
+          apiLabels.set(edge.predicate, edge.displayPredicate);
+        }
+      }
+
+      return new Map(
         filterCandidates.predicates.map((item) => [
           item.value,
-          getPredicateDisplayLabel(t, item.value),
+          getPredicateDisplayLabel(t, item.value, apiLabels.get(item.value)),
         ]),
-      ),
-    [filterCandidates.predicates, t],
+      );
+    },
+    [filterCandidates.predicates, graphData?.edges, t],
   );
 
   useEffect(() => {
@@ -313,19 +319,19 @@ export function GraphPanel({
     );
   }, []);
 
+  // Keep the graph data structurally stable so react-force-graph does not
+  // restart the force simulation on every hover/selection change. Visual
+  // state (dim / focus / selected) is derived from focusState + selection
+  // inside the paint callbacks below.
   const forceGraphData = useMemo(() => {
     if (!visibleGraph) return { nodes: [] as GNode[], links: [] as GLink[] };
 
-    const hasFocus = focusState.activeNodeId !== null;
     const nodes: GNode[] = visibleGraph.nodes.map((n: GraphNode) => ({
       id: n.id,
       label: n.label,
       type: n.type,
       isCenter: n.isCenter,
       val: Math.max(n.pageCount, 1),
-      isDimmed: hasFocus && !focusState.nodeIds.has(n.id),
-      isSelected: n.id === selectedEntityId,
-      isFocused: focusState.nodeIds.has(n.id),
     }));
 
     const links: GLink[] = visibleGraph.edges.map((e: GraphEdge) => ({
@@ -334,12 +340,12 @@ export function GraphPanel({
       target: e.target,
       predicate: predicateLabels.get(e.predicate) ?? e.predicate,
       confidence: e.confidence,
-      isDimmed: hasFocus && !focusState.edgeIds.has(e.id),
-      showLabelByDefault: focusState.edgeIds.has(e.id),
     }));
 
     return { nodes, links };
-  }, [visibleGraph, focusState, predicateLabels, selectedEntityId]);
+  }, [visibleGraph, predicateLabels]);
+
+  const hasFocus = focusState.activeNodeId !== null;
 
   const paintNode = useCallback(
     (node: GNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
@@ -348,8 +354,12 @@ export function GraphPanel({
       const size = Math.sqrt(node.val ?? 1) * 3;
       const color = getNodeColor(node.type);
 
+      const isFocused = focusState.nodeIds.has(node.id);
+      const isDimmed = hasFocus && !isFocused;
+      const isSelected = node.id === selectedEntityId;
+
       ctx.save();
-      ctx.globalAlpha = node.isDimmed ? 0.22 : 1;
+      ctx.globalAlpha = isDimmed ? 0.22 : 1;
       ctx.beginPath();
       ctx.arc(node.x ?? 0, node.y ?? 0, size, 0, 2 * Math.PI);
       ctx.fillStyle = node.isCenter ? "#1d4ed8" : color;
@@ -361,7 +371,7 @@ export function GraphPanel({
         ctx.stroke();
       }
 
-      if (node.isFocused && !node.isSelected && !node.isCenter) {
+      if (isFocused && !isSelected && !node.isCenter) {
         ctx.beginPath();
         ctx.arc(
           node.x ?? 0,
@@ -375,7 +385,7 @@ export function GraphPanel({
         ctx.stroke();
       }
 
-      if (node.isSelected) {
+      if (isSelected) {
         ctx.beginPath();
         ctx.arc(
           node.x ?? 0,
@@ -396,7 +406,7 @@ export function GraphPanel({
       ctx.fillText(label, node.x ?? 0, (node.y ?? 0) + size + 2 / globalScale);
       ctx.restore();
     },
-    [t],
+    [focusState, hasFocus, selectedEntityId],
   );
 
   const paintLink = useCallback(
@@ -405,7 +415,10 @@ export function GraphPanel({
       const tgt = link.target as GNode;
       if (!src || !tgt || src.x == null || tgt.x == null) return;
       const label = link.predicate ?? "";
-      if (!label || (!link.showLabelByDefault && globalScale < 1.8)) return;
+      const showLabelByDefault = focusState.edgeIds.has(link.id);
+      if (!label || (!showLabelByDefault && globalScale < 1.8)) return;
+
+      const isDimmed = hasFocus && !showLabelByDefault;
 
       const fontSize = Math.max(8 / globalScale, 1.5);
       const dx = (tgt.x ?? 0) - (src.x ?? 0);
@@ -415,7 +428,7 @@ export function GraphPanel({
       const midY = ((src.y ?? 0) + (tgt.y ?? 0)) / 2;
 
       ctx.save();
-      ctx.globalAlpha = link.isDimmed ? 0.28 : 1;
+      ctx.globalAlpha = isDimmed ? 0.28 : 1;
       ctx.translate(midX, midY);
       const displayAngle =
         Math.abs(angle) > Math.PI / 2 ? angle + Math.PI : angle;
@@ -440,7 +453,7 @@ export function GraphPanel({
       ctx.fillText(label, 0, offsetY);
       ctx.restore();
     },
-    [],
+    [focusState, hasFocus],
   );
 
   const hasServerData = (graphData?.nodes.length ?? 0) > 0;
@@ -589,9 +602,10 @@ export function GraphPanel({
                 ctx.fillStyle = color;
                 ctx.fill();
               }}
-              linkColor={(link: GLink) =>
-                link.isDimmed ? "rgba(203, 213, 225, 0.28)" : "#94a3b8"
-              }
+              linkColor={(link: GLink) => {
+                const isDimmed = hasFocus && !focusState.edgeIds.has(link.id);
+                return isDimmed ? "rgba(203, 213, 225, 0.28)" : "#94a3b8";
+              }}
               linkWidth={(link: GLink) =>
                 Math.max((link.confidence ?? 0.5) * 2, 0.75)
               }
@@ -625,14 +639,17 @@ export function GraphPanel({
                 const baseColor = n.isCenter
                   ? "#1d4ed8"
                   : getNodeColor(n.type ?? "other");
-                return n.isDimmed ? withOpacity(baseColor, 0.22) : baseColor;
+                const isDimmed = hasFocus && !focusState.nodeIds.has(n.id);
+                return isDimmed ? withOpacity(baseColor, 0.22) : baseColor;
               }}
               nodeVal={(node) => (node as GNode).val ?? 1}
-              linkColor={(link) =>
-                (link as GLink).isDimmed
+              linkColor={(link) => {
+                const l = link as GLink;
+                const isDimmed = hasFocus && !focusState.edgeIds.has(l.id);
+                return isDimmed
                   ? "rgba(203, 213, 225, 0.24)"
-                  : "#94a3b8"
-              }
+                  : "#94a3b8";
+              }}
               linkWidth={(link) =>
                 Math.max(((link as GLink).confidence ?? 0.5) * 2, 0.75)
               }
