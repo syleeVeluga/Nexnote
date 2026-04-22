@@ -114,7 +114,8 @@
     "informs": "알림",
     "is_a": "~이다",
     "located_in": "위치함",
-    "part_of": "~의 일부",
+    "part_of": "속함",
+    "produces": "생성함",
     "works_at": "근무함"
   }
 }

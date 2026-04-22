@@ -175,4 +175,25 @@ describe("predicate labels", () => {
 
     expect(getPredicateDisplayLabel(t, "works_at")).toBe("근무함");
   });
+
+  it("prefers locale translations over stale preferred labels", () => {
+    const t = ((key: string, options?: { defaultValue?: string }) => {
+      if (key === "predicateLabels.part_of") {
+        return "속함";
+      }
+
+      return options?.defaultValue ?? key;
+    }) as never;
+
+    expect(getPredicateDisplayLabel(t, "part_of", "구성")).toBe("속함");
+  });
+
+  it("falls back to the preferred label when no locale translation exists", () => {
+    const t = ((key: string, options?: { defaultValue?: string }) =>
+      options?.defaultValue ?? key) as never;
+
+    expect(getPredicateDisplayLabel(t, "custom_predicate", "사용함")).toBe(
+      "사용함",
+    );
+  });
 });

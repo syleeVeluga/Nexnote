@@ -4,8 +4,42 @@ import { getAIAdapter, getDefaultProvider } from "../ai-gateway.js";
 import type { AIRequest } from "@nexnote/shared";
 import { MODE_OUTPUT_RESERVE } from "@nexnote/shared";
 
-const PROMPT_VERSION = "predicate-label-v1";
+const PROMPT_VERSION = "predicate-label-v2";
 const PREDICATE_LABEL_BATCH_SIZE = 24;
+const CURATED_PREDICATE_LABELS = {
+  ko: {
+    announced_on: "발표일",
+    authors: "작성함",
+    born_in: "출생지",
+    documents: "기록함",
+    founded_by: "설립자",
+    founded_in: "설립연도",
+    has_amount: "수량",
+    has_date: "날짜",
+    informs: "알림",
+    is_a: "~이다",
+    located_in: "위치함",
+    part_of: "속함",
+    produces: "생성함",
+    works_at: "근무함",
+  },
+  en: {
+    announced_on: "announced on",
+    authors: "authors",
+    born_in: "born in",
+    documents: "documents",
+    founded_by: "founded by",
+    founded_in: "founded in",
+    has_amount: "has amount",
+    has_date: "has date",
+    informs: "informs",
+    is_a: "is a",
+    located_in: "located in",
+    part_of: "part of",
+    produces: "produces",
+    works_at: "works at",
+  },
+} as const;
 
 interface PredicateLabelPair {
   predicate: string;
@@ -15,6 +49,7 @@ interface PredicateLabelPair {
 interface PredicateLabelLocaleDescriptor {
   languageName: "Korean" | "English";
   exampleLabel: string;
+  extraRules?: string;
 }
 
 function getPredicateLabelProvider(): {
@@ -55,12 +90,45 @@ function getLocaleDescriptor(
   return locale === "ko"
     ? {
         languageName: "Korean",
-        exampleLabel: "\uadfc\ubb34",
+        exampleLabel: "\uadfc\ubb34\ud568",
+        extraRules: `- For Korean, prefer short relation labels that read naturally on graph edges.
+- Use predicate-like wording when it makes the direction clearer, such as "속함", "근무함", or "생성함".
+- Avoid stiff noun-only translations like "구성" or "생산" when they obscure the relationship.
+- Noun labels are still fine when they are the clearest UI form, such as "설립자", "출생지", or "발표일".`,
       }
     : {
         languageName: "English",
         exampleLabel: "works at",
       };
+}
+
+export function getCuratedPredicateLabels(
+  locale: "ko" | "en",
+  predicates: Iterable<string>,
+): PredicateLabelPair[] {
+  const curated = CURATED_PREDICATE_LABELS[locale];
+  const labels: PredicateLabelPair[] = [];
+  const seen = new Set<string>();
+
+  for (const predicate of predicates) {
+    const normalizedPredicate = predicate.trim();
+    if (!normalizedPredicate || seen.has(normalizedPredicate)) {
+      continue;
+    }
+
+    const displayLabel = curated[normalizedPredicate as keyof typeof curated];
+    if (!displayLabel) {
+      continue;
+    }
+
+    labels.push({
+      predicate: normalizedPredicate,
+      displayLabel: normalizeDisplayLabel(displayLabel),
+    });
+    seen.add(normalizedPredicate);
+  }
+
+  return labels;
 }
 
 export function buildPromptMessages(
@@ -81,6 +149,9 @@ Rules:
 - Do not output full sentences, particles, or commentary.
 - Do not invent new predicates.
 - If a predicate is ambiguous, choose the most general ${descriptor.languageName} label that stays reusable.
+- If a stable, reusable label is obvious, prefer it over a literal but awkward translation.
+- Known good examples: "part_of" -> "${locale === "ko" ? "속함" : "part of"}", "produces" -> "${locale === "ko" ? "생성함" : "produces"}".
+${descriptor.extraRules ?? ""}
 - Output valid JSON only.
 
 Schema:
@@ -166,7 +237,7 @@ async function loadExistingPredicateLabels(
   }
 }
 
-async function persistPredicateLabels(
+async function insertPredicateLabels(
   db: any,
   modelRunId: string,
   locale: "ko" | "en",
@@ -194,16 +265,61 @@ async function persistPredicateLabels(
   }
 }
 
+async function upsertPredicateLabels(
+  db: any,
+  locale: "ko" | "en",
+  labels: PredicateLabelPair[],
+): Promise<void> {
+  if (labels.length === 0) {
+    return;
+  }
+
+  try {
+    const updatedAt = new Date();
+    for (const item of labels) {
+      await db
+        .insert(predicateDisplayLabels)
+        .values({
+          predicate: item.predicate,
+          locale,
+          displayLabel: item.displayLabel,
+          source: "curated",
+          modelRunId: null,
+        })
+        .onConflictDoUpdate({
+          target: [
+            predicateDisplayLabels.locale,
+            predicateDisplayLabels.predicate,
+          ],
+          set: {
+            displayLabel: item.displayLabel,
+            source: "curated",
+            modelRunId: null,
+            updatedAt,
+          },
+        });
+    }
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code;
+    if (code === "42P01") {
+      return;
+    }
+    throw error;
+  }
+}
+
 export async function ensurePredicateDisplayLabels({
   db,
   workspaceId,
   predicates,
   locale,
+  allowAI = true,
 }: {
   db: any;
   workspaceId: string;
   predicates: string[];
   locale: "ko" | "en";
+  allowAI?: boolean;
 }): Promise<void> {
   const uniquePredicates = [
     ...new Set(predicates.map((item) => item.trim()).filter(Boolean)),
@@ -212,17 +328,34 @@ export async function ensurePredicateDisplayLabels({
     return;
   }
 
+  const curatedLabels = getCuratedPredicateLabels(locale, uniquePredicates);
+  await upsertPredicateLabels(db, locale, curatedLabels);
+
+  if (!allowAI) {
+    return;
+  }
+
+  const curatedPredicates = new Set(
+    curatedLabels.map((item) => item.predicate),
+  );
+  const predicatesNeedingAI = uniquePredicates.filter(
+    (predicate) => !curatedPredicates.has(predicate),
+  );
+  if (predicatesNeedingAI.length === 0) {
+    return;
+  }
+
   const existingRows = await loadExistingPredicateLabels(
     db,
     locale,
-    uniquePredicates,
+    predicatesNeedingAI,
   );
   const existing = new Set(
     existingRows.map(
       (row: { predicate: string; displayLabel: string }) => row.predicate,
     ),
   );
-  const missingPredicates = uniquePredicates.filter(
+  const missingPredicates = predicatesNeedingAI.filter(
     (predicate) => !existing.has(predicate),
   );
 
@@ -291,6 +424,6 @@ export async function ensurePredicateDisplayLabels({
       continue;
     }
 
-    await persistPredicateLabels(db, modelRun.id, locale, parsedLabels);
+    await insertPredicateLabels(db, modelRun.id, locale, parsedLabels);
   }
 }

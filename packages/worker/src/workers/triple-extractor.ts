@@ -188,7 +188,7 @@ export function createTripleExtractorWorker(): Worker {
 ## Predicate rules
 - Predicates MUST be short, repeatable snake_case relation labels in English, because they represent relationship types, not content.
 - Reuse the same predicate for semantically identical relations across the document (do not invent synonyms like \`located_in\` vs \`based_in\` vs \`headquartered_in\` — pick one).
-- Prefer stable labels when applicable: \`is_a\`, \`part_of\`, \`located_in\`, \`works_at\`, \`founded_by\`, \`founded_in\`, \`born_in\`, \`announced_on\`, \`has_amount\`, \`has_date\`.
+- Prefer stable labels when applicable: \`is_a\`, \`part_of\`, \`located_in\`, \`works_at\`, \`founded_by\`, \`founded_in\`, \`born_in\`, \`announced_on\`, \`has_amount\`, \`has_date\`, \`produces\`.
 - If you cannot assign a stable predicate without guessing, SKIP that triple.
 
 ## objectType rules

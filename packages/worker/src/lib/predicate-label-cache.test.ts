@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
 import {
   buildPromptMessages,
+  getCuratedPredicateLabels,
   parsePredicateLabelPayload,
 } from "./predicate-label-cache.js";
 
@@ -12,7 +13,9 @@ describe("buildPromptMessages", () => {
     ]);
 
     assert.match(systemMessage.content, /Korean display labels/);
-    assert.match(systemMessage.content, /\uadfc\ubb34/);
+    assert.match(systemMessage.content, /\uadfc\ubb34\ud568/);
+    assert.match(systemMessage.content, /\uc18d\ud568/);
+    assert.match(systemMessage.content, /\uc0dd\uc131\ud568/);
     assert.equal(
       userMessage.content,
       JSON.stringify({ locale: "ko", predicates: ["works_at"] }),
@@ -56,6 +59,18 @@ describe("parsePredicateLabelPayload", () => {
       () =>
         parsePredicateLabelPayload(JSON.stringify({ nope: [] }), ["works_at"]),
       /labels array/,
+    );
+  });
+});
+
+describe("getCuratedPredicateLabels", () => {
+  it("returns curated Korean labels for known predicates", () => {
+    assert.deepEqual(
+      getCuratedPredicateLabels("ko", ["part_of", "produces", "unknown"]),
+      [
+        { predicate: "part_of", displayLabel: "\uc18d\ud568" },
+        { predicate: "produces", displayLabel: "\uc0dd\uc131\ud568" },
+      ],
     );
   });
 });
