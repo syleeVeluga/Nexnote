@@ -11,6 +11,7 @@ import {
   ingestionDecisions,
   modelRuns,
   pages,
+  pagePaths,
   pageRevisions,
   entities,
   triples,
@@ -101,10 +102,7 @@ async function findCandidatePages(
         contentMd: candidateContentSql,
       })
       .from(pages)
-      .leftJoin(
-        pageRevisions,
-        eq(pageRevisions.id, pages.currentRevisionId),
-      )
+      .leftJoin(pageRevisions, eq(pageRevisions.id, pages.currentRevisionId))
       .where(
         and(
           eq(pages.workspaceId, workspaceId),
@@ -138,7 +136,10 @@ async function findCandidatePages(
             contentMd: candidateContentSql,
           })
           .from(pages)
-          .innerJoin(pageRevisions, eq(pageRevisions.id, pages.currentRevisionId))
+          .innerJoin(
+            pageRevisions,
+            eq(pageRevisions.id, pages.currentRevisionId),
+          )
           .where(
             and(
               eq(pages.workspaceId, workspaceId),
@@ -209,7 +210,10 @@ async function findCandidatePages(
             contentMd: candidateContentSql,
           })
           .from(pages)
-          .innerJoin(pageRevisions, eq(pageRevisions.id, pages.currentRevisionId))
+          .innerJoin(
+            pageRevisions,
+            eq(pageRevisions.id, pages.currentRevisionId),
+          )
           .innerJoin(triples, eq(triples.sourcePageId, pages.id))
           .innerJoin(entities, eq(entities.id, triples.subjectEntityId))
           .where(
@@ -473,7 +477,10 @@ export function createRouteClassifierWorker(): Worker {
 
       await job.updateProgress(80);
 
-      const initialStatus = classifyDecisionStatus(parsed.action, parsed.confidence);
+      const initialStatus = classifyDecisionStatus(
+        parsed.action,
+        parsed.confidence,
+      );
 
       // Snapshot the candidates the classifier considered so the review UI
       // can show reviewers what the AI was choosing between. Strip contentMd
@@ -538,13 +545,21 @@ export function createRouteClassifierWorker(): Worker {
           baseRevisionId,
         };
         const patchQueue = getQueue(QUEUE_NAMES.PATCH);
-        await patchQueue.add(JOB_NAMES.PATCH_GENERATOR, patchData, DEFAULT_JOB_OPTIONS);
-      } else if (initialStatus === "auto_applied" && parsed.action === "create") {
+        await patchQueue.add(
+          JOB_NAMES.PATCH_GENERATOR,
+          patchData,
+          DEFAULT_JOB_OPTIONS,
+        );
+      } else if (
+        initialStatus === "auto_applied" &&
+        parsed.action === "create"
+      ) {
         const title =
-          parsed.proposedTitle ??
-          ingestion.titleHint ??
-          "Untitled (ingested)";
-        const contentMd = extractIngestionText({ normalizedText, rawPayload: ingestion.rawPayload });
+          parsed.proposedTitle ?? ingestion.titleHint ?? "Untitled (ingested)";
+        const contentMd = extractIngestionText({
+          normalizedText,
+          rawPayload: ingestion.rawPayload,
+        });
 
         const page = await insertPageWithUniqueSlug(db, {
           workspaceId,
@@ -574,6 +589,12 @@ export function createRouteClassifierWorker(): Worker {
               lastAiUpdatedAt: now,
             })
             .where(eq(pages.id, page.id)),
+          db.insert(pagePaths).values({
+            workspaceId,
+            pageId: page.id,
+            path: page.slug,
+            isCurrent: true,
+          }),
           db
             .update(ingestionDecisions)
             .set({ targetPageId: page.id, proposedRevisionId: revision.id })
@@ -608,6 +629,16 @@ export function createRouteClassifierWorker(): Worker {
           extractionData,
           DEFAULT_JOB_OPTIONS,
         );
+        const searchQueue = getQueue(QUEUE_NAMES.SEARCH);
+        await searchQueue.add(
+          JOB_NAMES.SEARCH_INDEX_UPDATER,
+          {
+            workspaceId,
+            pageId: page.id,
+            revisionId: revision.id,
+          },
+          DEFAULT_JOB_OPTIONS,
+        );
       } else {
         // Suggested / needs_review / noop: the classifier's job is done.
         // Mark the ingestion complete so it drops off the active queue; the
@@ -635,7 +666,10 @@ export function createRouteClassifierWorker(): Worker {
 
   worker.on("completed", (job, result) => {
     const log = createJobLogger("route-classifier", job.id);
-    log.info({ action: result.action, confidence: result.confidence }, "Route classification completed");
+    log.info(
+      { action: result.action, confidence: result.confidence },
+      "Route classification completed",
+    );
   });
 
   worker.on("failed", (job, err) => {

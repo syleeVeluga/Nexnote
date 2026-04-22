@@ -45,19 +45,22 @@ export function WorkspaceLayout() {
       {sidebarOpen && (
         <button
           className="sidebar-backdrop"
-          aria-label="사이드바 닫기"
+          aria-label={t("pagesSectionTitle")}
           onClick={() => setSidebarOpen(false)}
         />
       )}
-      <main className={`main-content${sidebarOpen ? "" : " sidebar-toggle-visible"}`}>
+      <main
+        className={`main-content${sidebarOpen ? "" : " sidebar-toggle-visible"}`}
+      >
         {!sidebarOpen && (
           <button
             className="sidebar-expand-btn"
             onClick={() => setSidebarOpen(true)}
-            title="사이드바 열기"
-            aria-label="사이드바 열기"
+            title={t("pagesSectionTitle")}
+            aria-label={t("pagesSectionTitle")}
           >
-            »
+            <span aria-hidden="true">|||</span>
+            <span>{t("pagesSectionTitle")}</span>
           </button>
         )}
         <Outlet />
