@@ -450,7 +450,21 @@ Produce the merged Markdown:`,
         workspaceId,
       };
       const extractionQueue = getQueue(QUEUE_NAMES.EXTRACTION);
-      await extractionQueue.add(JOB_NAMES.TRIPLE_EXTRACTOR, tripleData, DEFAULT_JOB_OPTIONS);
+      await extractionQueue.add(
+        JOB_NAMES.TRIPLE_EXTRACTOR,
+        tripleData,
+        DEFAULT_JOB_OPTIONS,
+      );
+      const searchQueue = getQueue(QUEUE_NAMES.SEARCH);
+      await searchQueue.add(
+        JOB_NAMES.SEARCH_INDEX_UPDATER,
+        {
+          workspaceId,
+          pageId: targetPageId,
+          revisionId: revision.id,
+        },
+        DEFAULT_JOB_OPTIONS,
+      );
 
       await job.updateProgress(100);
 
@@ -468,7 +482,10 @@ Produce the merged Markdown:`,
 
   worker.on("completed", (job, result) => {
     const log = createJobLogger("patch-generator", job.id);
-    log.info({ pageId: result.pageId, revisionId: result.revisionId }, "Job completed");
+    log.info(
+      { pageId: result.pageId, revisionId: result.revisionId },
+      "Job completed",
+    );
   });
 
   worker.on("failed", (job, err) => {
@@ -494,7 +511,11 @@ Produce the merged Markdown:`,
     if (updates.length > 0) {
       Promise.all(updates).catch((e) =>
         log.error(
-          { err: e, ingestionId: job?.data?.ingestionId, decisionId: job?.data?.decisionId },
+          {
+            err: e,
+            ingestionId: job?.data?.ingestionId,
+            decisionId: job?.data?.decisionId,
+          },
           "Failed to persist failure state",
         ),
       );

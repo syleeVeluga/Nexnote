@@ -2,7 +2,13 @@ import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../hooks/use-workspace.js";
-import { ApiError, ingestions as ingestionsApi } from "../lib/api-client.js";
+import {
+  ApiError,
+  decisions as decisionsApi,
+  ingestions as ingestionsApi,
+} from "../lib/api-client.js";
+import { dispatchDecisionCountsUpdated } from "../lib/decision-events.js";
+import { dispatchPagesUpdated } from "../lib/page-events.js";
 import { ApiGuidePanel } from "../components/import/ApiGuidePanel.js";
 
 type TabKey = "file" | "url" | "text" | "api";
@@ -63,18 +69,70 @@ export function ImportPage() {
   const [urlTitleHint, setUrlTitleHint] = useState("");
   const [urlForce, setUrlForce] = useState(false);
   const [urlBusy, setUrlBusy] = useState(false);
-  const [urlResult, setUrlResult] = useState<
-    { state: "queued" | "replayed" | "error"; message?: string } | null
-  >(null);
+  const [urlResult, setUrlResult] = useState<{
+    state: "queued" | "replayed" | "error";
+    message?: string;
+  } | null>(null);
 
   const [text, setText] = useState("");
   const [textTitleHint, setTextTitleHint] = useState("");
   const [textBusy, setTextBusy] = useState(false);
-  const [textResult, setTextResult] = useState<
-    { state: "queued" | "replayed" | "error"; message?: string } | null
-  >(null);
+  const [textResult, setTextResult] = useState<{
+    state: "queued" | "replayed" | "error";
+    message?: string;
+  } | null>(null);
 
   const workspaceId = current?.id;
+  const pollingIngestionIdsRef = useRef<Set<string>>(new Set());
+
+  const watchIngestion = useCallback(
+    async (ingestionId: string) => {
+      if (!workspaceId || pollingIngestionIdsRef.current.has(ingestionId)) {
+        return;
+      }
+
+      pollingIngestionIdsRef.current.add(ingestionId);
+      try {
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          const detail = await ingestionsApi.get(workspaceId, ingestionId);
+          const done =
+            detail.status === "completed" || detail.status === "failed";
+          if (!done) {
+            await new Promise((resolve) => window.setTimeout(resolve, 1000));
+            continue;
+          }
+
+          const touchesPage = detail.decisions.some(
+            (decision) =>
+              (decision.action === "create" ||
+                decision.action === "update" ||
+                decision.action === "append") &&
+              (decision.status === "auto_applied" ||
+                decision.status === "approved"),
+          );
+          if (touchesPage) {
+            dispatchPagesUpdated({ workspaceId });
+          }
+
+          try {
+            const counts = await decisionsApi.counts(workspaceId);
+            dispatchDecisionCountsUpdated({
+              workspaceId,
+              counts: counts.counts,
+            });
+          } catch {
+            // Best-effort refresh only.
+          }
+          return;
+        }
+      } catch {
+        // Import succeeded already; ignore follow-up polling failures.
+      } finally {
+        pollingIngestionIdsRef.current.delete(ingestionId);
+      }
+    },
+    [workspaceId],
+  );
 
   const uploadOne = useCallback(
     async (row: FileRowStatus, force = false) => {
@@ -87,6 +145,7 @@ export function ImportPage() {
           titleHint: fileTitleHint || undefined,
           forceRefresh: force || fileForce || undefined,
         });
+        void watchIngestion(res.id);
         setFileRows((prev) =>
           prev.map((r) =>
             r.id === row.id
@@ -100,22 +159,22 @@ export function ImportPage() {
         );
       } catch (err) {
         const code = err instanceof ApiError ? err.code : undefined;
-        const message =
-          err instanceof ApiError ? err.message : "errorNetwork";
+        const message = err instanceof ApiError ? err.message : "errorNetwork";
         setFileRows((prev) =>
           prev.map((r) =>
             r.id === row.id
               ? {
                   ...r,
                   state: "error",
-                  message: t(mapErrorCode(code, "errorNetwork")) + ": " + message,
+                  message:
+                    t(mapErrorCode(code, "errorNetwork")) + ": " + message,
                 }
               : r,
           ),
         );
       }
     },
-    [fileTitleHint, fileForce, t, workspaceId],
+    [fileTitleHint, fileForce, t, watchIngestion, workspaceId],
   );
 
   const enqueueFiles = useCallback(
@@ -158,14 +217,14 @@ export function ImportPage() {
         titleHint: urlTitleHint || undefined,
         forceRefresh: urlForce || undefined,
       });
+      void watchIngestion(res.id);
       setUrlResult({ state: res.replayed ? "replayed" : "queued" });
       setUrl("");
       setUrlTitleHint("");
       setUrlForce(false);
     } catch (err) {
       const code = err instanceof ApiError ? err.code : undefined;
-      const message =
-        err instanceof ApiError ? err.message : "errorNetwork";
+      const message = err instanceof ApiError ? err.message : "errorNetwork";
       setUrlResult({
         state: "error",
         message: t(mapErrorCode(code, "errorNetwork")) + ": " + message,
@@ -185,13 +244,13 @@ export function ImportPage() {
         content: text,
         titleHint: textTitleHint || undefined,
       });
+      void watchIngestion(res.id);
       setTextResult({ state: res.replayed ? "replayed" : "queued" });
       setText("");
       setTextTitleHint("");
     } catch (err) {
       const code = err instanceof ApiError ? err.code : undefined;
-      const message =
-        err instanceof ApiError ? err.message : "errorNetwork";
+      const message = err instanceof ApiError ? err.message : "errorNetwork";
       setTextResult({
         state: "error",
         message: t(mapErrorCode(code, "errorNetwork")) + ": " + message,
@@ -449,7 +508,9 @@ export function ImportPage() {
               {t("textSubmit")}
             </button>
             {textResult && (
-              <div className={`import-result import-result-${textResult.state}`}>
+              <div
+                className={`import-result import-result-${textResult.state}`}
+              >
                 {textResult.state === "queued" && t("statusQueued")}
                 {textResult.state === "replayed" && t("statusReplayed")}
                 {textResult.state === "error" && textResult.message}
