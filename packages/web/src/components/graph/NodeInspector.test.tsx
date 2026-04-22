@@ -32,6 +32,8 @@ vi.mock("react-i18next", () => ({
         graphNodeInspectorNoEvidence:
           "No evidence excerpts captured for this entity yet.",
         graphNodeInspectorMorePages: "+{{count}} more pages",
+        "predicateLabels.works_at": "works at",
+        "predicateLabels.documents": "documents",
         "common:loading": "Loading",
       };
 
@@ -156,7 +158,7 @@ describe("NodeInspector", () => {
     expect(screen.getAllByText("Team Notes")).toHaveLength(3);
     expect(screen.getByText("Outgoing")).toBeInTheDocument();
     expect(screen.getByText("Incoming")).toBeInTheDocument();
-    expect(screen.getByText("works_at")).toBeInTheDocument();
+    expect(screen.getByText("works at")).toBeInTheDocument();
     expect(screen.getAllByText("documents")).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("button", { name: /OpenAI/i }));

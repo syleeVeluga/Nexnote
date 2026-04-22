@@ -22,6 +22,8 @@ vi.mock("react-i18next", () => ({
         graphFiltersApplied: "Filters applied",
         graphFiltersInactive: "All filters open",
         graphTruncated: "Graph truncated to {{limit}} nodes",
+        "predicateLabels.works_at": "works at",
+        "predicateLabels.authors": "authors",
         "common:loading": "Loading",
       };
 
@@ -202,5 +204,21 @@ describe("GraphPanel", () => {
         screen.getByText("No relations match the current filters"),
       ).toBeInTheDocument(),
     );
+  });
+
+  it("renders localized predicate filter chips", async () => {
+    render(
+      <GraphPanel
+        workspaceId="workspace-1"
+        pageId="page-1"
+        onClose={() => {}}
+        onNavigateToPage={() => {}}
+      />,
+    );
+
+    await screen.findByTestId("force-graph-2d");
+
+    expect(screen.getByRole("button", { name: /works at/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /authors/i })).toBeInTheDocument();
   });
 });

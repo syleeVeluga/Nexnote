@@ -6,6 +6,7 @@ import {
   type GraphData,
 } from "../../lib/api-client.js";
 import { getEntityRelations } from "./graph-helpers.js";
+import { getPredicateDisplayLabel } from "./predicate-label.js";
 
 interface NodeInspectorProps {
   workspaceId: string;
@@ -156,7 +157,7 @@ export function NodeInspector({
                         onClick={() => onSelectEntity(relation.entity.id)}
                       >
                         <span className="node-relation-predicate">
-                          {relation.predicate}
+                          {getPredicateDisplayLabel(t, relation.predicate)}
                         </span>
                         <span className="node-relation-target">
                           {relation.entity.label}
@@ -192,7 +193,7 @@ export function NodeInspector({
                         onClick={() => onSelectEntity(relation.entity.id)}
                       >
                         <span className="node-relation-predicate">
-                          {relation.predicate}
+                          {getPredicateDisplayLabel(t, relation.predicate)}
                         </span>
                         <span className="node-relation-target">
                           {relation.entity.label}
@@ -274,7 +275,7 @@ export function NodeInspector({
                               key={excerpt.tripleId}
                             >
                               <span className="node-evidence-predicate">
-                                {excerpt.predicate}
+                                {getPredicateDisplayLabel(t, excerpt.predicate)}
                               </span>
                               <span>{excerpt.excerpt}</span>
                             </div>

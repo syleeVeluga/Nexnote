@@ -18,6 +18,7 @@ import type {
 } from "@nexnote/shared";
 import { pages as pagesApi } from "../../lib/api-client.js";
 import { NodeInspector } from "./NodeInspector.js";
+import { getPredicateDisplayLabel } from "./predicate-label.js";
 import {
   buildGraphFilterCandidates,
   filterGraphData,
@@ -278,6 +279,17 @@ export function GraphPanel({
     [graphFilters, filterCandidates],
   );
 
+  const predicateLabels = useMemo(
+    () =>
+      new Map(
+        filterCandidates.predicates.map((item) => [
+          item.value,
+          getPredicateDisplayLabel(t, item.value),
+        ]),
+      ),
+    [filterCandidates.predicates, t],
+  );
+
   useEffect(() => {
     if (!selectedEntityId || !visibleGraph) return;
     if (!visibleGraph.nodes.some((node) => node.id === selectedEntityId)) {
@@ -320,21 +332,21 @@ export function GraphPanel({
       id: e.id,
       source: e.source,
       target: e.target,
-      predicate: e.predicate,
+      predicate: predicateLabels.get(e.predicate) ?? e.predicate,
       confidence: e.confidence,
       isDimmed: hasFocus && !focusState.edgeIds.has(e.id),
       showLabelByDefault: focusState.edgeIds.has(e.id),
     }));
 
     return { nodes, links };
-  }, [visibleGraph, focusState, selectedEntityId]);
+  }, [visibleGraph, focusState, predicateLabels, selectedEntityId]);
 
   const paintNode = useCallback(
     (node: GNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
       const label = node.label ?? "";
       const fontSize = Math.max(10 / globalScale, 1.5);
       const size = Math.sqrt(node.val ?? 1) * 3;
-      const color = getNodeColor(node.type ?? "other");
+      const color = getNodeColor(node.type);
 
       ctx.save();
       ctx.globalAlpha = node.isDimmed ? 0.22 : 1;
@@ -384,7 +396,7 @@ export function GraphPanel({
       ctx.fillText(label, node.x ?? 0, (node.y ?? 0) + size + 2 / globalScale);
       ctx.restore();
     },
-    [],
+    [t],
   );
 
   const paintLink = useCallback(
@@ -527,7 +539,7 @@ export function GraphPanel({
                   onClick={() => togglePredicate(item.value)}
                   aria-pressed={activePredicates.includes(item.value)}
                 >
-                  {item.value}
+                  {predicateLabels.get(item.value) ?? item.value}
                   <span className="graph-chip-count">{item.count}</span>
                 </button>
               ))}

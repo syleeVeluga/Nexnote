@@ -101,5 +101,20 @@
   "graphNodeInspectorEvidence": "Evidence",
   "graphNodeInspectorNoPageEvidence": "No excerpts captured for this page.",
   "graphNodeInspectorNoEvidence": "No evidence excerpts captured for this entity yet.",
-  "graphNodeInspectorMorePages": "+{{count}} more pages"
+  "graphNodeInspectorMorePages": "+{{count}} more pages",
+  "predicateLabels": {
+    "announced_on": "announced on",
+    "authors": "authors",
+    "born_in": "born in",
+    "documents": "documents",
+    "founded_by": "founded by",
+    "founded_in": "founded in",
+    "has_amount": "has amount",
+    "has_date": "has date",
+    "informs": "informs",
+    "is_a": "is a",
+    "located_in": "located in",
+    "part_of": "part of",
+    "works_at": "works at"
+  }
 }

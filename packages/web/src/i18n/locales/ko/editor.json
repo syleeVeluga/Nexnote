@@ -101,5 +101,20 @@
   "graphNodeInspectorEvidence": "근거",
   "graphNodeInspectorNoPageEvidence": "이 페이지에는 저장된 발췌문이 없습니다.",
   "graphNodeInspectorNoEvidence": "이 엔터티에는 아직 저장된 근거 발췌문이 없습니다.",
-  "graphNodeInspectorMorePages": "+{{count}}개 페이지 더 있음"
+  "graphNodeInspectorMorePages": "+{{count}}개 페이지 더 있음",
+  "predicateLabels": {
+    "announced_on": "발표일",
+    "authors": "작성함",
+    "born_in": "출생지",
+    "documents": "기록함",
+    "founded_by": "설립자",
+    "founded_in": "설립연도",
+    "has_amount": "수량",
+    "has_date": "날짜",
+    "informs": "알림",
+    "is_a": "~이다",
+    "located_in": "위치함",
+    "part_of": "~의 일부",
+    "works_at": "근무함"
+  }
 }

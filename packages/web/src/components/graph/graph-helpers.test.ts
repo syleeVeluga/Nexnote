@@ -6,6 +6,10 @@ import {
   getEntityRelations,
   getFocusedNeighborhood,
 } from "./graph-helpers.js";
+import {
+  getPredicateDisplayLabel,
+  humanizePredicate,
+} from "./predicate-label.js";
 
 const graphData: GraphData = {
   nodes: [
@@ -148,5 +152,27 @@ describe("getEntityRelations", () => {
       "informs",
     ]);
     expect(relations.incoming[0]?.entity.label).toBe("Strategy");
+  });
+});
+
+describe("predicate labels", () => {
+  it("humanizes unknown predicates when no translation exists", () => {
+    const t = ((key: string, options?: { defaultValue?: string }) =>
+      options?.defaultValue ?? key) as never;
+
+    expect(humanizePredicate("works_at")).toBe("works at");
+    expect(getPredicateDisplayLabel(t, "works_at")).toBe("works at");
+  });
+
+  it("returns the translated predicate label when one exists", () => {
+    const t = ((key: string, options?: { defaultValue?: string }) => {
+      if (key === "predicateLabels.works_at") {
+        return "근무함";
+      }
+
+      return options?.defaultValue ?? key;
+    }) as never;
+
+    expect(getPredicateDisplayLabel(t, "works_at")).toBe("근무함");
   });
 });
