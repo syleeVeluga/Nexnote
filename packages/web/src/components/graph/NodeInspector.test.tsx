@@ -11,6 +11,15 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     i18n: { resolvedLanguage, language: resolvedLanguage },
     t: (key: string, vars?: Record<string, string | number>) => {
+      const predicateMessages = resolvedLanguage.startsWith("ko")
+        ? {
+            "predicateLabels.works_at": "근무함",
+            "predicateLabels.documents": "기록함",
+          }
+        : {
+            "predicateLabels.works_at": "works at",
+            "predicateLabels.documents": "documents",
+          };
       const messages: Record<string, string> = {
         graphNodeInspectorAria: "Node inspector",
         graphNodeInspectorLoadFailed: "Failed to load node details",
@@ -34,9 +43,8 @@ vi.mock("react-i18next", () => ({
         graphNodeInspectorNoEvidence:
           "No evidence excerpts captured for this entity yet.",
         graphNodeInspectorMorePages: "+{{count}} more pages",
-        "predicateLabels.works_at": "works at",
-        "predicateLabels.documents": "documents",
         "common:loading": "Loading",
+        ...predicateMessages,
       };
 
       const template = messages[key] ?? key;
@@ -163,8 +171,8 @@ describe("NodeInspector", () => {
     expect(screen.getAllByText("Team Notes")).toHaveLength(3);
     expect(screen.getByText("Outgoing")).toBeInTheDocument();
     expect(screen.getByText("Incoming")).toBeInTheDocument();
-    expect(screen.getByText("\uadfc\ubb34")).toBeInTheDocument();
-    expect(screen.getByText("\ubb38\uc11c\ud654")).toBeInTheDocument();
+    expect(screen.getByText("근무함")).toBeInTheDocument();
+    expect(screen.getAllByText("기록함")).toHaveLength(2);
 
     expect(entityProvenanceMock).toHaveBeenCalledWith("workspace-1", "alice", {
       limit: 5,

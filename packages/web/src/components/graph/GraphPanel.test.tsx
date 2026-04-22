@@ -11,6 +11,15 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     i18n: { resolvedLanguage, language: resolvedLanguage },
     t: (key: string, vars?: Record<string, string | number>) => {
+      const predicateMessages = resolvedLanguage.startsWith("ko")
+        ? {
+            "predicateLabels.works_at": "근무함",
+            "predicateLabels.authors": "작성함",
+          }
+        : {
+            "predicateLabels.works_at": "works at",
+            "predicateLabels.authors": "authors",
+          };
       const messages: Record<string, string> = {
         graph: "Knowledge Graph",
         graphDepth: "Traversal Range",
@@ -24,9 +33,8 @@ vi.mock("react-i18next", () => ({
         graphFiltersApplied: "Filters applied",
         graphFiltersInactive: "All filters open",
         graphTruncated: "Graph truncated to {{limit}} nodes",
-        "predicateLabels.works_at": "works at",
-        "predicateLabels.authors": "authors",
         "common:loading": "Loading",
+        ...predicateMessages,
       };
 
       const template = messages[key] ?? key;
@@ -226,9 +234,9 @@ describe("GraphPanel", () => {
     await screen.findByTestId("force-graph-2d");
 
     expect(
-      screen.getByRole("button", { name: /\uadfc\ubb34/i }),
+      screen.getByRole("button", { name: /근무함/i }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /authors/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /작성함/i })).toBeInTheDocument();
   });
 
   it("normalizes regional English locales before calling the graph API", async () => {

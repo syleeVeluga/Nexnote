@@ -7,10 +7,11 @@
  * Flags:
  *   --workspace=<uuid>  Limit to a single workspace
  *   --locale=<ko|en>    Target locale (default: ko)
+ *   --overrides-only    Apply curated labels only; skip AI calls
  *   --dry-run           Print discovered predicates without calling AI
  *
  * Environment:
- *   DATABASE_URL and one of OPENAI_API_KEY / GEMINI_API_KEY
+ *   DATABASE_URL and, unless using --overrides-only, one of OPENAI_API_KEY / GEMINI_API_KEY
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -43,11 +44,12 @@ import { ensurePredicateDisplayLabels } from "../src/lib/predicate-label-cache.j
 type Args = {
   workspaceId?: string;
   locale: "ko" | "en";
+  overridesOnly: boolean;
   dryRun: boolean;
 };
 
 function parseArgs(argv: string[]): Args {
-  const out: Args = { locale: "ko", dryRun: false };
+  const out: Args = { locale: "ko", overridesOnly: false, dryRun: false };
   for (const arg of argv) {
     if (arg.startsWith("--workspace=")) out.workspaceId = arg.slice(12);
     else if (arg.startsWith("--locale=")) {
@@ -59,11 +61,15 @@ function parseArgs(argv: string[]): Args {
         console.error(`Unsupported locale: ${locale}`);
         process.exit(1);
       }
-    } else if (arg === "--dry-run") out.dryRun = true;
+    } else if (arg === "--overrides-only") {
+      out.overridesOnly = true;
+    } else if (arg === "--dry-run") {
+      out.dryRun = true;
+    }
     else if (arg === "--help" || arg === "-h") {
       // eslint-disable-next-line no-console
       console.log(
-        "Usage: backfill-predicate-labels.ts [--workspace=<id>] [--locale=<ko|en>] [--dry-run]",
+        "Usage: backfill-predicate-labels.ts [--workspace=<id>] [--locale=<ko|en>] [--overrides-only] [--dry-run]",
       );
       process.exit(0);
     } else {
@@ -124,6 +130,7 @@ async function main(): Promise<void> {
       workspaceId,
       predicates: [...predicates],
       locale: args.locale,
+      allowAI: !args.overridesOnly,
     });
     processedWorkspaces += 1;
     // eslint-disable-next-line no-console
