@@ -78,6 +78,7 @@ import {
   notDeleted,
   sqlUuidList,
 } from "../../lib/page-deletion.js";
+import { loadPredicateDisplayLabels } from "../../lib/predicate-display-labels.js";
 
 // ---------------------------------------------------------------------------
 // Param & query schemas
@@ -1739,7 +1740,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       if (!queryResult.success) {
         return sendValidationError(reply, queryResult.error.issues);
       }
-      const { depth, limit, minConfidence } = queryResult.data;
+      const { depth, limit, minConfidence, locale } = queryResult.data;
 
       // Verify page belongs to workspace
       const page = await findPageInWorkspace(fastify.db, workspaceId, pageId);
@@ -1962,6 +1963,12 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           ),
       ]);
 
+      const predicateLabelMap = await loadPredicateDisplayLabels(
+        db,
+        edgeRows.map((row) => row.predicate),
+        locale,
+      );
+
       const pageCountMap = new Map<string, number>();
       for (const r of pageCountRows) {
         pageCountMap.set(r.entityId, Number(r.pageCount));
@@ -1975,6 +1982,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           source: e.subjectEntityId,
           target: e.objectEntityId!,
           predicate: e.predicate,
+          displayPredicate: predicateLabelMap.get(e.predicate) ?? null,
           confidence: e.confidence,
           sourcePageId: e.sourcePageId,
         }));

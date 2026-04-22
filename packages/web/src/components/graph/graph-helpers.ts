@@ -25,6 +25,7 @@ export interface GraphFocusState {
 export interface GraphRelation {
   edgeId: string;
   predicate: string;
+  displayPredicate?: string | null;
   confidence: number;
   direction: "outgoing" | "incoming";
   entity: GraphNode;
@@ -177,6 +178,7 @@ export function getEntityRelations(
         outgoing.push({
           edgeId: edge.id,
           predicate: edge.predicate,
+          displayPredicate: edge.displayPredicate ?? null,
           confidence: edge.confidence,
           direction: "outgoing",
           entity: target,
@@ -190,6 +192,7 @@ export function getEntityRelations(
         incoming.push({
           edgeId: edge.id,
           predicate: edge.predicate,
+          displayPredicate: edge.displayPredicate ?? null,
           confidence: edge.confidence,
           direction: "incoming",
           entity: source,

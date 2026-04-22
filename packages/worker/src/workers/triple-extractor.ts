@@ -5,6 +5,7 @@ import { createRedisConnection } from "../connection.js";
 import { QUEUE_NAMES } from "../queues.js";
 import { getAIAdapter, getDefaultProvider } from "../ai-gateway.js";
 import { createJobLogger } from "../logger.js";
+import { ensurePredicateDisplayLabels } from "../lib/predicate-label-cache.js";
 import { getDb } from "@nexnote/db/client";
 import {
   entities,
@@ -485,6 +486,21 @@ ${contentSlice.text}
       });
 
       await job.updateProgress(80);
+
+      const uniquePredicates = [
+        ...new Set(extracted.triples.map((triple) => triple.predicate)),
+      ];
+
+      try {
+        await ensurePredicateDisplayLabels({
+          db,
+          workspaceId,
+          predicates: uniquePredicates,
+          locale: "ko",
+        });
+      } catch (err) {
+        log.warn({ err, pageId }, "Predicate label backfill failed");
+      }
 
       await job.updateProgress(100);
 

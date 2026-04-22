@@ -5,9 +5,11 @@ import type { GraphData } from "@nexnote/shared";
 import { GraphPanel } from "./GraphPanel.js";
 
 const graphMock = vi.fn();
+let resolvedLanguage = "ko";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
+    i18n: { resolvedLanguage, language: resolvedLanguage },
     t: (key: string, vars?: Record<string, string | number>) => {
       const messages: Record<string, string> = {
         graph: "Graph",
@@ -110,6 +112,7 @@ const sampleGraph: GraphData = {
       source: "alice",
       target: "acme",
       predicate: "works_at",
+      displayPredicate: "\uadfc\ubb34",
       confidence: 0.9,
       sourcePageId: "page-1",
     },
@@ -134,6 +137,7 @@ const sampleGraph: GraphData = {
 beforeEach(() => {
   graphMock.mockReset();
   graphMock.mockResolvedValue(sampleGraph);
+  resolvedLanguage = "ko";
   globalThis.ResizeObserver = class ResizeObserver {
     observe() {}
     unobserve() {}
@@ -157,6 +161,7 @@ describe("GraphPanel", () => {
         depth: 1,
         limit: 250,
         minConfidence: 0,
+        locale: "ko",
       }),
     );
 
@@ -167,6 +172,7 @@ describe("GraphPanel", () => {
         depth: 2,
         limit: 250,
         minConfidence: 0,
+        locale: "ko",
       }),
     );
 
@@ -179,6 +185,7 @@ describe("GraphPanel", () => {
         depth: 2,
         limit: 250,
         minConfidence: 0.6,
+        locale: "ko",
       }),
     );
   });
@@ -218,7 +225,31 @@ describe("GraphPanel", () => {
 
     await screen.findByTestId("force-graph-2d");
 
-    expect(screen.getByRole("button", { name: /works at/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /\uadfc\ubb34/i }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /authors/i })).toBeInTheDocument();
+  });
+
+  it("normalizes regional English locales before calling the graph API", async () => {
+    resolvedLanguage = "en-US";
+
+    render(
+      <GraphPanel
+        workspaceId="workspace-1"
+        pageId="page-1"
+        onClose={() => {}}
+        onNavigateToPage={() => {}}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(graphMock).toHaveBeenCalledWith("workspace-1", "page-1", {
+        depth: 1,
+        limit: 250,
+        minConfidence: 0,
+        locale: "en",
+      }),
+    );
   });
 });

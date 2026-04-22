@@ -1,8 +1,9 @@
 import { useTranslation } from "react-i18next";
+import { resolveSupportedLocale } from "../../i18n/locale.js";
 
 export function LanguageSwitcher() {
   const { i18n } = useTranslation();
-  const current = i18n.language?.startsWith("ko") ? "ko" : "en";
+  const current = resolveSupportedLocale(i18n.language);
 
   function toggle() {
     i18n.changeLanguage(current === "ko" ? "en" : "ko");

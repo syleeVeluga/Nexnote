@@ -68,6 +68,7 @@ export const MODEL_RUN_MODES = [
   "patch_generation",
   "triple_extraction",
   "content_reformat",
+  "predicate_label",
 ] as const;
 export type ModelRunMode = (typeof MODEL_RUN_MODES)[number];
 
@@ -139,6 +140,7 @@ export const MODE_OUTPUT_RESERVE: Record<ModelRunMode, number> = {
   patch_generation: 8_192,
   triple_extraction: 4_096,
   content_reformat: 8_192,
+  predicate_label: 1_024,
 };
 
 export function getModelContextBudget(
