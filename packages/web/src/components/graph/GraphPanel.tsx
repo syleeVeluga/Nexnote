@@ -345,7 +345,17 @@ export function GraphPanel({
     return { nodes, links };
   }, [visibleGraph, predicateLabels]);
 
-  const hasFocus = focusState.activeNodeId !== null;
+  const isNodeDimmed = useCallback(
+    (id: string) =>
+      focusState.activeNodeId !== null && !focusState.nodeIds.has(id),
+    [focusState],
+  );
+
+  const isEdgeDimmed = useCallback(
+    (id: string) =>
+      focusState.activeNodeId !== null && !focusState.edgeIds.has(id),
+    [focusState],
+  );
 
   const paintNode = useCallback(
     (node: GNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
@@ -355,7 +365,7 @@ export function GraphPanel({
       const color = getNodeColor(node.type);
 
       const isFocused = focusState.nodeIds.has(node.id);
-      const isDimmed = hasFocus && !isFocused;
+      const isDimmed = isNodeDimmed(node.id);
       const isSelected = node.id === selectedEntityId;
 
       ctx.save();
@@ -406,7 +416,7 @@ export function GraphPanel({
       ctx.fillText(label, node.x ?? 0, (node.y ?? 0) + size + 2 / globalScale);
       ctx.restore();
     },
-    [focusState, hasFocus, selectedEntityId],
+    [focusState, isNodeDimmed, selectedEntityId],
   );
 
   const paintLink = useCallback(
@@ -415,10 +425,10 @@ export function GraphPanel({
       const tgt = link.target as GNode;
       if (!src || !tgt || src.x == null || tgt.x == null) return;
       const label = link.predicate ?? "";
-      const showLabelByDefault = focusState.edgeIds.has(link.id);
-      if (!label || (!showLabelByDefault && globalScale < 1.8)) return;
+      const isEdgeFocused = focusState.edgeIds.has(link.id);
+      if (!label || (!isEdgeFocused && globalScale < 1.8)) return;
 
-      const isDimmed = hasFocus && !showLabelByDefault;
+      const isDimmed = isEdgeDimmed(link.id);
 
       const fontSize = Math.max(8 / globalScale, 1.5);
       const dx = (tgt.x ?? 0) - (src.x ?? 0);
@@ -453,7 +463,32 @@ export function GraphPanel({
       ctx.fillText(label, 0, offsetY);
       ctx.restore();
     },
-    [focusState, hasFocus],
+    [focusState, isEdgeDimmed],
+  );
+
+  const linkColor2D = useCallback(
+    (link: GLink) =>
+      isEdgeDimmed(link.id) ? "rgba(203, 213, 225, 0.28)" : "#94a3b8",
+    [isEdgeDimmed],
+  );
+
+  const nodeColor3D = useCallback(
+    (node: NodeObject) => {
+      const n = node as GNode;
+      const baseColor = n.isCenter
+        ? "#1d4ed8"
+        : getNodeColor(n.type ?? "other");
+      return isNodeDimmed(n.id) ? withOpacity(baseColor, 0.22) : baseColor;
+    },
+    [isNodeDimmed],
+  );
+
+  const linkColor3D = useCallback(
+    (link: LinkObject) =>
+      isEdgeDimmed((link as GLink).id)
+        ? "rgba(203, 213, 225, 0.24)"
+        : "#94a3b8",
+    [isEdgeDimmed],
   );
 
   const hasServerData = (graphData?.nodes.length ?? 0) > 0;
@@ -602,10 +637,7 @@ export function GraphPanel({
                 ctx.fillStyle = color;
                 ctx.fill();
               }}
-              linkColor={(link: GLink) => {
-                const isDimmed = hasFocus && !focusState.edgeIds.has(link.id);
-                return isDimmed ? "rgba(203, 213, 225, 0.28)" : "#94a3b8";
-              }}
+              linkColor={linkColor2D}
               linkWidth={(link: GLink) =>
                 Math.max((link.confidence ?? 0.5) * 2, 0.75)
               }
@@ -634,22 +666,9 @@ export function GraphPanel({
                 setHoveredEntityId(node ? (node as GNode).id : null)
               }
               nodeLabel="label"
-              nodeColor={(node) => {
-                const n = node as GNode;
-                const baseColor = n.isCenter
-                  ? "#1d4ed8"
-                  : getNodeColor(n.type ?? "other");
-                const isDimmed = hasFocus && !focusState.nodeIds.has(n.id);
-                return isDimmed ? withOpacity(baseColor, 0.22) : baseColor;
-              }}
+              nodeColor={nodeColor3D}
               nodeVal={(node) => (node as GNode).val ?? 1}
-              linkColor={(link) => {
-                const l = link as GLink;
-                const isDimmed = hasFocus && !focusState.edgeIds.has(l.id);
-                return isDimmed
-                  ? "rgba(203, 213, 225, 0.24)"
-                  : "#94a3b8";
-              }}
+              linkColor={linkColor3D}
               linkWidth={(link) =>
                 Math.max(((link as GLink).confidence ?? 0.5) * 2, 0.75)
               }
