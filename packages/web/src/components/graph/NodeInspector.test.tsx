@@ -17,13 +17,13 @@ vi.mock("react-i18next", () => ({
         graphNodeInspectorEmpty: "No node details available.",
         graphNodeInspectorSubtitle:
           "Appears in {{pageCount}} pages / {{relationCount}} relations",
-        graphNodeInspectorRelations: "Direct relations",
-        graphNodeInspectorRelationsCount: "{{count}} visible",
+        graphNodeInspectorRelations: "Direct Relationships",
+        graphNodeInspectorRelationsCount: "Currently showing {{count}}",
         graphNodeInspectorOutgoing: "Outgoing",
         graphNodeInspectorIncoming: "Incoming",
         graphNodeInspectorNoOutgoing: "No outgoing relations in this view.",
         graphNodeInspectorNoIncoming: "No incoming relations in this view.",
-        graphNodeInspectorSourcePages: "Source pages",
+        graphNodeInspectorSourcePages: "Evidence Documents",
         graphNodeInspectorNoPages: "No source pages found for this entity.",
         graphNodeInspectorPageReason: "{{count}} relations mention this entity",
         graphNodeInspectorOpenPage: "Open Page",
@@ -159,7 +159,7 @@ describe("NodeInspector", () => {
       />,
     );
 
-    expect(await screen.findByText("Direct relations")).toBeInTheDocument();
+    expect(await screen.findByText("Direct Relationships")).toBeInTheDocument();
     expect(screen.getAllByText("Team Notes")).toHaveLength(3);
     expect(screen.getByText("Outgoing")).toBeInTheDocument();
     expect(screen.getByText("Incoming")).toBeInTheDocument();
@@ -194,7 +194,7 @@ describe("NodeInspector", () => {
       />,
     );
 
-    expect(await screen.findByText("Direct relations")).toBeInTheDocument();
+    expect(await screen.findByText("Direct Relationships")).toBeInTheDocument();
     expect(entityProvenanceMock).toHaveBeenCalledWith("workspace-1", "alice", {
       limit: 5,
       locale: "en",

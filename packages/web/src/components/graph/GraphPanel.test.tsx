@@ -12,15 +12,15 @@ vi.mock("react-i18next", () => ({
     i18n: { resolvedLanguage, language: resolvedLanguage },
     t: (key: string, vars?: Record<string, string | number>) => {
       const messages: Record<string, string> = {
-        graph: "Graph",
-        graphDepth: "Depth",
-        graphConfidence: "Confidence",
+        graph: "Knowledge Graph",
+        graphDepth: "Traversal Range",
+        graphConfidence: "Relationship Confidence",
         graphEntityTypes: "Entity Types",
-        graphPredicates: "Predicates",
-        noGraphData: "No graph data",
+        graphPredicates: "Relationship Types",
+        noGraphData: "No relationship data to display",
         graphNoFilteredData: "No relations match the current filters",
-        graphVisibleNodes: "{{count}} visible nodes",
-        graphVisibleEdges: "{{count}} visible relations",
+        graphVisibleNodes: "{{count}} displayed nodes",
+        graphVisibleEdges: "{{count}} displayed relationships",
         graphFiltersApplied: "Filters applied",
         graphFiltersInactive: "All filters open",
         graphTruncated: "Graph truncated to {{limit}} nodes",
@@ -176,7 +176,7 @@ describe("GraphPanel", () => {
       }),
     );
 
-    fireEvent.change(screen.getByRole("slider", { name: "Confidence" }), {
+    fireEvent.change(screen.getByRole("slider", { name: "Relationship Confidence" }), {
       target: { value: "0.6" },
     });
 
