@@ -197,11 +197,14 @@ Per-page BFS is good for focus; users also need the big picture.
 
 ### G-5 · [HIGH] Entity detail panel
 Clicking a node currently doesn't open anything meaningful.
+- Update: the page-side graph panel now has a first-pass entity inspector with direct incoming/outgoing relations, source pages, and evidence excerpts. Remaining work below is for a fuller ontology browser.
 - Side panel: entity label, type, aliases, all triples where it appears (in/out), pages that mention it (via `triple_mentions`), confidence distribution
 - Actions: rename, merge with another entity, change type, delete
 
 ### G-6 · [MED] Graph filters + confidence encoding
 The force-graph renders all edges at equal weight, which hides signal.
+- Update: predicate multiselect, confidence slider, entity-type toggles, and edge opacity/width encoding are now shipped in the editor graph panel.
+- Remaining: add time-range filtering and conflict-specific styling once `conflict=true` triples land.
 - Filters: predicate multiselect, confidence slider, entity-type toggles, time range (based on `triples.created_at`)
 - Visual encoding: edge opacity/width ∝ confidence; dashed edges for `conflict=true` triples (from S5-4)
 
@@ -211,7 +214,8 @@ The force-graph renders all edges at equal weight, which hides signal.
 - "Find path between X and Y" — shortest-path query over triples
 
 ### G-8 · [MED] 3D toggle UX surface
-The 3D renderer is lazy-loaded in [GraphPanel.tsx](packages/web/src/components/graph/GraphPanel.tsx) but there's no toggle in the UI. Add a segmented control (2D / 3D) and persist the choice per user.
+The 3D renderer is lazy-loaded in [GraphPanel.tsx](packages/web/src/components/graph/GraphPanel.tsx); the editor graph panel now exposes a 2D / 3D toggle.
+- Remaining: persist the choice per user and evaluate whether 3D needs graph-specific camera defaults.
 
 ### G-9 · [LOW] Graph export
 `.graphml` / `.json` export for external tooling (Gephi, Cytoscape).

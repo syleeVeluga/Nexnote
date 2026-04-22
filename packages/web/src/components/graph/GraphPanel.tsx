@@ -18,6 +18,13 @@ import type {
 } from "@nexnote/shared";
 import { pages as pagesApi } from "../../lib/api-client.js";
 import { NodeInspector } from "./NodeInspector.js";
+import {
+  buildGraphFilterCandidates,
+  filterGraphData,
+  getFocusedNeighborhood,
+  hasActiveGraphFilters,
+  type GraphViewFilters,
+} from "./graph-helpers.js";
 
 // Lazy-load 3D graph to avoid adding Three.js weight to the initial bundle
 const ForceGraph3D = lazy(() => import("react-force-graph-3d"));
@@ -49,11 +56,29 @@ type GNode = NodeObject<{
   type: string;
   isCenter: boolean;
   val: number;
+  isDimmed: boolean;
+  isSelected: boolean;
+  isFocused: boolean;
 }>;
 
 type GLink = LinkObject<
-  { id: string; label: string; type: string; isCenter: boolean; val: number },
-  { predicate: string; confidence: number }
+  {
+    id: string;
+    label: string;
+    type: string;
+    isCenter: boolean;
+    val: number;
+    isDimmed: boolean;
+    isSelected: boolean;
+    isFocused: boolean;
+  },
+  {
+    id: string;
+    predicate: string;
+    confidence: number;
+    isDimmed: boolean;
+    showLabelByDefault: boolean;
+  }
 >;
 
 function getNodeColor(type: string): string {
@@ -61,6 +86,19 @@ function getNodeColor(type: string): string {
     (NODE_COLORS as Record<string, string>)[type.toLowerCase()] ??
     NODE_COLORS.other
   );
+}
+
+function withOpacity(color: string, opacity: number): string {
+  const normalized = color.trim();
+  if (!normalized.startsWith("#") || normalized.length !== 7) {
+    return color;
+  }
+
+  const r = Number.parseInt(normalized.slice(1, 3), 16);
+  const g = Number.parseInt(normalized.slice(3, 5), 16);
+  const b = Number.parseInt(normalized.slice(5, 7), 16);
+
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`;
 }
 
 export function GraphPanel({
@@ -72,8 +110,12 @@ export function GraphPanel({
   const { t } = useTranslation(["editor", "common"]);
   const [depth, setDepth] = useState<1 | 2>(1);
   const [mode, setMode] = useState<"2d" | "3d">("2d");
+  const [minConfidence, setMinConfidence] = useState(0);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const [hoveredEntityId, setHoveredEntityId] = useState<string | null>(null);
+  const [activeEntityTypes, setActiveEntityTypes] = useState<string[]>([]);
+  const [activePredicates, setActivePredicates] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -86,6 +128,15 @@ export function GraphPanel({
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(
     null,
   );
+  const filtersInitializedRef = useRef(false);
+
+  useEffect(() => {
+    filtersInitializedRef.current = false;
+    setSelectedEntityId(null);
+    setHoveredEntityId(null);
+    setActiveEntityTypes([]);
+    setActivePredicates([]);
+  }, [workspaceId, pageId]);
 
   const handleResizePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -149,39 +200,134 @@ export function GraphPanel({
     setLoading(true);
     setError(null);
     pagesApi
-      .graph(workspaceId, pageId, { depth, limit: 250 })
+      .graph(workspaceId, pageId, { depth, limit: 250, minConfidence })
       .then((res) => setGraphData(res))
       .catch((err) => {
         setError(err instanceof Error ? err.message : t("noGraphData"));
         setGraphData(null);
       })
       .finally(() => setLoading(false));
-  }, [workspaceId, pageId, depth]);
+  }, [workspaceId, pageId, depth, minConfidence, t]);
+
+  const filterCandidates = useMemo(
+    () =>
+      graphData
+        ? buildGraphFilterCandidates(graphData)
+        : { entityTypes: [], predicates: [] },
+    [graphData],
+  );
 
   useEffect(() => {
-    if (!selectedEntityId || !graphData) return;
-    if (!graphData.nodes.some((node) => node.id === selectedEntityId)) {
+    if (!graphData) return;
+
+    const nextTypes = filterCandidates.entityTypes.map((item) => item.value);
+    const nextPredicates = filterCandidates.predicates.map(
+      (item) => item.value,
+    );
+
+    if (!filtersInitializedRef.current) {
+      setActiveEntityTypes(nextTypes);
+      setActivePredicates(nextPredicates);
+      filtersInitializedRef.current = true;
+      return;
+    }
+
+    setActiveEntityTypes((prev) => {
+      if (prev.length === 0) return prev;
+      const surviving = prev.filter((value) => nextTypes.includes(value));
+      return surviving.length > 0 || nextTypes.length === 0 ? surviving : nextTypes;
+    });
+
+    setActivePredicates((prev) => {
+      if (prev.length === 0) return prev;
+      const surviving = prev.filter((value) => nextPredicates.includes(value));
+      return surviving.length > 0 || nextPredicates.length === 0
+        ? surviving
+        : nextPredicates;
+    });
+  }, [graphData, filterCandidates]);
+
+  const graphFilters = useMemo<GraphViewFilters>(
+    () => ({
+      activeEntityTypes,
+      activePredicates,
+      minConfidence,
+    }),
+    [activeEntityTypes, activePredicates, minConfidence],
+  );
+
+  const visibleGraph = useMemo(
+    () => (graphData ? filterGraphData(graphData, graphFilters) : null),
+    [graphData, graphFilters],
+  );
+
+  const focusState = useMemo(
+    () =>
+      visibleGraph
+        ? getFocusedNeighborhood(visibleGraph, selectedEntityId, hoveredEntityId)
+        : {
+            activeNodeId: null,
+            nodeIds: new Set<string>(),
+            edgeIds: new Set<string>(),
+          },
+    [visibleGraph, selectedEntityId, hoveredEntityId],
+  );
+
+  const filtersApplied = useMemo(
+    () => hasActiveGraphFilters(graphFilters, filterCandidates),
+    [graphFilters, filterCandidates],
+  );
+
+  useEffect(() => {
+    if (!selectedEntityId || !visibleGraph) return;
+    if (!visibleGraph.nodes.some((node) => node.id === selectedEntityId)) {
       setSelectedEntityId(null);
     }
-  }, [graphData, selectedEntityId]);
+  }, [visibleGraph, selectedEntityId]);
+
+  const toggleEntityType = useCallback((type: string) => {
+    setActiveEntityTypes((prev) =>
+      prev.includes(type)
+        ? prev.filter((value) => value !== type)
+        : [...prev, type],
+    );
+  }, []);
+
+  const togglePredicate = useCallback((predicate: string) => {
+    setActivePredicates((prev) =>
+      prev.includes(predicate)
+        ? prev.filter((value) => value !== predicate)
+        : [...prev, predicate],
+    );
+  }, []);
 
   const forceGraphData = useMemo(() => {
-    if (!graphData) return { nodes: [] as GNode[], links: [] as GLink[] };
-    const nodes: GNode[] = graphData.nodes.map((n: GraphNode) => ({
+    if (!visibleGraph) return { nodes: [] as GNode[], links: [] as GLink[] };
+
+    const hasFocus = focusState.activeNodeId !== null;
+    const nodes: GNode[] = visibleGraph.nodes.map((n: GraphNode) => ({
       id: n.id,
       label: n.label,
       type: n.type,
       isCenter: n.isCenter,
       val: Math.max(n.pageCount, 1),
+      isDimmed: hasFocus && !focusState.nodeIds.has(n.id),
+      isSelected: n.id === selectedEntityId,
+      isFocused: focusState.nodeIds.has(n.id),
     }));
-    const links: GLink[] = graphData.edges.map((e: GraphEdge) => ({
+
+    const links: GLink[] = visibleGraph.edges.map((e: GraphEdge) => ({
+      id: e.id,
       source: e.source,
       target: e.target,
       predicate: e.predicate,
       confidence: e.confidence,
+      isDimmed: hasFocus && !focusState.edgeIds.has(e.id),
+      showLabelByDefault: focusState.edgeIds.has(e.id),
     }));
+
     return { nodes, links };
-  }, [graphData]);
+  }, [visibleGraph, focusState, selectedEntityId]);
 
   const paintNode = useCallback(
     (node: GNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
@@ -190,6 +336,8 @@ export function GraphPanel({
       const size = Math.sqrt(node.val ?? 1) * 3;
       const color = getNodeColor(node.type ?? "other");
 
+      ctx.save();
+      ctx.globalAlpha = node.isDimmed ? 0.22 : 1;
       ctx.beginPath();
       ctx.arc(node.x ?? 0, node.y ?? 0, size, 0, 2 * Math.PI);
       ctx.fillStyle = node.isCenter ? "#1d4ed8" : color;
@@ -201,7 +349,21 @@ export function GraphPanel({
         ctx.stroke();
       }
 
-      if (node.id === selectedEntityId) {
+      if (node.isFocused && !node.isSelected && !node.isCenter) {
+        ctx.beginPath();
+        ctx.arc(
+          node.x ?? 0,
+          node.y ?? 0,
+          size + 2 / globalScale,
+          0,
+          2 * Math.PI,
+        );
+        ctx.strokeStyle = "rgba(15, 23, 42, 0.35)";
+        ctx.lineWidth = 1 / globalScale;
+        ctx.stroke();
+      }
+
+      if (node.isSelected) {
         ctx.beginPath();
         ctx.arc(
           node.x ?? 0,
@@ -220,8 +382,9 @@ export function GraphPanel({
       ctx.textBaseline = "top";
       ctx.fillStyle = "#1f2937";
       ctx.fillText(label, node.x ?? 0, (node.y ?? 0) + size + 2 / globalScale);
+      ctx.restore();
     },
-    [selectedEntityId],
+    [],
   );
 
   const paintLink = useCallback(
@@ -230,7 +393,7 @@ export function GraphPanel({
       const tgt = link.target as GNode;
       if (!src || !tgt || src.x == null || tgt.x == null) return;
       const label = link.predicate ?? "";
-      if (!label) return;
+      if (!label || (!link.showLabelByDefault && globalScale < 1.8)) return;
 
       const fontSize = Math.max(8 / globalScale, 1.5);
       const dx = (tgt.x ?? 0) - (src.x ?? 0);
@@ -240,8 +403,8 @@ export function GraphPanel({
       const midY = ((src.y ?? 0) + (tgt.y ?? 0)) / 2;
 
       ctx.save();
+      ctx.globalAlpha = link.isDimmed ? 0.28 : 1;
       ctx.translate(midX, midY);
-      // keep text readable left-to-right
       const displayAngle =
         Math.abs(angle) > Math.PI / 2 ? angle + Math.PI : angle;
       ctx.rotate(displayAngle);
@@ -268,7 +431,8 @@ export function GraphPanel({
     [],
   );
 
-  const hasData = graphData && graphData.nodes.length > 0;
+  const hasServerData = (graphData?.nodes.length ?? 0) > 0;
+  const hasVisibleData = (visibleGraph?.nodes.length ?? 0) > 0;
 
   return (
     <div
@@ -291,33 +455,93 @@ export function GraphPanel({
         </button>
       </div>
 
-      <div className="graph-controls">
-        <span className="graph-controls-label">{t("graphDepth")}:</span>
-        <button
-          className={`depth-btn${depth === 1 ? " active" : ""}`}
-          onClick={() => setDepth(1)}
-        >
-          1
-        </button>
-        <button
-          className={`depth-btn${depth === 2 ? " active" : ""}`}
-          onClick={() => setDepth(2)}
-        >
-          2
-        </button>
-        <span className="graph-controls-sep" />
-        <button
-          className={`depth-btn${mode === "2d" ? " active" : ""}`}
-          onClick={() => setMode("2d")}
-        >
-          2D
-        </button>
-        <button
-          className={`depth-btn${mode === "3d" ? " active" : ""}`}
-          onClick={() => setMode("3d")}
-        >
-          3D
-        </button>
+      <div className="graph-toolbar">
+        <div className="graph-controls">
+          <span className="graph-controls-label">{t("graphDepth")}:</span>
+          <button
+            className={`depth-btn${depth === 1 ? " active" : ""}`}
+            onClick={() => setDepth(1)}
+          >
+            1
+          </button>
+          <button
+            className={`depth-btn${depth === 2 ? " active" : ""}`}
+            onClick={() => setDepth(2)}
+          >
+            2
+          </button>
+          <span className="graph-controls-sep" />
+          <span className="graph-controls-label">{t("graphConfidence")}:</span>
+          <label className="graph-range-control">
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.1"
+              value={minConfidence}
+              onChange={(e) => setMinConfidence(Number(e.target.value))}
+              aria-label={t("graphConfidence")}
+            />
+            <span className="graph-range-value">{minConfidence.toFixed(1)}</span>
+          </label>
+          <span className="graph-controls-sep" />
+          <button
+            className={`depth-btn${mode === "2d" ? " active" : ""}`}
+            onClick={() => setMode("2d")}
+          >
+            2D
+          </button>
+          <button
+            className={`depth-btn${mode === "3d" ? " active" : ""}`}
+            onClick={() => setMode("3d")}
+          >
+            3D
+          </button>
+        </div>
+
+        <div className="graph-filter-groups">
+          <div className="graph-filter-group">
+            <span className="graph-controls-label">{t("graphEntityTypes")}:</span>
+            <div className="graph-chip-list">
+              {filterCandidates.entityTypes.map((item) => (
+                <button
+                  key={item.value}
+                  className={`graph-chip${activeEntityTypes.includes(item.value) ? " active" : ""}`}
+                  onClick={() => toggleEntityType(item.value)}
+                  aria-pressed={activeEntityTypes.includes(item.value)}
+                >
+                  {item.value}
+                  <span className="graph-chip-count">{item.count}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="graph-filter-group">
+            <span className="graph-controls-label">{t("graphPredicates")}:</span>
+            <div className="graph-chip-list">
+              {filterCandidates.predicates.map((item) => (
+                <button
+                  key={item.value}
+                  className={`graph-chip${activePredicates.includes(item.value) ? " active" : ""}`}
+                  onClick={() => togglePredicate(item.value)}
+                  aria-pressed={activePredicates.includes(item.value)}
+                >
+                  {item.value}
+                  <span className="graph-chip-count">{item.count}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="graph-meta-bar">
+        <span>{t("graphVisibleNodes", { count: visibleGraph?.nodes.length ?? 0 })}</span>
+        <span>{t("graphVisibleEdges", { count: visibleGraph?.edges.length ?? 0 })}</span>
+        <span className={`graph-meta-pill${filtersApplied ? " active" : ""}`}>
+          {filtersApplied ? t("graphFiltersApplied") : t("graphFiltersInactive")}
+        </span>
       </div>
 
       <div className="graph-container" ref={containerRef}>
@@ -327,8 +551,10 @@ export function GraphPanel({
           <div className="graph-empty" style={{ color: "#dc2626" }}>
             {error}
           </div>
-        ) : !hasData ? (
+        ) : !hasServerData ? (
           <div className="graph-empty">{t("noGraphData")}</div>
+        ) : !hasVisibleData ? (
+          <div className="graph-empty">{t("graphNoFilteredData")}</div>
         ) : mode === "2d" ? (
           <>
             <ForceGraph2D
@@ -336,6 +562,9 @@ export function GraphPanel({
               width={dimensions.width}
               height={dimensions.height}
               onNodeClick={(node) => setSelectedEntityId((node as GNode).id)}
+              onNodeHover={(node) =>
+                setHoveredEntityId(node ? (node as GNode).id : null)
+              }
               nodeCanvasObject={paintNode}
               nodePointerAreaPaint={(
                 node: GNode,
@@ -348,9 +577,11 @@ export function GraphPanel({
                 ctx.fillStyle = color;
                 ctx.fill();
               }}
-              linkColor={() => "#d1d5db"}
+              linkColor={(link: GLink) =>
+                link.isDimmed ? "rgba(203, 213, 225, 0.28)" : "#94a3b8"
+              }
               linkWidth={(link: GLink) =>
-                Math.max((link.confidence ?? 0.5) * 2, 0.5)
+                Math.max((link.confidence ?? 0.5) * 2, 0.75)
               }
               linkDirectionalArrowLength={3}
               linkDirectionalArrowRelPos={1}
@@ -358,7 +589,7 @@ export function GraphPanel({
               linkCanvasObject={paintLink}
               cooldownTicks={200}
             />
-            {graphData.meta.truncated && (
+            {graphData?.meta.truncated && (
               <div className="graph-truncated-notice">
                 {t("graphTruncated", { limit: graphData.meta.totalNodes })}
               </div>
@@ -373,15 +604,25 @@ export function GraphPanel({
               width={dimensions.width}
               height={dimensions.height}
               onNodeClick={(node) => setSelectedEntityId((node as GNode).id)}
+              onNodeHover={(node) =>
+                setHoveredEntityId(node ? (node as GNode).id : null)
+              }
               nodeLabel="label"
               nodeColor={(node) => {
                 const n = node as GNode;
-                return n.isCenter ? "#1d4ed8" : getNodeColor(n.type ?? "other");
+                const baseColor = n.isCenter
+                  ? "#1d4ed8"
+                  : getNodeColor(n.type ?? "other");
+                return n.isDimmed ? withOpacity(baseColor, 0.22) : baseColor;
               }}
               nodeVal={(node) => (node as GNode).val ?? 1}
-              linkColor={() => "#d1d5db"}
+              linkColor={(link) =>
+                (link as GLink).isDimmed
+                  ? "rgba(203, 213, 225, 0.24)"
+                  : "#94a3b8"
+              }
               linkWidth={(link) =>
-                Math.max(((link as GLink).confidence ?? 0.5) * 2, 0.5)
+                Math.max(((link as GLink).confidence ?? 0.5) * 2, 0.75)
               }
               linkDirectionalArrowLength={4}
               linkDirectionalArrowRelPos={1}
@@ -396,7 +637,9 @@ export function GraphPanel({
           workspaceId={workspaceId}
           entityId={selectedEntityId}
           currentPageId={pageId}
+          graphData={visibleGraph}
           onClose={() => setSelectedEntityId(null)}
+          onSelectEntity={setSelectedEntityId}
           onNavigateToPage={onNavigateToPage}
           getTypeColor={getNodeColor}
         />
