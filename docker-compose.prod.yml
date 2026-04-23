@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-wekiflow}
@@ -17,7 +17,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD}
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
     volumes:
       - redisdata:/data
     healthcheck:
@@ -27,7 +27,7 @@ services:
       retries: 5
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -81,13 +81,22 @@ services:
       S3_REGION: us-east-1
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-    ports:
-      - "3001:3001"
+      INGESTION_RATE_LIMIT_PER_MINUTE: ${INGESTION_RATE_LIMIT_PER_MINUTE:-60}
+      INGESTION_QUOTA_PER_DAY: ${INGESTION_QUOTA_PER_DAY:-5000}
+      IMPORT_RATE_LIMIT_PER_MINUTE: ${IMPORT_RATE_LIMIT_PER_MINUTE:-60}
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   worker:
     image: ${IMAGE_REGISTRY}/wekiflow-worker:${IMAGE_TAG:-latest}
@@ -103,11 +112,22 @@ services:
       S3_REGION: us-east-1
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      INGESTION_RATE_LIMIT_PER_MINUTE: ${INGESTION_RATE_LIMIT_PER_MINUTE:-60}
+      INGESTION_QUOTA_PER_DAY: ${INGESTION_QUOTA_PER_DAY:-5000}
+      IMPORT_RATE_LIMIT_PER_MINUTE: ${IMPORT_RATE_LIMIT_PER_MINUTE:-60}
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f \"worker/dist/index\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   web:
     image: ${IMAGE_REGISTRY}/wekiflow-web:${IMAGE_TAG:-latest}

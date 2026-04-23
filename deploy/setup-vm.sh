@@ -6,11 +6,13 @@ set -euo pipefail
 if ! command -v docker &>/dev/null; then
   curl -fsSL https://get.docker.com | sh
   sudo usermod -aG docker "$USER"
+  sudo systemctl enable docker
   echo "Docker installed. Re-login or run: newgrp docker"
 fi
 
 # ── 2. Docker Compose Plugin ──────────────────────────────────────────────────
 if ! docker compose version &>/dev/null; then
+  sudo apt-get update -y
   sudo apt-get install -y docker-compose-plugin
 fi
 
@@ -23,6 +25,7 @@ sudo chown "$USER":"$USER" /opt/wekiflow
 cd /opt/wekiflow
 
 # ── 5. 리포 클론 (docker-compose.prod.yml 가져오기 위해) ─────────────────────
+# FIXME: YOUR_ORG를 실제 GitHub 조직/사용자명으로 교체하세요.
 if [ ! -d ".git" ]; then
   git clone https://github.com/YOUR_ORG/wekiflow.git .
 fi
@@ -31,8 +34,7 @@ fi
 echo ""
 echo "========================================================"
 echo "GCP 콘솔에서 아래 방화벽 규칙을 확인하세요:"
-echo "  - TCP 80   (web)"
-echo "  - TCP 3001 (api, 내부 LB 사용 시 제거 가능)"
+echo "  - TCP 80   (web + api via nginx reverse proxy)"
 echo "  - TCP 22   (SSH, IAP 터널 사용 시 제거 가능)"
 echo "========================================================"
 echo "설정 완료. .env.prod 파일을 직접 생성하거나"
