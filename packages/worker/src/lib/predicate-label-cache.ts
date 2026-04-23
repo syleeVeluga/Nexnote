@@ -1,8 +1,8 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { modelRuns, predicateDisplayLabels } from "@nexnote/db";
+import { modelRuns, predicateDisplayLabels } from "@wekiflow/db";
 import { getAIAdapter, getDefaultProvider } from "../ai-gateway.js";
-import type { AIRequest } from "@nexnote/shared";
-import { MODE_OUTPUT_RESERVE } from "@nexnote/shared";
+import type { AIRequest } from "@wekiflow/shared";
+import { MODE_OUTPUT_RESERVE } from "@wekiflow/shared";
 
 const PROMPT_VERSION = "predicate-label-v2";
 const PREDICATE_LABEL_BATCH_SIZE = 24;

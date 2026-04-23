@@ -40,7 +40,7 @@ const MAX_REDIRECTS = parsePositiveInt(
 );
 const USER_AGENT =
   process.env["WEB_IMPORT_USER_AGENT"] ??
-  "NexNoteImporter/1.0 (+https://nexnote.app)";
+  "WekiFlowImporter/1.0 (+https://wekiflow.app)";
 
 async function fetchHtml(url: string): Promise<{
   html: string;

@@ -18,13 +18,13 @@ fi
 gcloud auth configure-docker asia-northeast3-docker.pkg.dev --quiet
 
 # ── 4. 앱 디렉토리 세팅 ──────────────────────────────────────────────────────
-sudo mkdir -p /opt/nexnote
-sudo chown "$USER":"$USER" /opt/nexnote
-cd /opt/nexnote
+sudo mkdir -p /opt/wekiflow
+sudo chown "$USER":"$USER" /opt/wekiflow
+cd /opt/wekiflow
 
 # ── 5. 리포 클론 (docker-compose.prod.yml 가져오기 위해) ─────────────────────
 if [ ! -d ".git" ]; then
-  git clone https://github.com/YOUR_ORG/nexnote.git .
+  git clone https://github.com/YOUR_ORG/wekiflow.git .
 fi
 
 # ── 6. 방화벽 확인 안내 ───────────────────────────────────────────────────────

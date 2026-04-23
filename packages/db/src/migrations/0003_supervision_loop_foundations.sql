@@ -28,7 +28,7 @@ CREATE INDEX "page_revisions_source_ingestion_idx" ON "page_revisions" ("source_
 -- AUTO_APPLY_MIN (0.85); decisions in the 0.60–0.84 suggestion band were written with
 -- no status and never surfaced. This column gives the supervision UI something to query.
 --
--- Values (matching DECISION_STATUSES in @nexnote/shared):
+-- Values (matching DECISION_STATUSES in @wekiflow/shared):
 --   auto_applied  — confidence ≥ 0.85, already applied to a page
 --   suggested     — 0.60 ≤ confidence < 0.85, awaiting human approval
 --   needs_review  — confidence < 0.60 OR action = 'needs_review', low-trust

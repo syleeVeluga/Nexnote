@@ -6,7 +6,7 @@ import {
   IMPORT_SOURCE_NAMES,
   importTextBodySchema,
   importUrlBodySchema,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 import {
   EDITOR_PLUS_ROLES,
   forbidden,

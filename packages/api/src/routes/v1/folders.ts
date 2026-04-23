@@ -1,13 +1,13 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import { eq, and, isNull, count } from "drizzle-orm";
-import { folders, auditLogs } from "@nexnote/db";
+import { folders, auditLogs } from "@wekiflow/db";
 import {
   createFolderSchema,
   updateFolderSchema,
   paginationSchema,
   uuidSchema,
   ERROR_CODES,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 import { z } from "zod";
 import {
   getMemberRole,

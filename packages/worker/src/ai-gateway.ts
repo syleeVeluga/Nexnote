@@ -6,8 +6,8 @@ import type {
   AIProvider,
   AIRequest,
   AIResponse,
-} from "@nexnote/shared";
-import { AI_MODELS } from "@nexnote/shared";
+} from "@wekiflow/shared";
+import { AI_MODELS } from "@wekiflow/shared";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const fixturePath = resolve(currentDir, "../../../tests/fixtures/ai/markers.json");
@@ -211,7 +211,7 @@ class GeminiAdapter implements AIAdapter {
 }
 
 // TODO(claude): register Anthropic adapter here once the `AIProvider` union in
-// @nexnote/shared includes "anthropic" and an AnthropicAdapter is added — the
+// @wekiflow/shared includes "anthropic" and an AnthropicAdapter is added — the
 // large-context pre-chunk rollout (Phase 0) is provider-aware but ships with
 // only OpenAI + Gemini wired.
 const adapters: Record<AIProvider, AIAdapter> = {

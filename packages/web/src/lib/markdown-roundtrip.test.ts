@@ -28,7 +28,7 @@ describe("Markdown round-trip: inline formatting", () => {
   });
 
   it("link", () => {
-    expectRoundTrip("Visit [NexNote](https://nexnote.dev) for more.");
+    expectRoundTrip("Visit [WekiFlow](https://wekiflow.dev) for more.");
   });
 });
 

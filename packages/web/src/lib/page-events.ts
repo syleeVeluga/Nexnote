@@ -1,4 +1,4 @@
-const EVENT_NAME = "nexnote:pages-updated";
+const EVENT_NAME = "wekiflow:pages-updated";
 
 export interface PagesUpdatedDetail {
   workspaceId: string;

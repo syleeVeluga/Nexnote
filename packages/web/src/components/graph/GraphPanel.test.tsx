@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GraphData } from "@nexnote/shared";
+import type { GraphData } from "@wekiflow/shared";
 import { GraphPanel } from "./GraphPanel.js";
 
 const graphMock = vi.fn();

@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import { ERROR_CODES } from "@nexnote/shared";
+import { ERROR_CODES } from "@wekiflow/shared";
 import {
   auditLogs,
   ingestionDecisions,
@@ -8,7 +8,7 @@ import {
   pages,
   publishedSnapshots,
   triples,
-} from "@nexnote/db";
+} from "@wekiflow/db";
 import { deleteOriginals, storageEnabled } from "./storage/s3.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- drizzle tx/db don't share a clean type

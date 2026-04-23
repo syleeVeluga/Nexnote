@@ -2,7 +2,7 @@
  * Backfill cached predicate display labels for existing triples.
  *
  * Usage:
- *   pnpm --filter @nexnote/worker exec tsx scripts/backfill-predicate-labels.ts [flags]
+ *   pnpm --filter @wekiflow/worker exec tsx scripts/backfill-predicate-labels.ts [flags]
  *
  * Flags:
  *   --workspace=<uuid>  Limit to a single workspace
@@ -37,8 +37,8 @@ if (existsSync(envFile)) {
   loadEnvFileWithoutOverrides(envFile);
 }
 
-import { getDb, closeConnection } from "@nexnote/db/client";
-import { triples } from "@nexnote/db";
+import { getDb, closeConnection } from "@wekiflow/db/client";
+import { triples } from "@wekiflow/db";
 import { ensurePredicateDisplayLabels } from "../src/lib/predicate-label-cache.js";
 
 type Args = {

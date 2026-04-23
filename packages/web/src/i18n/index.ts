@@ -35,7 +35,7 @@ i18n
     detection: {
       order: ["localStorage", "navigator"],
       caches: ["localStorage"],
-      lookupLocalStorage: "nexnote_lang",
+      lookupLocalStorage: "wekiflow_lang",
     },
   });
 

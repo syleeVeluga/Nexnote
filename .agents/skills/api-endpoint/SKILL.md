@@ -1,11 +1,11 @@
 ---
 name: api-endpoint
-description: Scaffold a new Fastify API endpoint for NexNote
+description: Scaffold a new Fastify API endpoint for WekiFlow
 argument-hint: "<HTTP-method> <path> [description]"
 allowed-tools: Read, Glob, Grep, Bash, Write, Edit
 ---
 
-Create a new Fastify API endpoint for NexNote.
+Create a new Fastify API endpoint for WekiFlow.
 
 ## Arguments
 - `$0` — HTTP method (GET, POST, PUT, PATCH, DELETE)

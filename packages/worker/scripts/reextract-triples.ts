@@ -2,7 +2,7 @@
  * Re-enqueue triple extraction for pages.
  *
  * Usage:
- *   pnpm --filter @nexnote/worker exec tsx scripts/reextract-triples.ts [flags]
+ *   pnpm --filter @wekiflow/worker exec tsx scripts/reextract-triples.ts [flags]
  *
  * Flags:
  *   --workspace=<uuid>  Limit to a single workspace (default: all workspaces)
@@ -39,14 +39,14 @@ if (existsSync(envFile)) {
   loadEnvFileWithoutOverrides(envFile);
 }
 
-import { getDb, closeConnection } from "@nexnote/db/client";
-import { pages, triples, tripleMentions } from "@nexnote/db";
+import { getDb, closeConnection } from "@wekiflow/db/client";
+import { pages, triples, tripleMentions } from "@wekiflow/db";
 import {
   QUEUE_NAMES,
   JOB_NAMES,
   DEFAULT_JOB_OPTIONS,
-} from "@nexnote/shared";
-import type { TripleExtractorJobData } from "@nexnote/shared";
+} from "@wekiflow/shared";
+import type { TripleExtractorJobData } from "@wekiflow/shared";
 import { getQueue, closeAllQueues } from "../src/queues.js";
 
 type Args = {

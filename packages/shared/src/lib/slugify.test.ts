@@ -53,7 +53,7 @@ describe("slugify", () => {
   });
 
   it("handles Korean with special characters", () => {
-    assert.equal(slugify("NexNote: 소개 & 설치"), "nexnote-소개-설치");
+    assert.equal(slugify("WekiFlow: 소개 & 설치"), "wekiflow-소개-설치");
   });
 
   it("does not produce 'untitled' for Korean-only titles", () => {
@@ -133,7 +133,7 @@ describe("normalizeKey", () => {
   });
 
   it("handles Korean with special characters", () => {
-    assert.equal(normalizeKey("NexNote: 소개"), "nexnote_소개");
+    assert.equal(normalizeKey("WekiFlow: 소개"), "wekiflow_소개");
   });
 
   it("does not produce empty string for Korean-only input", () => {

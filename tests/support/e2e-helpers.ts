@@ -10,7 +10,7 @@ export function uniqueValue(prefix: string): string {
 
 export async function setEnglishLocale(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    window.localStorage.setItem("nexnote_lang", "en");
+    window.localStorage.setItem("wekiflow_lang", "en");
   });
 }
 

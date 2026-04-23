@@ -6,12 +6,12 @@ import {
   auditLogs,
   ingestions,
   type Ingestion,
-} from "@nexnote/db";
+} from "@wekiflow/db";
 import {
   DEFAULT_JOB_OPTIONS,
   JOB_NAMES,
   type RouteClassifierJobData,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 import { isUniqueViolation } from "./reply-helpers.js";
 
 const BROWSER_IMPORT_TOKEN_NAME = "Browser Import (auto)";

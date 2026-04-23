@@ -1,7 +1,7 @@
 import { Queue } from "bullmq";
 import { createRedisConnection } from "./connection.js";
 
-export { QUEUE_NAMES, JOB_NAMES } from "@nexnote/shared";
+export { QUEUE_NAMES, JOB_NAMES } from "@wekiflow/shared";
 
 const queueCache = new Map<string, Queue>();
 

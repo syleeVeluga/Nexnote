@@ -18,7 +18,7 @@ import {
   DECISION_STATUSES,
   INGESTION_ACTIONS,
   ERROR_CODES,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 import {
   ingestions,
   ingestionDecisions,
@@ -26,8 +26,8 @@ import {
   pageRevisions,
   revisionDiffs,
   auditLogs,
-} from "@nexnote/db";
-import type { Database, IngestionDecision } from "@nexnote/db";
+} from "@wekiflow/db";
+import type { Database, IngestionDecision } from "@wekiflow/db";
 import {
   getMemberRole,
   forbidden,

@@ -1,11 +1,11 @@
 ---
 name: test-gen
-description: Generate tests for a NexNote module or file
+description: Generate tests for a WekiFlow module or file
 argument-hint: "<file-path>"
 allowed-tools: Read, Glob, Grep, Bash, Write, Edit
 ---
 
-Generate tests for the specified NexNote file or module.
+Generate tests for the specified WekiFlow file or module.
 
 ## Arguments
 - `$ARGUMENTS` — path to the file or module to test (e.g., `packages/api/src/routes/ingestions.ts`)

@@ -4,7 +4,7 @@ import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { createRedisConnection } from "../connection.js";
 import { getQueue, QUEUE_NAMES, JOB_NAMES } from "../queues.js";
 import { getAIAdapter, getDefaultProvider } from "../ai-gateway.js";
-import { getDb } from "@nexnote/db/client";
+import { getDb } from "@wekiflow/db/client";
 import {
   ingestions,
   ingestionDecisions,
@@ -13,7 +13,7 @@ import {
   pageRevisions,
   revisionDiffs,
   auditLogs,
-} from "@nexnote/db";
+} from "@wekiflow/db";
 import {
   computeDiff,
   extractIngestionText,
@@ -23,14 +23,14 @@ import {
   allocateBudgets,
   getModelContextBudget,
   MODE_OUTPUT_RESERVE,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 import type {
   PatchGeneratorJobData,
   PatchGeneratorJobResult,
   TripleExtractorJobData,
   AIRequest,
   AIBudgetMeta,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 import { createJobLogger } from "../logger.js";
 
 const PROMPT_VERSION = "patch-generator-v1";

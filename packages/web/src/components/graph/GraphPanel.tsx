@@ -15,7 +15,7 @@ import type {
   GraphNode,
   GraphEdge,
   GraphData,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 import { pages as pagesApi } from "../../lib/api-client.js";
 import { resolveSupportedLocale } from "../../i18n/locale.js";
 import { NodeInspector } from "./NodeInspector.js";

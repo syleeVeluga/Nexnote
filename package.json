@@ -1,5 +1,5 @@
 {
-  "name": "nexnote",
+  "name": "wekiflow",
   "private": true,
   "type": "module",
   "pnpm": {
@@ -14,8 +14,8 @@
   },
   "packageManager": "pnpm@10.8.1",
   "scripts": {
-    "dev": "corepack pnpm --filter @nexnote/shared build && corepack pnpm --filter @nexnote/db build && corepack pnpm -r --parallel run dev",
-    "build": "corepack pnpm --filter @nexnote/shared build && corepack pnpm --filter @nexnote/db build && corepack pnpm --filter @nexnote/api --filter @nexnote/worker --filter @nexnote/web --parallel build",
+    "dev": "corepack pnpm --filter @wekiflow/shared build && corepack pnpm --filter @wekiflow/db build && corepack pnpm -r --parallel run dev",
+    "build": "corepack pnpm --filter @wekiflow/shared build && corepack pnpm --filter @wekiflow/db build && corepack pnpm --filter @wekiflow/api --filter @wekiflow/worker --filter @wekiflow/web --parallel build",
     "lint": "corepack pnpm -r run lint",
     "format": "prettier --write \"packages/*/src/**/*.{ts,tsx}\"",
     "test": "corepack pnpm -r run test",
@@ -24,7 +24,7 @@
     "test:e2e:smoke": "playwright test --config=playwright.config.ts --grep @smoke",
     "test:e2e": "corepack pnpm run test:integration && corepack pnpm run test:e2e:smoke",
     "test:e2e:nightly": "corepack pnpm run test:integration:nightly && playwright test --config=playwright.config.ts",
-    "typecheck": "corepack pnpm --filter @nexnote/shared build && corepack pnpm --filter @nexnote/db build && corepack pnpm -r run typecheck"
+    "typecheck": "corepack pnpm --filter @wekiflow/shared build && corepack pnpm --filter @wekiflow/db build && corepack pnpm -r run typecheck"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

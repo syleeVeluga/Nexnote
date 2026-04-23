@@ -33,13 +33,13 @@ import {
   ERROR_CODES,
   IMPORT_SOURCE_NAMES,
   computeDiff,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 import type {
   PublishRendererJobData,
   TripleExtractorJobData,
   SearchIndexUpdaterJobData,
   ContentReformatterJobData,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 import {
   pages,
   pageRevisions,
@@ -52,7 +52,7 @@ import {
   workspaces,
   ingestions,
   ingestionDecisions,
-} from "@nexnote/db";
+} from "@wekiflow/db";
 import {
   getMemberRole,
   forbidden,

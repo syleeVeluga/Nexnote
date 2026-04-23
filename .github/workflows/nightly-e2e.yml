@@ -12,13 +12,13 @@ jobs:
       postgres:
         image: postgres:18
         env:
-          POSTGRES_USER: nexnote
-          POSTGRES_PASSWORD: nexnote
-          POSTGRES_DB: nexnote
+          POSTGRES_USER: wekiflow
+          POSTGRES_PASSWORD: wekiflow
+          POSTGRES_DB: wekiflow
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U nexnote"
+          --health-cmd "pg_isready -U wekiflow"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
@@ -32,7 +32,7 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     env:
-      DATABASE_URL: postgresql://nexnote:nexnote@127.0.0.1:5432/nexnote
+      DATABASE_URL: postgresql://wekiflow:wekiflow@127.0.0.1:5432/wekiflow
       REDIS_URL: redis://127.0.0.1:6379/15
       API_PORT: 3101
       API_HOST: 127.0.0.1

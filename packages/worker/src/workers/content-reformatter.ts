@@ -4,7 +4,7 @@ import type { Job } from "bullmq";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { createRedisConnection } from "../connection.js";
 import { getAIAdapter, getDefaultProvider } from "../ai-gateway.js";
-import { getDb } from "@nexnote/db/client";
+import { getDb } from "@wekiflow/db/client";
 import {
   apiTokens,
   ingestions,
@@ -14,7 +14,7 @@ import {
   pageRevisions,
   revisionDiffs,
   auditLogs,
-} from "@nexnote/db";
+} from "@wekiflow/db";
 import {
   computeDiff,
   DEFAULT_JOB_OPTIONS,
@@ -24,13 +24,13 @@ import {
   MODE_OUTPUT_RESERVE,
   QUEUE_NAMES,
   IMPORT_SOURCE_NAMES,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 import type {
   ContentReformatterJobData,
   ContentReformatterJobResult,
   AIRequest,
   AIBudgetMeta,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 import { createJobLogger } from "../logger.js";
 
 const PROMPT_VERSION = "content-reformat-v1";

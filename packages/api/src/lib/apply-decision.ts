@@ -8,8 +8,8 @@ import {
   revisionDiffs,
   auditLogs,
   insertPageWithUniqueSlug,
-} from "@nexnote/db";
-import type { Database, IngestionDecision } from "@nexnote/db";
+} from "@wekiflow/db";
+import type { Database, IngestionDecision } from "@wekiflow/db";
 import type { Queue } from "bullmq";
 import {
   extractIngestionText,
@@ -18,8 +18,8 @@ import {
   JOB_NAMES,
   DEFAULT_JOB_OPTIONS,
   ERROR_CODES,
-} from "@nexnote/shared";
-import type { TripleExtractorJobData } from "@nexnote/shared";
+} from "@wekiflow/shared";
+import type { TripleExtractorJobData } from "@wekiflow/shared";
 
 export interface ApplyDecisionCtx {
   db: Database;

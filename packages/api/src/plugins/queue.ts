@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import fp from "fastify-plugin";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
-import { QUEUE_NAMES } from "@nexnote/shared";
+import { QUEUE_NAMES } from "@wekiflow/shared";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -69,5 +69,5 @@ async function queuePluginImpl(fastify: FastifyInstance) {
 }
 
 export const queuePlugin = fp(queuePluginImpl, {
-  name: "nexnote-queue",
+  name: "wekiflow-queue",
 });

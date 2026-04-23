@@ -8,8 +8,8 @@ import {
   pages,
   ingestions,
   folders,
-} from "@nexnote/db";
-import { paginationSchema, uuidSchema } from "@nexnote/shared";
+} from "@wekiflow/db";
+import { paginationSchema, uuidSchema } from "@wekiflow/shared";
 import {
   getMemberRole,
   forbidden,

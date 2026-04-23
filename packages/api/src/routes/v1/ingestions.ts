@@ -11,9 +11,9 @@ import {
   paginationSchema,
   INGESTION_STATUSES,
   ERROR_CODES,
-} from "@nexnote/shared";
-import { ingestions, ingestionDecisions, apiTokens } from "@nexnote/db";
-import type { Ingestion, IngestionDecision } from "@nexnote/db";
+} from "@wekiflow/shared";
+import { ingestions, ingestionDecisions, apiTokens } from "@wekiflow/db";
+import type { Ingestion, IngestionDecision } from "@wekiflow/db";
 import {
   getMemberRole,
   forbidden,

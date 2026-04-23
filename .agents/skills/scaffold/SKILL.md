@@ -1,11 +1,11 @@
 ---
 name: scaffold
-description: Scaffold a new package or module in the NexNote monorepo
+description: Scaffold a new package or module in the WekiFlow monorepo
 argument-hint: "<package-name> [web|api|worker|shared|db]"
 allowed-tools: Read, Glob, Bash, Write, Edit
 ---
 
-Scaffold a new module or package for NexNote.
+Scaffold a new module or package for WekiFlow.
 
 ## Arguments
 - `$0` — the name of the module/feature (e.g., `ingestion-router`, `graph-panel`)

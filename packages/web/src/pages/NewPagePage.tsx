@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { slugify } from "@nexnote/shared";
+import { slugify } from "@wekiflow/shared";
 import { useWorkspace } from "../hooks/use-workspace.js";
 import { pages as pagesApi, ApiError } from "../lib/api-client.js";
 

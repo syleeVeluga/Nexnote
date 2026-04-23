@@ -47,10 +47,10 @@ importers:
       '@mozilla/readability':
         specifier: ^0.5.0
         version: 0.5.0
-      '@nexnote/db':
+      '@wekiflow/db':
         specifier: workspace:*
         version: link:../db
-      '@nexnote/shared':
+      '@wekiflow/shared':
         specifier: workspace:*
         version: link:../shared
       bcrypt:
@@ -108,7 +108,7 @@ importers:
 
   packages/db:
     dependencies:
-      '@nexnote/shared':
+      '@wekiflow/shared':
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
@@ -158,9 +158,6 @@ importers:
 
   packages/web:
     dependencies:
-      '@nexnote/shared':
-        specifier: workspace:^
-        version: link:../shared
       '@tiptap/core':
         specifier: ^3.22.3
         version: 3.22.3(@tiptap/pm@3.22.3)
@@ -206,6 +203,9 @@ importers:
       '@tiptap/suggestion':
         specifier: ^3.22.3
         version: 3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)
+      '@wekiflow/shared':
+        specifier: workspace:^
+        version: link:../shared
       i18next:
         specifier: ^26.0.4
         version: 26.0.4(typescript@5.9.3)
@@ -267,10 +267,10 @@ importers:
 
   packages/worker:
     dependencies:
-      '@nexnote/db':
+      '@wekiflow/db':
         specifier: workspace:*
         version: link:../db
-      '@nexnote/shared':
+      '@wekiflow/shared':
         specifier: workspace:*
         version: link:../shared
       bullmq:

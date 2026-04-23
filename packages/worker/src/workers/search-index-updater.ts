@@ -4,12 +4,12 @@ import { eq, sql } from "drizzle-orm";
 import { createRedisConnection } from "../connection.js";
 import { QUEUE_NAMES } from "../queues.js";
 import { createJobLogger } from "../logger.js";
-import { getDb } from "@nexnote/db/client";
-import { pages, pageRevisions } from "@nexnote/db";
+import { getDb } from "@wekiflow/db/client";
+import { pages, pageRevisions } from "@wekiflow/db";
 import type {
   SearchIndexUpdaterJobData,
   SearchIndexUpdaterJobResult,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 
 /**
  * search-index-updater worker

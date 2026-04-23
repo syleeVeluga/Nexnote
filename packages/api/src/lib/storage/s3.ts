@@ -14,7 +14,7 @@ import {
 // hides the download button — matches the plan's degrade-not-break posture.
 const ENDPOINT = process.env["S3_ENDPOINT"];
 const REGION = process.env["S3_REGION"] ?? "us-east-1";
-const BUCKET = process.env["S3_BUCKET"] ?? "nexnote-ingestions";
+const BUCKET = process.env["S3_BUCKET"] ?? "wekiflow-ingestions";
 const ACCESS_KEY = process.env["S3_ACCESS_KEY"];
 const SECRET_KEY = process.env["S3_SECRET_KEY"];
 const FORCE_PATH_STYLE =

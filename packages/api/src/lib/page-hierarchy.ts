@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
-import { pages } from "@nexnote/db";
-import { ERROR_CODES } from "@nexnote/shared";
+import { pages } from "@wekiflow/db";
+import { ERROR_CODES } from "@wekiflow/shared";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Drizzle query builder doesn't expose a clean shared interface for db/tx
 type AnyDb = any;

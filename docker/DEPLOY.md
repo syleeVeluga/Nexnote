@@ -1,4 +1,4 @@
-# NexNote GCP 데모 배포 가이드
+# WekiFlow GCP 데모 배포 가이드
 
 > 단일 GCE VM + Docker Compose 기반의 최소 비용 데모 배포 가이드입니다.
 > 월 예상 비용: **~$10–12** (e2-small, 서울 리전)
@@ -39,18 +39,18 @@ deploy/setup-vm.sh
 ## Step 1 — GCP 리소스 생성
 
 ```bash
-PROJECT_ID=nexnote-demo
+PROJECT_ID=wekiflow-demo
 REGION=asia-northeast3    # 서울
 ZONE=asia-northeast3-a
 
 # Artifact Registry
-gcloud artifacts repositories create nexnote \
+gcloud artifacts repositories create wekiflow \
   --repository-format=docker \
   --location=$REGION \
   --project=$PROJECT_ID
 
 # GCE VM
-gcloud compute instances create nexnote-demo \
+gcloud compute instances create wekiflow-demo \
   --project=$PROJECT_ID \
   --zone=$ZONE \
   --machine-type=e2-small \
@@ -76,7 +76,7 @@ gcloud compute firewall-rules create allow-http \
 
 ```bash
 # SSH 접속
-gcloud compute ssh nexnote-demo --zone=$ZONE
+gcloud compute ssh wekiflow-demo --zone=$ZONE
 
 # VM 안에서 실행
 curl -fsSL https://get.docker.com | sh
@@ -87,9 +87,9 @@ newgrp docker
 gcloud auth configure-docker asia-northeast3-docker.pkg.dev --quiet
 
 # 앱 디렉토리
-sudo mkdir -p /opt/nexnote && sudo chown $USER:$USER /opt/nexnote
-cd /opt/nexnote
-git clone https://github.com/YOUR_ORG/nexnote.git .
+sudo mkdir -p /opt/wekiflow && sudo chown $USER:$USER /opt/wekiflow
+cd /opt/wekiflow
+git clone https://github.com/YOUR_ORG/wekiflow.git .
 ```
 
 또는 리포에 포함된 스크립트를 사용합니다:
@@ -120,8 +120,8 @@ bash deploy/setup-vm.sh
 
 | 이름 | 예시 값 |
 |---|---|
-| `GCP_PROJECT_ID` | `nexnote-demo` |
-| `GCE_INSTANCE_NAME` | `nexnote-demo` |
+| `GCP_PROJECT_ID` | `wekiflow-demo` |
+| `GCE_INSTANCE_NAME` | `wekiflow-demo` |
 | `GCE_ZONE` | `asia-northeast3-a` |
 | `VITE_API_URL` | `http://<VM_외부_IP>:3001` |
 
@@ -182,7 +182,7 @@ await sql.end();
 
 ```bash
 # VM에서 실행
-cd /opt/nexnote
+cd /opt/wekiflow
 
 # 로그 확인
 docker compose -f docker-compose.prod.yml logs -f api
@@ -211,7 +211,7 @@ IMAGE_TAG=abc123 docker compose -f docker-compose.prod.yml --env-file .env.prod 
 | **합계** | | **~$10–12/월** |
 
 > VM을 중지(stop)하면 디스크 비용만 ~$1.5/월로 절약할 수 있습니다.
-> `gcloud compute instances stop nexnote-demo --zone=$ZONE`
+> `gcloud compute instances stop wekiflow-demo --zone=$ZONE`
 
 ---
 

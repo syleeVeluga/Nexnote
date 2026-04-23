@@ -1,11 +1,11 @@
 ---
 name: migration
-description: Create a new database migration for NexNote's PostgreSQL schema
+description: Create a new database migration for WekiFlow's PostgreSQL schema
 argument-hint: "<description>"
 allowed-tools: Read, Glob, Grep, Bash, Write, Edit
 ---
 
-Create a new database migration for NexNote.
+Create a new database migration for WekiFlow.
 
 ## Arguments
 - `$ARGUMENTS` — a description of what this migration does (e.g., "add review_items table", "add index on triples source_page_id")

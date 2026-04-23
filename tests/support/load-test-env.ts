@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { testEnvPath } from "./paths.ts";
 
-const globalKey = "__nexnote_test_env_loaded__";
+const globalKey = "__wekiflow_test_env_loaded__";
 
 function trimEnvValue(name: string): string | undefined {
   const value = process.env[name];

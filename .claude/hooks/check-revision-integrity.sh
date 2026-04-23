@@ -14,7 +14,7 @@ if [[ "$FILE_PATH" == *"/routes/pages"* ]] || [[ "$FILE_PATH" == *"/services/pag
       jq -n '{
         hookSpecificOutput: {
           hookEventName: "PostToolUse",
-          additionalContext: "WARNING: This code appears to update page content directly without creating a revision. NexNote requires ALL page mutations to go through the revision system. Please ensure a new page_revision is created for every content change."
+          additionalContext: "WARNING: This code appears to update page content directly without creating a revision. WekiFlow requires ALL page mutations to go through the revision system. Please ensure a new page_revision is created for every content change."
         }
       }'
     fi

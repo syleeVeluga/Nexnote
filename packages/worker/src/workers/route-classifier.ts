@@ -5,7 +5,7 @@ import { createRedisConnection } from "../connection.js";
 import { createJobLogger } from "../logger.js";
 import { getQueue, QUEUE_NAMES, JOB_NAMES } from "../queues.js";
 import { getAIAdapter, getDefaultProvider } from "../ai-gateway.js";
-import { getDb } from "@nexnote/db/client";
+import { getDb } from "@wekiflow/db/client";
 import {
   ingestions,
   ingestionDecisions,
@@ -17,7 +17,7 @@ import {
   triples,
   auditLogs,
   insertPageWithUniqueSlug,
-} from "@nexnote/db";
+} from "@wekiflow/db";
 import {
   DEFAULT_JOB_OPTIONS,
   classifyDecisionStatus,
@@ -30,7 +30,7 @@ import {
   allocateBudgets,
   getModelContextBudget,
   MODE_OUTPUT_RESERVE,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 import type {
   RouteClassifierJobData,
   RouteClassifierJobResult,
@@ -39,7 +39,7 @@ import type {
   AIRequest,
   AIBudgetMeta,
   AIProvider,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 
 const PROMPT_VERSION = "route-classifier-v1";
 const moduleLog = createJobLogger("route-classifier");

@@ -103,7 +103,7 @@ export async function startE2EStack(): Promise<ChildProcess[]> {
     ]),
     spawnPnpmChild("web", [
       "--filter",
-      "@nexnote/web",
+      "@wekiflow/web",
       "exec",
       "vite",
       "--host",

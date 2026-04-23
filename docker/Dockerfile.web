@@ -20,8 +20,8 @@ ENV VITE_API_URL=$VITE_API_URL
 
 COPY packages/shared ./packages/shared
 COPY packages/web    ./packages/web
-RUN pnpm --filter @nexnote/shared build \
- && pnpm --filter @nexnote/web    build
+RUN pnpm --filter @wekiflow/shared build \
+ && pnpm --filter @wekiflow/web    build
 
 # ── runner: nginx ─────────────────────────────────────────────────────────────
 FROM nginx:stable-alpine AS runner

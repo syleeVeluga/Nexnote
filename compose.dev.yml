@@ -1,30 +1,30 @@
 services:
   postgres:
     image: pgvector/pgvector:pg18
-    container_name: nexnote-postgres
+    container_name: wekiflow-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: nexnote
-      POSTGRES_USER: nexnote
-      POSTGRES_PASSWORD: nexnote
+      POSTGRES_DB: wekiflow
+      POSTGRES_USER: wekiflow
+      POSTGRES_PASSWORD: wekiflow
     ports:
       - "5433:5432"
     volumes:
-      - nexnote-postgres18-data:/var/lib/postgresql
+      - wekiflow-postgres18-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nexnote -d nexnote"]
+      test: ["CMD-SHELL", "pg_isready -U wekiflow -d wekiflow"]
       interval: 10s
       timeout: 5s
       retries: 10
 
   redis:
     image: redis:8.2-alpine
-    container_name: nexnote-redis
+    container_name: wekiflow-redis
     restart: unless-stopped
     ports:
       - "6380:6379"
     volumes:
-      - nexnote-redis-data:/data
+      - wekiflow-redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -32,5 +32,5 @@ services:
       retries: 10
 
 volumes:
-  nexnote-postgres18-data:
-  nexnote-redis-data:
+  wekiflow-postgres18-data:
+  wekiflow-redis-data:

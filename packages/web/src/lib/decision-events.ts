@@ -1,6 +1,6 @@
 import type { DecisionCounts } from "./api-client";
 
-const EVENT_NAME = "nexnote:decision-counts-updated";
+const EVENT_NAME = "wekiflow:decision-counts-updated";
 
 export interface DecisionCountsUpdatedDetail {
   workspaceId: string;

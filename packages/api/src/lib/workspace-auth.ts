@@ -1,11 +1,11 @@
 import type { FastifyReply } from "fastify";
-import type { Database } from "@nexnote/db";
+import type { Database } from "@wekiflow/db";
 import { eq, and } from "drizzle-orm";
-import { workspaceMembers } from "@nexnote/db";
-import type { WorkspaceRole } from "@nexnote/shared";
-import { WORKSPACE_ROLES } from "@nexnote/shared";
+import { workspaceMembers } from "@wekiflow/db";
+import type { WorkspaceRole } from "@wekiflow/shared";
+import { WORKSPACE_ROLES } from "@wekiflow/shared";
 import { z } from "zod";
-import { uuidSchema } from "@nexnote/shared";
+import { uuidSchema } from "@wekiflow/shared";
 
 export const ADMIN_PLUS_ROLES: readonly WorkspaceRole[] = WORKSPACE_ROLES.filter(
   (r) => r === "owner" || r === "admin",

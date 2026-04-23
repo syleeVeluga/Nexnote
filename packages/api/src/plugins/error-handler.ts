@@ -32,5 +32,5 @@ async function errorHandlerImpl(fastify: FastifyInstance) {
 }
 
 export const errorHandlerPlugin = fp(errorHandlerImpl, {
-  name: "nexnote-error-handler",
+  name: "wekiflow-error-handler",
 });

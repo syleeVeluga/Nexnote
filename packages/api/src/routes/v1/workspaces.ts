@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyReply } from "fastify";
 import { eq, and, count } from "drizzle-orm";
-import { workspaces, workspaceMembers, users, auditLogs } from "@nexnote/db";
+import { workspaces, workspaceMembers, users, auditLogs } from "@wekiflow/db";
 import {
   createWorkspaceSchema,
   updateWorkspaceSchema,
@@ -8,7 +8,7 @@ import {
   paginationSchema,
   uuidSchema,
   WORKSPACE_ROLES,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 import {
   sendValidationError,
   isUniqueViolation,

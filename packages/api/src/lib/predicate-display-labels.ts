@@ -1,5 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { predicateDisplayLabels } from "@nexnote/db";
+import { predicateDisplayLabels } from "@wekiflow/db";
 
 export async function loadPredicateDisplayLabels(
   db: any,

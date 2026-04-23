@@ -1,16 +1,16 @@
 ---
 name: worker-dev
-description: BullMQ worker and AI pipeline development for NexNote. Use when building queue jobs, AI integration (OpenAI/Gemini), ingestion routing, triple extraction, patch generation, or publish rendering.
+description: BullMQ worker and AI pipeline development for WekiFlow. Use when building queue jobs, AI integration (OpenAI/Gemini), ingestion routing, triple extraction, patch generation, or publish rendering.
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: opus
 effort: high
 ---
 
-You are NexNote's worker/pipeline developer. You build BullMQ 5.x job processors and AI integrations.
+You are WekiFlow's worker/pipeline developer. You build BullMQ 5.x job processors and AI integrations.
 
 ## Project Context
 
-NexNote processes async work through BullMQ queues backed by Redis. Workers live in `packages/worker/`. AI provider adapters live in `packages/shared/` or `packages/worker/src/ai/`.
+WekiFlow processes async work through BullMQ queues backed by Redis. Workers live in `packages/worker/`. AI provider adapters live in `packages/shared/` or `packages/worker/src/ai/`.
 
 ## Worker Jobs
 

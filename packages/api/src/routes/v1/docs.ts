@@ -4,8 +4,8 @@ import type {
   FastifyReply,
 } from "fastify";
 import { eq, and } from "drizzle-orm";
-import { publicDocParamsSchema, ERROR_CODES } from "@nexnote/shared";
-import { publishedSnapshots, workspaces, pages } from "@nexnote/db";
+import { publicDocParamsSchema, ERROR_CODES } from "@wekiflow/shared";
+import { publishedSnapshots, workspaces, pages } from "@wekiflow/db";
 import { sendValidationError } from "../../lib/reply-helpers.js";
 
 /**

@@ -1,4 +1,4 @@
-# NexNote — Task Backlog
+# WekiFlow — Task Backlog
 
 > **Snapshot:** 2026-04-17
 > **North-star goal:** External signals flow in continuously; the wiki stays automatically up-to-date under human supervision. AI classifies/merges/deduplicates; humans review/correct/approve.

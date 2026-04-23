@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { UNIFIED_DIFF_HEADER_LINES } from "@nexnote/shared";
+import { UNIFIED_DIFF_HEADER_LINES } from "@wekiflow/shared";
 
 interface DiffViewerProps {
   diffMd: string;

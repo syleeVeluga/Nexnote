@@ -9,7 +9,7 @@ env:
   PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
   REGION: asia-northeast3                   # 서울 리전
   REGISTRY: asia-northeast3-docker.pkg.dev
-  REPO: nexnote
+  REPO: wekiflow
 
 jobs:
   build-push:
@@ -49,7 +49,7 @@ jobs:
           context: .
           file: docker/Dockerfile.api
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}/nexnote-api:${{ steps.meta.outputs.tag }}
+          tags: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}/wekiflow-api:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -59,7 +59,7 @@ jobs:
           context: .
           file: docker/Dockerfile.worker
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}/nexnote-worker:${{ steps.meta.outputs.tag }}
+          tags: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}/wekiflow-worker:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -69,7 +69,7 @@ jobs:
           context: .
           file: docker/Dockerfile.web
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}/nexnote-web:${{ steps.meta.outputs.tag }}
+          tags: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}/wekiflow-web:${{ steps.meta.outputs.tag }}
           build-args: VITE_API_URL=${{ vars.VITE_API_URL }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -97,7 +97,7 @@ jobs:
           ssh_private_key: ${{ secrets.GCE_SSH_PRIVATE_KEY }}
           command: |
             set -e
-            cd /opt/nexnote
+            cd /opt/wekiflow
 
             # pull latest compose file from repo
             git pull origin main
@@ -112,7 +112,7 @@ jobs:
             POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
             REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
             MINIO_ROOT_PASSWORD=${{ secrets.MINIO_ROOT_PASSWORD }}
-            DATABASE_URL=postgresql://nexnote:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/nexnote
+            DATABASE_URL=postgresql://wekiflow:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/wekiflow
             REDIS_URL=redis://:${{ secrets.REDIS_PASSWORD }}@redis:6379
             JWT_SECRET=${{ secrets.JWT_SECRET }}
             OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}

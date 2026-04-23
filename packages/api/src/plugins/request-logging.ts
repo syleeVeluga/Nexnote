@@ -20,5 +20,5 @@ async function requestLoggingImpl(fastify: FastifyInstance) {
 }
 
 export const requestLoggingPlugin = fp(requestLoggingImpl, {
-  name: "nexnote-request-logging",
+  name: "wekiflow-request-logging",
 });

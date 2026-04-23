@@ -1,8 +1,8 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { ERROR_CODES, uuidSchema } from "@nexnote/shared";
-import { entities, pages, tripleMentions, triples } from "@nexnote/db";
+import { ERROR_CODES, uuidSchema } from "@wekiflow/shared";
+import { entities, pages, tripleMentions, triples } from "@wekiflow/db";
 import {
   forbidden,
   getMemberRole,

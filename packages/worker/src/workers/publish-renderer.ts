@@ -11,13 +11,13 @@ import type { Root, Element } from "hast";
 import { createRedisConnection } from "../connection.js";
 import { QUEUE_NAMES } from "../queues.js";
 import { createJobLogger } from "../logger.js";
-import { getDb } from "@nexnote/db/client";
-import { publishedSnapshots, pages } from "@nexnote/db";
-import { slugify } from "@nexnote/shared";
+import { getDb } from "@wekiflow/db/client";
+import { publishedSnapshots, pages } from "@wekiflow/db";
+import { slugify } from "@wekiflow/shared";
 import type {
   PublishRendererJobData,
   PublishRendererJobResult,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 
 // ---------------------------------------------------------------------------
 // TOC extraction — collect headings from the hast tree and inject anchor ids

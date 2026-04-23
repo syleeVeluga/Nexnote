@@ -6,14 +6,14 @@ import { QUEUE_NAMES } from "../queues.js";
 import { getAIAdapter, getDefaultProvider } from "../ai-gateway.js";
 import { createJobLogger } from "../logger.js";
 import { ensurePredicateDisplayLabels } from "../lib/predicate-label-cache.js";
-import { getDb } from "@nexnote/db/client";
+import { getDb } from "@wekiflow/db/client";
 import {
   entities,
   triples,
   tripleMentions,
   modelRuns,
   pageRevisions,
-} from "@nexnote/db";
+} from "@wekiflow/db";
 import {
   tripleExtractionSchema,
   normalizeKey,
@@ -21,14 +21,14 @@ import {
   sliceWithinTokenBudget,
   getModelContextBudget,
   MODE_OUTPUT_RESERVE,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 import type {
   TripleExtractorJobData,
   TripleExtractorJobResult,
   AIRequest,
   AIBudgetMeta,
   TripleExtraction,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 
 const PROMPT_VERSION = "triple-extractor-v3";
 

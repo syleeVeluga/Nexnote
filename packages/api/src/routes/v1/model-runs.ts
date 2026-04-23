@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import { eq, and, desc, count, sql } from "drizzle-orm";
-import { modelRuns } from "@nexnote/db";
-import { paginationSchema, AI_PROVIDERS, MODEL_RUN_MODES, MODEL_RUN_STATUSES } from "@nexnote/shared";
+import { modelRuns } from "@wekiflow/db";
+import { paginationSchema, AI_PROVIDERS, MODEL_RUN_MODES, MODEL_RUN_STATUSES } from "@wekiflow/shared";
 import { z } from "zod";
 import {
   getMemberRole,

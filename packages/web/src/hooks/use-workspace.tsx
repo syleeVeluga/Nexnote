@@ -22,7 +22,7 @@ interface WorkspaceState {
 
 const WorkspaceContext = createContext<WorkspaceState | null>(null);
 
-const STORAGE_KEY = "nexnote_workspace_id";
+const STORAGE_KEY = "wekiflow_workspace_id";
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();

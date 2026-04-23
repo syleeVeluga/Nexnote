@@ -1,5 +1,5 @@
 {
-  "name": "@nexnote/worker",
+  "name": "@wekiflow/worker",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,8 +12,8 @@
     "lint": "echo 'no linter configured yet'"
   },
   "dependencies": {
-    "@nexnote/db": "workspace:*",
-    "@nexnote/shared": "workspace:*",
+    "@wekiflow/db": "workspace:*",
+    "@wekiflow/shared": "workspace:*",
     "bullmq": "^5.0.0",
     "drizzle-orm": "^0.41.0",
     "ioredis": "^5.6.0",

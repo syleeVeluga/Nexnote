@@ -1,4 +1,4 @@
-import type { GraphData, GraphNode } from "@nexnote/shared";
+import type { GraphData, GraphNode } from "@wekiflow/shared";
 
 export interface GraphFilterOption {
   value: string;

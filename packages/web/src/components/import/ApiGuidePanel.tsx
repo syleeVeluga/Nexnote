@@ -26,7 +26,7 @@ const { token } = await fetch(\`\${BASE}/auth/login\`, {
   body: JSON.stringify({ email: 'you@example.com', password: 'yourpassword' }),
 }).then(r => r.json());
 
-// Step 2: Send knowledge to NexNote
+// Step 2: Send knowledge to WekiFlow
 const { id, replayed } = await fetch(
   \`\${BASE}/workspaces/${workspaceId}/ingestions\`,
   {
@@ -52,7 +52,7 @@ TOKEN=$(curl -s -X POST '${origin}/api/v1/auth/login' \\
   -d '{"email":"you@example.com","password":"yourpassword"}' \\
   | jq -r '.token')
 
-# Step 2: Send knowledge to NexNote
+# Step 2: Send knowledge to WekiFlow
 curl -s -X POST '${origin}/api/v1/workspaces/${workspaceId}/ingestions' \\
   -H "Authorization: Bearer $TOKEN" \\
   -H 'Content-Type: application/json' \\
@@ -74,7 +74,7 @@ token = requests.post(f'{BASE}/auth/login', json={
     'password': 'yourpassword',
 }).json()['token']
 
-# Step 2: Send knowledge to NexNote
+# Step 2: Send knowledge to WekiFlow
 res = requests.post(
     f'{BASE}/workspaces/${workspaceId}/ingestions',
     headers={'Authorization': f'Bearer {token}'},

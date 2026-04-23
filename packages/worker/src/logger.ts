@@ -1,7 +1,7 @@
 import { pino } from "pino";
 
 export const logger = pino({
-  name: "nexnote-worker",
+  name: "wekiflow-worker",
   level: process.env["LOG_LEVEL"] ?? "info",
 });
 

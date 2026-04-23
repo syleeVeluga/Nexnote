@@ -1,4 +1,4 @@
-# NexNote Chunking Plan
+# WekiFlow Chunking Plan
 
 > Status: Draft proposal
 > Last updated: 2026-04-21
@@ -30,7 +30,7 @@ The signal that Phase 0 has done its job (and that the full chunking plan below 
 
 ## 1. Background
 
-NexNote aims to solve the long-term maintenance problem of knowledge systems whose content continuously changes. The operating model is:
+WekiFlow aims to solve the long-term maintenance problem of knowledge systems whose content continuously changes. The operating model is:
 
 1. External signals and human inputs flow into the system.
 2. AI agents classify, merge, deduplicate, and extract structure.
@@ -46,7 +46,7 @@ Without chunking, long or weakly structured inputs create four problems:
 3. Graph provenance becomes coarse because facts can only be tied to a page/revision, not a more precise source region.
 4. Future vector indexing becomes expensive or inconsistent because there is no stable unit of retrieval.
 
-NexNote already preserves full raw input and full page revisions. That is a strong starting point. The missing layer is a derived, revision-scoped chunk structure that can support AI processing, graph provenance, and future retrieval without replacing the canonical Markdown revision model.
+WekiFlow already preserves full raw input and full page revisions. That is a strong starting point. The missing layer is a derived, revision-scoped chunk structure that can support AI processing, graph provenance, and future retrieval without replacing the canonical Markdown revision model.
 
 ## 2. Problem Statement
 
@@ -574,4 +574,4 @@ In short:
 
 **Do not replace pages with chunks. Keep the original revision whole, derive chunks from it, and use those derived chunks as the internal unit for AI understanding, graph evidence, and future retrieval.**
 
-This gives NexNote the smallest design that can credibly support long heterogeneous documents while preserving the product's existing strengths: canonical Markdown revisions, strong provenance, and a graph-first knowledge layer.
+This gives WekiFlow the smallest design that can credibly support long heterogeneous documents while preserving the product's existing strengths: canonical Markdown revisions, strong provenance, and a graph-first knowledge layer.

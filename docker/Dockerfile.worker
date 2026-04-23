@@ -19,9 +19,9 @@ FROM deps AS build
 COPY packages/shared  ./packages/shared
 COPY packages/db      ./packages/db
 COPY packages/worker  ./packages/worker
-RUN pnpm --filter @nexnote/shared build \
- && pnpm --filter @nexnote/db     build \
- && pnpm --filter @nexnote/worker build
+RUN pnpm --filter @wekiflow/shared build \
+ && pnpm --filter @wekiflow/db     build \
+ && pnpm --filter @wekiflow/worker build
 
 # ── runner ────────────────────────────────────────────────────────────────────
 FROM node:24-alpine AS runner

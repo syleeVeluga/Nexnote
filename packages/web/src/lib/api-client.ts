@@ -16,18 +16,18 @@ import {
   type IngestionAction,
   type IngestionStatus,
   type DecisionStatus,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 
 const BASE_URL = "/api/v1";
 
-let token: string | null = localStorage.getItem("nexnote_token");
+let token: string | null = localStorage.getItem("wekiflow_token");
 
 export function setToken(t: string | null) {
   token = t;
   if (t) {
-    localStorage.setItem("nexnote_token", t);
+    localStorage.setItem("wekiflow_token", t);
   } else {
-    localStorage.removeItem("nexnote_token");
+    localStorage.removeItem("wekiflow_token");
   }
 }
 
@@ -310,12 +310,12 @@ export type {
   GraphEdge,
   GraphData,
   EntityProvenance,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 export type {
   IngestionAction,
   IngestionStatus,
   DecisionStatus,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 
 export const pages = {
   list(

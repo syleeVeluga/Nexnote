@@ -1,5 +1,5 @@
 {
-  "name": "@nexnote/web",
+  "name": "@wekiflow/web",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@nexnote/shared": "workspace:^",
+    "@wekiflow/shared": "workspace:^",
     "@tiptap/core": "^3.22.3",
     "@tiptap/extension-code-block-lowlight": "^3.22.3",
     "@tiptap/extension-image": "^3.22.3",

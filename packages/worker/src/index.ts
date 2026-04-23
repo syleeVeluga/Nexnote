@@ -35,7 +35,7 @@ if (existsSync(envFile)) {
 const workers: Worker[] = [];
 
 function startWorkers(): void {
-  logger.info("Starting NexNote workers...");
+  logger.info("Starting WekiFlow workers...");
   workers.push(createRouteClassifierWorker());
   workers.push(createPatchGeneratorWorker());
   workers.push(createTripleExtractorWorker());

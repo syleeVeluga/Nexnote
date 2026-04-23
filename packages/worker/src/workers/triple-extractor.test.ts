@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import type { TripleExtraction } from "@nexnote/shared";
+import type { TripleExtraction } from "@wekiflow/shared";
 import { prepareTriplesForInsert } from "./triple-extractor.js";
 
 type ExtractedTriple = TripleExtraction["triples"][number];

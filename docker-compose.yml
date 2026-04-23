@@ -1,25 +1,25 @@
 services:
   postgres:
     image: postgres:18
-    container_name: nexnote-postgres
+    container_name: wekiflow-postgres
     restart: unless-stopped
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: nexnote
-      POSTGRES_PASSWORD: nexnote
-      POSTGRES_DB: nexnote
+      POSTGRES_USER: wekiflow
+      POSTGRES_PASSWORD: wekiflow
+      POSTGRES_DB: wekiflow
     volumes:
-      - nexnote-pgdata:/var/lib/postgresql
+      - wekiflow-pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nexnote"]
+      test: ["CMD-SHELL", "pg_isready -U wekiflow"]
       interval: 5s
       timeout: 3s
       retries: 5
 
   redis:
     image: redis:7-alpine
-    container_name: nexnote-redis
+    container_name: wekiflow-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -31,17 +31,17 @@ services:
 
   minio:
     image: minio/minio:latest
-    container_name: nexnote-minio
+    container_name: wekiflow-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: nexnote
-      MINIO_ROOT_PASSWORD: nexnote-dev-secret
+      MINIO_ROOT_USER: wekiflow
+      MINIO_ROOT_PASSWORD: wekiflow-dev-secret
     volumes:
-      - nexnote-miniodata:/data
+      - wekiflow-miniodata:/data
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
@@ -50,17 +50,17 @@ services:
 
   minio-init:
     image: minio/mc:latest
-    container_name: nexnote-minio-init
+    container_name: wekiflow-minio-init
     depends_on:
       minio:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 nexnote nexnote-dev-secret &&
-      mc mb --ignore-existing local/nexnote-ingestions &&
+      mc alias set local http://minio:9000 wekiflow wekiflow-dev-secret &&
+      mc mb --ignore-existing local/wekiflow-ingestions &&
       echo 'MinIO bucket ready.'
       "
 
 volumes:
-  nexnote-pgdata:
-  nexnote-miniodata:
+  wekiflow-pgdata:
+  wekiflow-miniodata:

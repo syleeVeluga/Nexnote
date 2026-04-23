@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import { eq, and, desc, count, gte, lte } from "drizzle-orm";
-import { auditLogs, users } from "@nexnote/db";
-import { paginationSchema, uuidSchema } from "@nexnote/shared";
+import { auditLogs, users } from "@wekiflow/db";
+import { paginationSchema, uuidSchema } from "@wekiflow/shared";
 import { z } from "zod";
 import {
   getMemberRole,

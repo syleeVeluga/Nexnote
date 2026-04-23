@@ -1,11 +1,11 @@
 ---
 name: worker
-description: Create a new BullMQ worker job for NexNote's async processing pipeline
+description: Create a new BullMQ worker job for WekiFlow's async processing pipeline
 argument-hint: "<job-name> [queue-name]"
 allowed-tools: Read, Glob, Grep, Bash, Write, Edit
 ---
 
-Create a new BullMQ worker job for NexNote.
+Create a new BullMQ worker job for WekiFlow.
 
 ## Arguments
 - `$0` — Job name (e.g., `triple-extractor`, `publish-renderer`)

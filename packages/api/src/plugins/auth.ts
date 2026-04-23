@@ -46,6 +46,6 @@ async function authPluginImpl(fastify: FastifyInstance) {
 }
 
 export const authPlugin = fp(authPluginImpl, {
-  name: "nexnote-auth",
-  dependencies: ["nexnote-db"],
+  name: "wekiflow-auth",
+  dependencies: ["wekiflow-db"],
 });

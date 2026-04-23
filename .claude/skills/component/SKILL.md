@@ -1,11 +1,11 @@
 ---
 name: component
-description: Create a new React component for NexNote's frontend
+description: Create a new React component for WekiFlow's frontend
 argument-hint: "<ComponentName> [description]"
 allowed-tools: Read, Glob, Grep, Bash, Write, Edit
 ---
 
-Create a new React component for NexNote.
+Create a new React component for WekiFlow.
 
 ## Arguments
 - `$0` — Component name in PascalCase (e.g., `GraphPanel`, `RevisionDiff`)

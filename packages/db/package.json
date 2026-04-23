@@ -1,5 +1,5 @@
 {
-  "name": "@nexnote/db",
+  "name": "@wekiflow/db",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -22,7 +22,7 @@
   "dependencies": {
     "drizzle-orm": "^0.41.0",
     "postgres": "^3.4.0",
-    "@nexnote/shared": "workspace:*"
+    "@wekiflow/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -1,8 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcrypt";
-import { registerSchema, loginSchema, ERROR_CODES } from "@nexnote/shared";
-import { users } from "@nexnote/db";
+import { registerSchema, loginSchema, ERROR_CODES } from "@wekiflow/shared";
+import { users } from "@wekiflow/db";
 import { sendValidationError, isUniqueViolation } from "../../lib/reply-helpers.js";
 
 const SALT_ROUNDS = 12;

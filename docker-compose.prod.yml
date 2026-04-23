@@ -3,13 +3,13 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-nexnote}
+      POSTGRES_USER: ${POSTGRES_USER:-wekiflow}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-nexnote}
+      POSTGRES_DB: ${POSTGRES_DB:-wekiflow}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nexnote}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wekiflow}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -31,7 +31,7 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-nexnote}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-wekiflow}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - miniodata:/data
@@ -48,14 +48,14 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-nexnote} ${MINIO_ROOT_PASSWORD} &&
-      mc mb --ignore-existing local/nexnote-ingestions &&
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-wekiflow} ${MINIO_ROOT_PASSWORD} &&
+      mc mb --ignore-existing local/wekiflow-ingestions &&
       echo 'MinIO ready.'
       "
     restart: on-failure
 
   migrate:
-    image: ${IMAGE_REGISTRY}/nexnote-api:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY}/wekiflow-api:${IMAGE_TAG:-latest}
     command: ["node", "packages/db/dist/migrate.js"]
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -65,7 +65,7 @@ services:
     restart: on-failure
 
   api:
-    image: ${IMAGE_REGISTRY}/nexnote-api:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY}/wekiflow-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -75,9 +75,9 @@ services:
       REDIS_URL: ${REDIS_URL}
       JWT_SECRET: ${JWT_SECRET}
       S3_ENDPOINT: http://minio:9000
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-nexnote}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-wekiflow}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      S3_BUCKET: nexnote-ingestions
+      S3_BUCKET: wekiflow-ingestions
       S3_REGION: us-east-1
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -90,16 +90,16 @@ services:
         condition: service_healthy
 
   worker:
-    image: ${IMAGE_REGISTRY}/nexnote-worker:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY}/wekiflow-worker:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       S3_ENDPOINT: http://minio:9000
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-nexnote}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-wekiflow}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      S3_BUCKET: nexnote-ingestions
+      S3_BUCKET: wekiflow-ingestions
       S3_REGION: us-east-1
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -110,7 +110,7 @@ services:
         condition: service_healthy
 
   web:
-    image: ${IMAGE_REGISTRY}/nexnote-web:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY}/wekiflow-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "80:80"

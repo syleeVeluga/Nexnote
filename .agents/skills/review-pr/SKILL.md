@@ -1,13 +1,13 @@
 ---
 name: review-pr
-description: Review a pull request or current changes against NexNote's architectural rules
+description: Review a pull request or current changes against WekiFlow's architectural rules
 argument-hint: "[PR-number or branch]"
 allowed-tools: Read, Glob, Grep, Bash
 context: fork
 agent: reviewer
 ---
 
-Review code changes for NexNote project compliance.
+Review code changes for WekiFlow project compliance.
 
 ## Arguments
 - `$ARGUMENTS` — PR number, branch name, or empty for current uncommitted changes

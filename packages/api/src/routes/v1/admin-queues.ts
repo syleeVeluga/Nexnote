@@ -6,7 +6,7 @@ import {
   ERROR_CODES,
   QUEUE_KEYS,
   type QueueKey,
-} from "@nexnote/shared";
+} from "@wekiflow/shared";
 import {
   getMemberRole,
   forbidden,

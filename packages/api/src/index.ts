@@ -30,7 +30,7 @@ async function main() {
 
   try {
     await app.listen({ port: API_PORT, host: API_HOST });
-    app.log.info(`NexNote API listening on ${API_HOST}:${API_PORT}`);
+    app.log.info(`WekiFlow API listening on ${API_HOST}:${API_PORT}`);
   } catch (err) {
     app.log.error(err);
     process.exit(1);
