@@ -24,6 +24,7 @@
   "unpublishThenDelete": "Unpublish and delete",
   "deleteFailed": "Failed to delete.",
   "review": "Review Queue",
+  "activity": "Activity",
   "import": "Import Knowledge",
   "queueHealth": "Queue Health",
   "trash": "Trash",

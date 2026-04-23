@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { DecisionDetail } from "../../lib/api-client.js";
 import { classifyLine } from "../revisions/DiffViewer.js";
@@ -76,7 +77,37 @@ export function ReviewDetail({ decision, onApprove, onReject }: ReviewDetailProp
             </span>
           </div>
         </div>
+        <Link
+          to={`/ingestions/${decision.ingestion.id}`}
+          className="review-detail-link"
+        >
+          {t("detail.viewFullDetail")} &rarr;
+        </Link>
       </div>
+
+      {decision.conflict && (
+        <div className="review-conflict-banner">
+          <div className="review-conflict-title">
+            ⚠ {t("conflict.bannerTitle")}
+          </div>
+          <div className="review-conflict-body">
+            {t("conflict.bannerBody", {
+              editedAt: new Date(
+                decision.conflict.humanEditedAt,
+              ).toLocaleString(),
+            })}
+            {decision.conflict.humanRevisionNote && (
+              <>
+                {" "}
+                <em>&ldquo;{decision.conflict.humanRevisionNote}&rdquo;</em>
+              </>
+            )}
+          </div>
+          <div className="review-conflict-hint">
+            {t("conflict.approveWarning")}
+          </div>
+        </div>
+      )}
 
       {decision.reason && (
         <div className="review-detail-section">

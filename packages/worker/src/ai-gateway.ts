@@ -21,6 +21,7 @@ interface MockFixtureFile {
       patch_generation?: string;
       triple_extraction?: Record<string, unknown>;
       content_reformat?: string;
+      predicate_label?: Record<string, unknown>;
     }
   >;
 }
@@ -63,6 +64,9 @@ function resolveMockContent(request: AIRequest): string {
     }
     if (request.mode === "patch_generation") {
       return "# E2E Mock Patch\n\nNo explicit marker was provided.\n";
+    }
+    if (request.mode === "predicate_label") {
+      return JSON.stringify({ labels: [] });
     }
     throw new Error(
       `AI_TEST_MODE=mock requires one of the registered markers (${Object.keys(loadMockFixtures().markers).join(", ")}) in the prompt`,

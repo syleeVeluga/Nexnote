@@ -1,4 +1,8 @@
-import type { FastifyInstance, FastifyPluginAsync, FastifyReply } from "fastify";
+import type {
+  FastifyInstance,
+  FastifyPluginAsync,
+  FastifyReply,
+} from "fastify";
 import { eq, and, desc, count, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -102,9 +106,10 @@ function buildContentDisposition(filename: string): string {
 
 function deriveDownloadFilename(row: Ingestion): string {
   const payload = row.rawPayload as Record<string, unknown> | null;
-  const original = payload && typeof payload["originalFilename"] === "string"
-    ? (payload["originalFilename"] as string)
-    : null;
+  const original =
+    payload && typeof payload["originalFilename"] === "string"
+      ? (payload["originalFilename"] as string)
+      : null;
   if (original && original.trim()) return original.trim();
 
   const sourceUrl =
@@ -151,7 +156,8 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const params = workspaceParamsSchema.safeParse(request.params);
-      if (!params.success) return sendValidationError(reply, params.error.issues);
+      if (!params.success)
+        return sendValidationError(reply, params.error.issues);
 
       const body = createIngestionSchema.safeParse(request.body);
       if (!body.success) return sendValidationError(reply, body.error.issues);
@@ -249,7 +255,9 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
         },
       );
 
-      return reply.code(replayed ? 200 : 202).send(mapIngestionDto(ingestionRow));
+      return reply
+        .code(replayed ? 200 : 202)
+        .send(mapIngestionDto(ingestionRow));
     },
   );
 
@@ -261,7 +269,8 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
     { onRequest: [fastify.authenticate] },
     async (request, reply) => {
       const params = workspaceParamsSchema.safeParse(request.params);
-      if (!params.success) return sendValidationError(reply, params.error.issues);
+      if (!params.success)
+        return sendValidationError(reply, params.error.issues);
 
       const query = listIngestionsQuerySchema.safeParse(request.query);
       if (!query.success) return sendValidationError(reply, query.error.issues);
@@ -298,10 +307,7 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
           .orderBy(desc(ingestions.receivedAt))
           .limit(limit)
           .offset(offset),
-        fastify.db
-          .select({ count: count() })
-          .from(ingestions)
-          .where(where),
+        fastify.db.select({ count: count() }).from(ingestions).where(where),
       ]);
 
       return reply.send({
@@ -319,7 +325,8 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
     { onRequest: [fastify.authenticate] },
     async (request, reply) => {
       const params = ingestionParamsSchema.safeParse(request.params);
-      if (!params.success) return sendValidationError(reply, params.error.issues);
+      if (!params.success)
+        return sendValidationError(reply, params.error.issues);
 
       const { workspaceId, ingestionId } = params.data;
       const row = await loadIngestion(
@@ -352,7 +359,8 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
     { onRequest: [fastify.authenticate] },
     async (request, reply) => {
       const params = ingestionParamsSchema.safeParse(request.params);
-      if (!params.success) return sendValidationError(reply, params.error.issues);
+      if (!params.success)
+        return sendValidationError(reply, params.error.issues);
 
       const { workspaceId, ingestionId } = params.data;
       const row = await loadIngestion(
@@ -420,7 +428,8 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
     { onRequest: [fastify.authenticate] },
     async (request, reply) => {
       const params = ingestionParamsSchema.safeParse(request.params);
-      if (!params.success) return sendValidationError(reply, params.error.issues);
+      if (!params.success)
+        return sendValidationError(reply, params.error.issues);
 
       const body = applyBodySchema.safeParse(request.body);
       if (!body.success) return sendValidationError(reply, body.error.issues);
@@ -448,7 +457,10 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
           createdAt: ingestionDecisions.createdAt,
         })
         .from(ingestionDecisions)
-        .innerJoin(ingestions, eq(ingestions.id, ingestionDecisions.ingestionId))
+        .innerJoin(
+          ingestions,
+          eq(ingestions.id, ingestionDecisions.ingestionId),
+        )
         .where(
           and(
             eq(ingestionDecisions.id, decisionId),
@@ -469,6 +481,7 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
       const ctx = {
         db: fastify.db,
         extractionQueue: fastify.queues.extraction,
+        searchQueue: fastify.queues.search,
         workspaceId,
         decision,
         userId,

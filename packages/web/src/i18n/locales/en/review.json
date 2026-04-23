@@ -49,5 +49,34 @@
   "shortcutHint": "Shortcuts: j/k to navigate, a to approve, r to reject",
   "reviewPending": "pending review",
   "review": "Review",
-  "noReason": "(no reason provided)"
+  "noReason": "(no reason provided)",
+  "conflict": {
+    "chip": "conflict",
+    "tooltip": "A human edited this page after the AI decided to auto-apply. Review carefully.",
+    "bannerTitle": "Concurrent human edit detected",
+    "bannerBody": "A reviewer saved a new revision on {{editedAt}} after the classifier picked this target, so auto-apply was held back.",
+    "approveWarning": "Approving will create a new AI revision on top of the human's edits. Reject and re-run classification if the incoming content is no longer relevant."
+  },
+  "detail": {
+    "backToReview": "Back to review queue",
+    "viewFullDetail": "View full ingestion detail",
+    "payload": "Ingestion payload",
+    "decisions": "Decisions",
+    "candidates": "Candidate pages",
+    "noCandidates": "No candidate pages — this was treated as a new page.",
+    "noDecisions": "This ingestion has no decisions yet.",
+    "selectedTarget": "chosen target",
+    "contentType": "content-type",
+    "downloadOriginal": "Download original",
+    "downloadFailed": "Download failed",
+    "loadFailed": "Failed to load",
+    "notFound": "Ingestion not found",
+    "untitledFromSource": "Untitled ingestion from {{source}}",
+    "matchSource": {
+      "title": "title match",
+      "fts": "full-text",
+      "trigram": "trigram",
+      "entity": "entity overlap"
+    }
+  }
 }

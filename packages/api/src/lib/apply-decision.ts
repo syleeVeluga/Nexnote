@@ -3,6 +3,7 @@ import {
   ingestions,
   ingestionDecisions,
   pages,
+  pagePaths,
   pageRevisions,
   revisionDiffs,
   auditLogs,
@@ -23,6 +24,7 @@ import type { TripleExtractorJobData } from "@nexnote/shared";
 export interface ApplyDecisionCtx {
   db: Database;
   extractionQueue: Queue;
+  searchQueue: Queue;
   workspaceId: string;
   decision: IngestionDecision;
   userId: string;
@@ -51,7 +53,8 @@ export interface ApplyDecisionError {
 export async function approveDecision(
   ctx: ApplyDecisionCtx,
 ): Promise<ApplyDecisionResult | ApplyDecisionError> {
-  const { db, extractionQueue, workspaceId, decision, userId } = ctx;
+  const { db, extractionQueue, searchQueue, workspaceId, decision, userId } =
+    ctx;
   const ingestionId = decision.ingestionId;
 
   const [ingestion] = await db
@@ -115,6 +118,12 @@ export async function approveDecision(
           lastAiUpdatedAt: now,
         })
         .where(eq(pages.id, page.id)),
+      db.insert(pagePaths).values({
+        workspaceId,
+        pageId: page.id,
+        path: page.slug,
+        isCurrent: true,
+      }),
       db
         .update(ingestionDecisions)
         .set({
@@ -149,6 +158,15 @@ export async function approveDecision(
     await extractionQueue.add(
       JOB_NAMES.TRIPLE_EXTRACTOR,
       tripleData,
+      DEFAULT_JOB_OPTIONS,
+    );
+    await searchQueue.add(
+      JOB_NAMES.SEARCH_INDEX_UPDATER,
+      {
+        pageId: page.id,
+        revisionId: revision.id,
+        workspaceId,
+      },
       DEFAULT_JOB_OPTIONS,
     );
 
@@ -268,6 +286,15 @@ export async function approveDecision(
       tripleData,
       DEFAULT_JOB_OPTIONS,
     );
+    await searchQueue.add(
+      JOB_NAMES.SEARCH_INDEX_UPDATER,
+      {
+        pageId: decision.targetPageId,
+        revisionId,
+        workspaceId,
+      },
+      DEFAULT_JOB_OPTIONS,
+    );
 
     await Promise.all([
       db
@@ -299,8 +326,7 @@ export async function approveDecision(
   }
 
   // noop / needs_review — the reviewer acknowledged without creating content.
-  const acknowledgedStatus =
-    decision.action === "noop" ? "noop" : "rejected";
+  const acknowledgedStatus = decision.action === "noop" ? "noop" : "rejected";
   await Promise.all([
     db
       .update(ingestionDecisions)

@@ -49,5 +49,34 @@
   "shortcutHint": "단축키: j/k 탐색, a 승인, r 거절",
   "reviewPending": "검토 대기",
   "review": "검토",
-  "noReason": "사유 없음"
+  "noReason": "사유 없음",
+  "conflict": {
+    "chip": "충돌",
+    "tooltip": "AI가 자동 적용을 결정한 이후 사람이 이 페이지를 수정했습니다. 주의해서 검토하세요.",
+    "bannerTitle": "동시 수정 감지됨",
+    "bannerBody": "분류기가 이 타겟을 선택한 후인 {{editedAt}}에 사용자가 새 리비전을 저장했기 때문에 자동 적용이 중단되었습니다.",
+    "approveWarning": "승인하면 사람의 수정 위에 새로운 AI 리비전이 생성됩니다. 수신 내용이 더 이상 관련 없다면 거절하고 재분류하세요."
+  },
+  "detail": {
+    "backToReview": "검토 대기열로 돌아가기",
+    "viewFullDetail": "전체 인제스션 상세 보기",
+    "payload": "인제스션 페이로드",
+    "decisions": "결정",
+    "candidates": "후보 페이지",
+    "noCandidates": "후보 페이지 없음 — 새 페이지로 처리되었습니다.",
+    "noDecisions": "이 인제스션에 아직 결정이 없습니다.",
+    "selectedTarget": "선택된 타겟",
+    "contentType": "콘텐츠 유형",
+    "downloadOriginal": "원본 다운로드",
+    "downloadFailed": "다운로드 실패",
+    "loadFailed": "불러오기 실패",
+    "notFound": "인제스션을 찾을 수 없습니다",
+    "untitledFromSource": "{{source}}에서 수신한 제목 없음",
+    "matchSource": {
+      "title": "제목 매칭",
+      "fts": "전문 검색",
+      "trigram": "트라이그램",
+      "entity": "엔티티 중복"
+    }
+  }
 }

@@ -5,6 +5,7 @@ export * from "./published.js";
 export * from "./ingestions.js";
 export * from "./entities.js";
 export * from "./triples.js";
+export * from "./predicate-labels.js";
 export * from "./audit.js";
 
 import * as _users from "./users.js";
@@ -14,6 +15,7 @@ import * as _published from "./published.js";
 import * as _ingestions from "./ingestions.js";
 import * as _entities from "./entities.js";
 import * as _triples from "./triples.js";
+import * as _predicateLabels from "./predicate-labels.js";
 import * as _audit from "./audit.js";
 
 export const schema = {
@@ -24,5 +26,6 @@ export const schema = {
   ..._ingestions,
   ..._entities,
   ..._triples,
+  ..._predicateLabels,
   ..._audit,
 } as const;

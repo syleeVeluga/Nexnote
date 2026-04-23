@@ -24,6 +24,7 @@
   "unpublishThenDelete": "발행 해제 후 삭제",
   "deleteFailed": "삭제에 실패했습니다.",
   "review": "검토 대기열",
+  "activity": "활동",
   "import": "지식 가져오기",
   "queueHealth": "큐 상태",
   "trash": "휴지통",

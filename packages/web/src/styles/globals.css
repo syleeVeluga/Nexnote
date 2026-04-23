@@ -256,10 +256,14 @@ label {
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
   color: #64748b;
-  font-size: 15px;
-  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 10px;
   border-radius: 6px;
   z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .sidebar-expand-btn:hover {
@@ -1223,4 +1227,3 @@ label {
   background: #f8fafc;
   border-radius: 8px;
 }
-

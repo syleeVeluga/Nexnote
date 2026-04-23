@@ -10,6 +10,7 @@ import {
 } from "../../lib/api-client.js";
 import { LanguageSwitcher } from "./LanguageSwitcher.js";
 import { subscribeDecisionCountsUpdated } from "../../lib/decision-events.js";
+import { subscribePagesUpdated } from "../../lib/page-events.js";
 import { ConfirmDialog } from "../modals/ConfirmDialog.js";
 
 const ROOT_PAGE_VALUE = "__root__";
@@ -128,19 +129,28 @@ function ContextMenu({
     >
       <button
         className="context-menu-item"
-        onClick={() => { onMove(menu.pageId, menu.currentTitle); onClose(); }}
+        onClick={() => {
+          onMove(menu.pageId, menu.currentTitle);
+          onClose();
+        }}
       >
         {t("move")}
       </button>
       <button
         className="context-menu-item"
-        onClick={() => { onRename(menu.pageId, menu.currentTitle); onClose(); }}
+        onClick={() => {
+          onRename(menu.pageId, menu.currentTitle);
+          onClose();
+        }}
       >
         {t("rename")}
       </button>
       <button
         className="context-menu-item context-menu-item-danger"
-        onClick={() => { onDelete(menu.pageId); onClose(); }}
+        onClick={() => {
+          onDelete(menu.pageId);
+          onClose();
+        }}
       >
         {t("delete")}
       </button>
@@ -183,7 +193,10 @@ export function Sidebar({
   const [wsRename, setWsRename] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
+  const [renaming, setRenaming] = useState<{
+    id: string;
+    value: string;
+  } | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(
     null,
@@ -194,14 +207,21 @@ export function Sidebar({
   const [moveError, setMoveError] = useState<string | null>(null);
   const [movePending, setMovePending] = useState(false);
 
+  const loadPages = useCallback(async () => {
+    const res = await pagesApi.list(workspace.id, { limit: 100 });
+    setPageList(res.data);
+  }, [workspace.id]);
+
   useEffect(() => {
-    let cancelled = false;
-    pagesApi
-      .list(workspace.id, { limit: 100 })
-      .then((res) => { if (!cancelled) setPageList(res.data); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [workspace.id, location.pathname, location.search]);
+    loadPages().catch(() => {});
+  }, [loadPages, location.pathname, location.search]);
+
+  useEffect(() => {
+    return subscribePagesUpdated((detail) => {
+      if (detail.workspaceId !== workspace.id) return;
+      loadPages().catch(() => {});
+    });
+  }, [workspace.id, loadPages]);
 
   useEffect(() => {
     let cancelled = false;
@@ -253,16 +273,19 @@ export function Sidebar({
     setRenaming({ id, value: currentTitle });
   }, []);
 
-  const startMove = useCallback((id: string, currentTitle: string) => {
-    const currentPage = pageList.find((page) => page.id === id);
-    setMoving({
-      pageId: id,
-      currentTitle,
-      parentPageId: currentPage?.parentPageId ?? null,
-    });
-    setMoveTargetId(currentPage?.parentPageId ?? ROOT_PAGE_VALUE);
-    setMoveError(null);
-  }, [pageList]);
+  const startMove = useCallback(
+    (id: string, currentTitle: string) => {
+      const currentPage = pageList.find((page) => page.id === id);
+      setMoving({
+        pageId: id,
+        currentTitle,
+        parentPageId: currentPage?.parentPageId ?? null,
+      });
+      setMoveTargetId(currentPage?.parentPageId ?? ROOT_PAGE_VALUE);
+      setMoveError(null);
+    },
+    [pageList],
+  );
 
   const closeMoveDialog = useCallback(() => {
     if (movePending) return;
@@ -279,26 +302,27 @@ export function Sidebar({
     if (!title) return;
     try {
       await pagesApi.update(workspace.id, id, { title });
-      setPageList((prev) => prev.map((p) => (p.id === id ? { ...p, title } : p)));
-    } catch { /* leave existing title on failure */ }
+      setPageList((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, title } : p)),
+      );
+    } catch {
+      /* leave existing title on failure */
+    }
   }, [renaming, workspace.id]);
 
-  const collectSubtree = useCallback(
-    (rootId: string, list: Page[]) => {
-      const ids = new Set<string>([rootId]);
-      const add = (parent: string) => {
-        for (const p of list) {
-          if (p.parentPageId === parent && !ids.has(p.id)) {
-            ids.add(p.id);
-            add(p.id);
-          }
+  const collectSubtree = useCallback((rootId: string, list: Page[]) => {
+    const ids = new Set<string>([rootId]);
+    const add = (parent: string) => {
+      for (const p of list) {
+        if (p.parentPageId === parent && !ids.has(p.id)) {
+          ids.add(p.id);
+          add(p.id);
         }
-      };
-      add(rootId);
-      return ids;
-    },
-    [],
-  );
+      }
+    };
+    add(rootId);
+    return ids;
+  }, []);
 
   const openDeleteDialog = useCallback(
     (id: string) => {
@@ -347,9 +371,9 @@ export function Sidebar({
       const response = await pagesApi.update(workspace.id, moving.pageId, {
         parentPageId: nextParentPageId,
       });
-      setPageList((prev) => prev.map((page) => (
-        page.id === moving.pageId ? response.page : page
-      )));
+      setPageList((prev) =>
+        prev.map((page) => (page.id === moving.pageId ? response.page : page)),
+      );
       if (nextParentPageId) {
         setExpandedIds((prev) => {
           const next = new Set(prev);
@@ -412,12 +436,16 @@ export function Sidebar({
     try {
       await wsApi.update(workspace.id, { name });
       onRenameWorkspace();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, [wsRename, workspace.id, workspace.name, onRenameWorkspace]);
 
   const onAddSubPage = useCallback(
     (parentId: string, parentTitle: string) =>
-      navigate(`/pages/new?parentId=${parentId}&parentTitle=${encodeURIComponent(parentTitle)}`),
+      navigate(
+        `/pages/new?parentId=${parentId}&parentTitle=${encodeURIComponent(parentTitle)}`,
+      ),
     [navigate],
   );
 
@@ -443,9 +471,16 @@ export function Sidebar({
       untitled: t("untitled"),
     }),
     [
-      pagesByParent, expandedIds, toggleExpand, onAddSubPage,
-      openContextMenu, renaming, onRenameValueChange, submitRename,
-      onCancelRename, t,
+      pagesByParent,
+      expandedIds,
+      toggleExpand,
+      onAddSubPage,
+      openContextMenu,
+      renaming,
+      onRenameValueChange,
+      submitRename,
+      onCancelRename,
+      t,
     ],
   );
 
@@ -475,10 +510,18 @@ export function Sidebar({
               <span className="ws-name">{workspace.name}</span>
               <span className="ws-chevron">&#8964;</span>
             </button>
-            <button className="sidebar-icon-btn" title="사이드바 닫기" onClick={onCollapse}>
+            <button
+              className="sidebar-icon-btn"
+              title="사이드바 닫기"
+              onClick={onCollapse}
+            >
               &#171;
             </button>
-            <button className="sidebar-icon-btn" title={t("newPage")} onClick={onNewPage}>
+            <button
+              className="sidebar-icon-btn"
+              title={t("newPage")}
+              onClick={onNewPage}
+            >
               &#x1F5CE;&#xFE0E;
             </button>
           </div>
@@ -489,16 +532,16 @@ export function Sidebar({
               <button
                 key={ws.id}
                 className={`ws-dropdown-item${ws.id === workspace.id ? " active" : ""}`}
-                onClick={() => { onSelectWorkspace(ws); setWsDropdown(false); }}
+                onClick={() => {
+                  onSelectWorkspace(ws);
+                  setWsDropdown(false);
+                }}
               >
                 {ws.name}
               </button>
             ))}
             <div className="ws-dropdown-divider" />
-            <button
-              className="ws-dropdown-item"
-              onClick={startWsRename}
-            >
+            <button className="ws-dropdown-item" onClick={startWsRename}>
               {t("renameWorkspace")}
             </button>
           </div>
@@ -516,6 +559,14 @@ export function Sidebar({
           {pendingCount > 0 && (
             <span className="sidebar-nav-badge">{pendingCount}</span>
           )}
+        </NavLink>
+        <NavLink
+          to="/activity"
+          className={({ isActive }) =>
+            `sidebar-nav-link${isActive ? " active" : ""}`
+          }
+        >
+          <span className="sidebar-nav-label">{t("activity")}</span>
         </NavLink>
         <NavLink
           to="/import"
@@ -547,9 +598,7 @@ export function Sidebar({
 
       <hr className="sidebar-divider" />
 
-      <h2 className="sidebar-section-header">
-        {t("pagesSectionTitle")}
-      </h2>
+      <h2 className="sidebar-section-header">{t("pagesSectionTitle")}</h2>
 
       <div className="sidebar-content">
         {rootPages.map((page) => (
@@ -667,7 +716,9 @@ function MovePageDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="sidebar-dialog-header">
-          <h3 id="move-page-title">{t("movePageTitle", { title: currentTitle })}</h3>
+          <h3 id="move-page-title">
+            {t("movePageTitle", { title: currentTitle })}
+          </h3>
         </div>
 
         <div className="sidebar-dialog-body">
@@ -722,7 +773,11 @@ interface SharedNodeProps {
   expandedIds: Set<string>;
   onToggle: (id: string) => void;
   onAddSubPage: (parentId: string, parentTitle: string) => void;
-  onContextMenu: (e: React.MouseEvent, pageId: string, currentTitle: string) => void;
+  onContextMenu: (
+    e: React.MouseEvent,
+    pageId: string,
+    currentTitle: string,
+  ) => void;
   renamingId: string | null;
   renameValue: string;
   onRenameValueChange: (v: string) => void;
@@ -746,7 +801,10 @@ function PageNode({ page, ...shared }: { page: Page } & SharedNodeProps) {
       >
         <button
           className="page-expand-btn"
-          onClick={(e) => { e.stopPropagation(); shared.onToggle(page.id); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            shared.onToggle(page.id);
+          }}
           tabIndex={-1}
         >
           {hasChildren ? (isExpanded ? "▾" : "▸") : " "}
@@ -767,7 +825,9 @@ function PageNode({ page, ...shared }: { page: Page } & SharedNodeProps) {
         ) : (
           <NavLink
             to={`/pages/${page.id}`}
-            className={({ isActive }) => `page-node-link${isActive ? " active" : ""}`}
+            className={({ isActive }) =>
+              `page-node-link${isActive ? " active" : ""}`
+            }
           >
             {title}
           </NavLink>
@@ -776,7 +836,10 @@ function PageNode({ page, ...shared }: { page: Page } & SharedNodeProps) {
         <button
           className="page-add-sub-btn"
           title="하위 페이지 추가"
-          onClick={(e) => { e.stopPropagation(); shared.onAddSubPage(page.id, title); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            shared.onAddSubPage(page.id, title);
+          }}
         >
           +
         </button>

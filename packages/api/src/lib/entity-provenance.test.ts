@@ -6,6 +6,9 @@ function row(overrides: Partial<RawEvidenceRow>): RawEvidenceRow {
   return {
     tripleId: "t1",
     pageId: "p1",
+    subjectEntityId: "s1",
+    objectEntityId: "o1",
+    objectLiteral: null,
     spanStart: 0,
     spanEnd: 10,
     excerpt: "excerpt",
@@ -22,9 +25,9 @@ describe("groupEvidenceByPage", () => {
 
   it("groups contiguous rows by pageId preserving input order", () => {
     const rows: RawEvidenceRow[] = [
-      row({ pageId: "p1", tripleId: "t1", spanStart: 0 }),
-      row({ pageId: "p1", tripleId: "t2", spanStart: 20 }),
-      row({ pageId: "p2", tripleId: "t3", spanStart: 5 }),
+      row({ pageId: "p1", tripleId: "t1", objectEntityId: "o1", spanStart: 0 }),
+      row({ pageId: "p1", tripleId: "t2", objectEntityId: "o2", spanStart: 20 }),
+      row({ pageId: "p2", tripleId: "t3", objectEntityId: "o3", spanStart: 5 }),
     ];
     const result = groupEvidenceByPage(rows);
     assert.equal(result.size, 2);
@@ -63,9 +66,9 @@ describe("groupEvidenceByPage", () => {
 
   it("merges non-contiguous rows for the same pageId", () => {
     const rows: RawEvidenceRow[] = [
-      row({ pageId: "p1", tripleId: "t1" }),
-      row({ pageId: "p2", tripleId: "t2" }),
-      row({ pageId: "p1", tripleId: "t3" }),
+      row({ pageId: "p1", tripleId: "t1", objectEntityId: "o1" }),
+      row({ pageId: "p2", tripleId: "t2", objectEntityId: "o2" }),
+      row({ pageId: "p1", tripleId: "t3", objectEntityId: "o3" }),
     ];
     const result = groupEvidenceByPage(rows);
     const p1 = result.get("p1");
@@ -75,5 +78,57 @@ describe("groupEvidenceByPage", () => {
       p1.map((e) => e.tripleId),
       ["t1", "t3"],
     );
+  });
+
+  it("dedupes identical logical evidence rows on the same page", () => {
+    const rows: RawEvidenceRow[] = [
+      row({
+        pageId: "p1",
+        tripleId: "t1",
+        predicate: "is_a",
+        excerpt: "same excerpt",
+        subjectEntityId: "s1",
+        objectEntityId: "o1",
+        objectLiteral: null,
+      }),
+      row({
+        pageId: "p1",
+        tripleId: "t2",
+        predicate: "is_a",
+        excerpt: "same excerpt",
+        subjectEntityId: "s1",
+        objectEntityId: "o1",
+        objectLiteral: null,
+      }),
+    ];
+
+    const result = groupEvidenceByPage(rows);
+    assert.equal(result.get("p1")?.length, 1);
+  });
+
+  it("keeps rows when object differs even if predicate and excerpt match", () => {
+    const rows: RawEvidenceRow[] = [
+      row({
+        pageId: "p1",
+        tripleId: "t1",
+        predicate: "is_a",
+        excerpt: "same excerpt",
+        subjectEntityId: "s1",
+        objectEntityId: "o1",
+        objectLiteral: null,
+      }),
+      row({
+        pageId: "p1",
+        tripleId: "t2",
+        predicate: "is_a",
+        excerpt: "same excerpt",
+        subjectEntityId: "s1",
+        objectEntityId: "o2",
+        objectLiteral: null,
+      }),
+    ];
+
+    const result = groupEvidenceByPage(rows);
+    assert.equal(result.get("p1")?.length, 2);
   });
 });

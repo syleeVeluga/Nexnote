@@ -3,13 +3,19 @@ import { useTranslation } from "react-i18next";
 import {
   pages as pagesApi,
   type EntityProvenance,
+  type GraphData,
 } from "../../lib/api-client.js";
+import { resolveSupportedLocale } from "../../i18n/locale.js";
+import { getEntityRelations } from "./graph-helpers.js";
+import { getPredicateDisplayLabel } from "./predicate-label.js";
 
 interface NodeInspectorProps {
   workspaceId: string;
   entityId: string;
   currentPageId: string;
+  graphData: GraphData | null;
   onClose: () => void;
+  onSelectEntity: (entityId: string) => void;
   onNavigateToPage: (pageId: string) => void;
   getTypeColor: (type: string) => string;
 }
@@ -26,11 +32,14 @@ export function NodeInspector({
   workspaceId,
   entityId,
   currentPageId,
+  graphData,
   onClose,
+  onSelectEntity,
   onNavigateToPage,
   getTypeColor,
 }: NodeInspectorProps) {
-  const { t } = useTranslation(["editor", "common"]);
+  const { t, i18n } = useTranslation(["editor", "common"]);
+  const locale = resolveSupportedLocale(i18n.resolvedLanguage ?? i18n.language);
   const [detail, setDetail] = useState<EntityProvenance | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +53,7 @@ export function NodeInspector({
     pagesApi
       .entityProvenance(workspaceId, entityId, {
         limit: 5,
+        locale,
         signal: controller.signal,
       })
       .then((res) => setDetail(res))
@@ -59,7 +69,7 @@ export function NodeInspector({
       });
 
     return () => controller.abort();
-  }, [workspaceId, entityId, t]);
+  }, [workspaceId, entityId, locale, t]);
 
   const hiddenPageCount = useMemo(() => {
     if (!detail?.truncated) return 0;
@@ -68,6 +78,17 @@ export function NodeInspector({
       0,
     );
   }, [detail]);
+
+  const relations = useMemo(
+    () =>
+      graphData
+        ? getEntityRelations(graphData, entityId)
+        : { outgoing: [], incoming: [] },
+    [graphData, entityId],
+  );
+
+  const totalDirectRelations =
+    relations.outgoing.length + relations.incoming.length;
 
   return (
     <section
@@ -113,6 +134,103 @@ export function NodeInspector({
 
           <div className="node-inspector-body">
             <div className="node-inspector-section">
+              <div className="node-inspector-section-header">
+                <h4>{t("graphNodeInspectorRelations")}</h4>
+                <span className="node-inspector-section-meta">
+                  {t("graphNodeInspectorRelationsCount", {
+                    count: totalDirectRelations,
+                  })}
+                </span>
+              </div>
+
+              <div className="node-relations-grid">
+                <div className="node-relation-group">
+                  <div className="node-relation-group-title">
+                    {t("graphNodeInspectorOutgoing")}
+                  </div>
+                  {relations.outgoing.length === 0 ? (
+                    <div className="node-relation-empty">
+                      {t("graphNodeInspectorNoOutgoing")}
+                    </div>
+                  ) : (
+                    relations.outgoing.map((relation) => (
+                      <button
+                        key={relation.edgeId}
+                        className="node-relation-row"
+                        onClick={() => onSelectEntity(relation.entity.id)}
+                      >
+                        <span className="node-relation-predicate">
+                          {getPredicateDisplayLabel(
+                            t,
+                            relation.predicate,
+                            relation.displayPredicate,
+                          )}
+                        </span>
+                        <span className="node-relation-target">
+                          {relation.entity.label}
+                        </span>
+                        <span
+                          className="node-inspector-type-chip"
+                          style={{
+                            backgroundColor: `${getTypeColor(relation.entity.type)}1a`,
+                            color: getTypeColor(relation.entity.type),
+                            borderColor: `${getTypeColor(relation.entity.type)}40`,
+                          }}
+                        >
+                          {relation.entity.type}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+
+                <div className="node-relation-group">
+                  <div className="node-relation-group-title">
+                    {t("graphNodeInspectorIncoming")}
+                  </div>
+                  {relations.incoming.length === 0 ? (
+                    <div className="node-relation-empty">
+                      {t("graphNodeInspectorNoIncoming")}
+                    </div>
+                  ) : (
+                    relations.incoming.map((relation) => (
+                      <button
+                        key={relation.edgeId}
+                        className="node-relation-row"
+                        onClick={() => onSelectEntity(relation.entity.id)}
+                      >
+                        <span className="node-relation-predicate">
+                          {getPredicateDisplayLabel(
+                            t,
+                            relation.predicate,
+                            relation.displayPredicate,
+                          )}
+                        </span>
+                        <span className="node-relation-target">
+                          {relation.entity.label}
+                        </span>
+                        <span
+                          className="node-inspector-type-chip"
+                          style={{
+                            backgroundColor: `${getTypeColor(relation.entity.type)}1a`,
+                            color: getTypeColor(relation.entity.type),
+                            borderColor: `${getTypeColor(relation.entity.type)}40`,
+                          }}
+                        >
+                          {relation.entity.type}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="node-inspector-section">
+              <div className="node-inspector-section-header">
+                <h4>{t("graphNodeInspectorSourcePages")}</h4>
+              </div>
+
               {detail.sourcePages.length === 0 ? (
                 <div className="graph-empty">
                   {t("graphNodeInspectorNoPages")}
@@ -168,7 +286,11 @@ export function NodeInspector({
                               key={excerpt.tripleId}
                             >
                               <span className="node-evidence-predicate">
-                                {excerpt.predicate}
+                                {getPredicateDisplayLabel(
+                                  t,
+                                  excerpt.predicate,
+                                  excerpt.displayPredicate,
+                                )}
                               </span>
                               <span>{excerpt.excerpt}</span>
                             </div>

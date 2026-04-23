@@ -13,6 +13,7 @@ import {
   groupEvidenceByPage,
   type RawEvidenceRow,
 } from "../../lib/entity-provenance.js";
+import { loadPredicateDisplayLabels } from "../../lib/predicate-display-labels.js";
 
 const entityParamsSchema = workspaceParamsSchema.extend({
   entityId: uuidSchema,
@@ -20,6 +21,7 @@ const entityParamsSchema = workspaceParamsSchema.extend({
 
 const entityProvenanceQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(20).default(5),
+  locale: z.enum(["ko", "en"]).optional(),
 });
 
 function entityNotFound(reply: FastifyReply) {
@@ -52,7 +54,7 @@ const entityRoutes: FastifyPluginAsync = async (fastify) => {
       if (!queryResult.success) {
         return sendValidationError(reply, queryResult.error.issues);
       }
-      const { limit } = queryResult.data;
+      const { limit, locale } = queryResult.data;
 
       const [entityRow] = await fastify.db
         .select({
@@ -124,10 +126,10 @@ const entityRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (rankedPageIds.length > 0) {
         const rankedEvidence = sql`(
-          SELECT triple_id, page_id, span_start, span_end, excerpt, predicate, page_rn
+          SELECT triple_id, page_id, subject_entity_id, object_entity_id, object_literal, span_start, span_end, excerpt, predicate, page_rn
           FROM (
             SELECT
-              triple_id, page_id, span_start, span_end, excerpt, predicate,
+              triple_id, page_id, subject_entity_id, object_entity_id, object_literal, span_start, span_end, excerpt, predicate,
               ROW_NUMBER() OVER (
                 PARTITION BY page_id
                 ORDER BY span_start, triple_id
@@ -136,6 +138,9 @@ const entityRoutes: FastifyPluginAsync = async (fastify) => {
               SELECT
                 ${tripleMentions.tripleId} AS triple_id,
                 ${tripleMentions.pageId} AS page_id,
+                ${triples.subjectEntityId} AS subject_entity_id,
+                ${triples.objectEntityId} AS object_entity_id,
+                ${triples.objectLiteral} AS object_literal,
                 ${tripleMentions.spanStart} AS span_start,
                 ${tripleMentions.spanEnd} AS span_end,
                 ${tripleMentions.excerpt} AS excerpt,
@@ -160,6 +165,9 @@ const entityRoutes: FastifyPluginAsync = async (fastify) => {
           .select({
             tripleId: sql<string>`evidence.triple_id`,
             pageId: sql<string>`evidence.page_id`,
+            subjectEntityId: sql<string>`evidence.subject_entity_id`,
+            objectEntityId: sql<string | null>`evidence.object_entity_id`,
+            objectLiteral: sql<string | null>`evidence.object_literal`,
             spanStart: sql<number>`evidence.span_start`,
             spanEnd: sql<number>`evidence.span_end`,
             excerpt: sql<string>`evidence.excerpt`,
@@ -170,7 +178,13 @@ const entityRoutes: FastifyPluginAsync = async (fastify) => {
           .orderBy(sql`evidence.page_id`, sql`evidence.page_rn`);
       }
 
-      const evidenceByPage = groupEvidenceByPage(evidenceRows);
+      const predicateLabelMap = await loadPredicateDisplayLabels(
+        fastify.db,
+        evidenceRows.map((row) => row.predicate),
+        locale,
+      );
+
+      const evidenceByPage = groupEvidenceByPage(evidenceRows, predicateLabelMap);
 
       return reply.code(200).send({
         entity: {

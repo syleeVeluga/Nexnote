@@ -11,6 +11,7 @@ import {
   ingestionDecisions,
   modelRuns,
   pages,
+  pagePaths,
   pageRevisions,
   entities,
   triples,
@@ -43,11 +44,14 @@ import type {
 const PROMPT_VERSION = "route-classifier-v1";
 const moduleLog = createJobLogger("route-classifier");
 
+type CandidateMatchSource = "title" | "fts" | "trigram" | "entity";
+
 interface CandidatePage {
   id: string;
   title: string;
   slug: string;
   contentMd: string;
+  matchSources: CandidateMatchSource[];
 }
 
 // Server-side cap on fetched candidate markdown. Well above any realistic
@@ -62,8 +66,31 @@ async function findCandidatePages(
   titleHint: string | null,
   normalizedText: string | null,
 ): Promise<CandidatePage[]> {
+  // Ordered list preserves insertion order (= search priority). The map lets a
+  // page discovered by multiple search strategies accumulate match sources.
   const candidates: CandidatePage[] = [];
-  const existingIds = new Set<string>();
+  const byId = new Map<string, CandidatePage>();
+  const addMatch = (
+    row: { id: string; title: string; slug: string; contentMd: string | null },
+    source: CandidateMatchSource,
+  ) => {
+    const existing = byId.get(row.id);
+    if (existing) {
+      if (!existing.matchSources.includes(source)) {
+        existing.matchSources.push(source);
+      }
+      return;
+    }
+    const candidate: CandidatePage = {
+      id: row.id,
+      title: row.title,
+      slug: row.slug,
+      contentMd: row.contentMd ?? "",
+      matchSources: [source],
+    };
+    byId.set(row.id, candidate);
+    candidates.push(candidate);
+  };
 
   // Title match with current revision excerpt
   if (titleHint) {
@@ -75,10 +102,7 @@ async function findCandidatePages(
         contentMd: candidateContentSql,
       })
       .from(pages)
-      .leftJoin(
-        pageRevisions,
-        eq(pageRevisions.id, pages.currentRevisionId),
-      )
+      .leftJoin(pageRevisions, eq(pageRevisions.id, pages.currentRevisionId))
       .where(
         and(
           eq(pages.workspaceId, workspaceId),
@@ -88,15 +112,7 @@ async function findCandidatePages(
       )
       .limit(5);
 
-    for (const row of titleMatches) {
-      existingIds.add(row.id);
-      candidates.push({
-        id: row.id,
-        title: row.title,
-        slug: row.slug,
-        contentMd: row.contentMd ?? "",
-      });
-    }
+    for (const row of titleMatches) addMatch(row, "title");
   }
 
   // Full-text search on revision content
@@ -120,7 +136,10 @@ async function findCandidatePages(
             contentMd: candidateContentSql,
           })
           .from(pages)
-          .innerJoin(pageRevisions, eq(pageRevisions.id, pages.currentRevisionId))
+          .innerJoin(
+            pageRevisions,
+            eq(pageRevisions.id, pages.currentRevisionId),
+          )
           .where(
             and(
               eq(pages.workspaceId, workspaceId),
@@ -133,16 +152,7 @@ async function findCandidatePages(
           )
           .limit(5);
 
-        for (const row of ftsMatches) {
-          if (existingIds.has(row.id)) continue;
-          existingIds.add(row.id);
-          candidates.push({
-            id: row.id,
-            title: row.title,
-            slug: row.slug,
-            contentMd: row.contentMd ?? "",
-          });
-        }
+        for (const row of ftsMatches) addMatch(row, "fts");
       } catch (err) {
         moduleLog.warn({ err }, "FTS search failed, skipping");
       }
@@ -172,16 +182,7 @@ async function findCandidatePages(
         .orderBy(sql`SIMILARITY(${pages.title}, ${textSnippet}) DESC`)
         .limit(5);
 
-      for (const row of trigramMatches) {
-        if (existingIds.has(row.id)) continue;
-        existingIds.add(row.id);
-        candidates.push({
-          id: row.id,
-          title: row.title,
-          slug: row.slug,
-          contentMd: row.contentMd ?? "",
-        });
-      }
+      for (const row of trigramMatches) addMatch(row, "trigram");
     } catch (err) {
       moduleLog.warn({ err }, "Trigram search failed, skipping");
     }
@@ -209,7 +210,10 @@ async function findCandidatePages(
             contentMd: candidateContentSql,
           })
           .from(pages)
-          .innerJoin(pageRevisions, eq(pageRevisions.id, pages.currentRevisionId))
+          .innerJoin(
+            pageRevisions,
+            eq(pageRevisions.id, pages.currentRevisionId),
+          )
           .innerJoin(triples, eq(triples.sourcePageId, pages.id))
           .innerJoin(entities, eq(entities.id, triples.subjectEntityId))
           .where(
@@ -223,16 +227,7 @@ async function findCandidatePages(
           .orderBy(sql`COUNT(DISTINCT ${entities.id}) DESC`)
           .limit(5);
 
-        for (const row of entityOverlapMatches) {
-          if (existingIds.has(row.id)) continue;
-          existingIds.add(row.id);
-          candidates.push({
-            id: row.id,
-            title: row.title,
-            slug: row.slug,
-            contentMd: row.contentMd ?? "",
-          });
-        }
+        for (const row of entityOverlapMatches) addMatch(row, "entity");
       }
     } catch (err) {
       moduleLog.warn({ err }, "Entity overlap search failed, skipping");
@@ -482,7 +477,20 @@ export function createRouteClassifierWorker(): Worker {
 
       await job.updateProgress(80);
 
-      const initialStatus = classifyDecisionStatus(parsed.action, parsed.confidence);
+      const initialStatus = classifyDecisionStatus(
+        parsed.action,
+        parsed.confidence,
+      );
+
+      // Snapshot the candidates the classifier considered so the review UI
+      // can show reviewers what the AI was choosing between. Strip contentMd
+      // (kept only for LLM context) to keep the JSONB row compact.
+      const candidateSnapshot = candidates.map((c) => ({
+        id: c.id,
+        title: c.title,
+        slug: c.slug,
+        matchSources: c.matchSources,
+      }));
 
       const [decision] = await db
         .insert(ingestionDecisions)
@@ -494,7 +502,10 @@ export function createRouteClassifierWorker(): Worker {
           status: initialStatus,
           proposedPageTitle: parsed.proposedTitle ?? null,
           confidence: parsed.confidence,
-          rationaleJson: { reason: parsed.reason },
+          rationaleJson: {
+            reason: parsed.reason,
+            candidates: candidateSnapshot,
+          },
         })
         .returning();
 
@@ -503,21 +514,52 @@ export function createRouteClassifierWorker(): Worker {
         (parsed.action === "update" || parsed.action === "append") &&
         parsed.targetPageId
       ) {
+        // Snapshot the page's current revision as the patch-generator's
+        // baseline. If a human saves a new revision between now and when
+        // the patch job runs, the worker detects the drift and downgrades
+        // the decision instead of silently overwriting the human's edit.
+        const [targetPage] = await db
+          .select({ currentRevisionId: pages.currentRevisionId })
+          .from(pages)
+          .where(eq(pages.id, parsed.targetPageId))
+          .limit(1);
+        const baseRevisionId = targetPage?.currentRevisionId ?? null;
+
+        await db
+          .update(ingestionDecisions)
+          .set({
+            rationaleJson: {
+              reason: parsed.reason,
+              candidates: candidateSnapshot,
+              baseRevisionId,
+            },
+          })
+          .where(eq(ingestionDecisions.id, decision.id));
+
         const patchData: PatchGeneratorJobData = {
           ingestionId,
           decisionId: decision.id,
           workspaceId,
           targetPageId: parsed.targetPageId,
           action: parsed.action,
+          baseRevisionId,
         };
         const patchQueue = getQueue(QUEUE_NAMES.PATCH);
-        await patchQueue.add(JOB_NAMES.PATCH_GENERATOR, patchData, DEFAULT_JOB_OPTIONS);
-      } else if (initialStatus === "auto_applied" && parsed.action === "create") {
+        await patchQueue.add(
+          JOB_NAMES.PATCH_GENERATOR,
+          patchData,
+          DEFAULT_JOB_OPTIONS,
+        );
+      } else if (
+        initialStatus === "auto_applied" &&
+        parsed.action === "create"
+      ) {
         const title =
-          parsed.proposedTitle ??
-          ingestion.titleHint ??
-          "Untitled (ingested)";
-        const contentMd = extractIngestionText({ normalizedText, rawPayload: ingestion.rawPayload });
+          parsed.proposedTitle ?? ingestion.titleHint ?? "Untitled (ingested)";
+        const contentMd = extractIngestionText({
+          normalizedText,
+          rawPayload: ingestion.rawPayload,
+        });
 
         const page = await insertPageWithUniqueSlug(db, {
           workspaceId,
@@ -547,6 +589,12 @@ export function createRouteClassifierWorker(): Worker {
               lastAiUpdatedAt: now,
             })
             .where(eq(pages.id, page.id)),
+          db.insert(pagePaths).values({
+            workspaceId,
+            pageId: page.id,
+            path: page.slug,
+            isCurrent: true,
+          }),
           db
             .update(ingestionDecisions)
             .set({ targetPageId: page.id, proposedRevisionId: revision.id })
@@ -581,6 +629,16 @@ export function createRouteClassifierWorker(): Worker {
           extractionData,
           DEFAULT_JOB_OPTIONS,
         );
+        const searchQueue = getQueue(QUEUE_NAMES.SEARCH);
+        await searchQueue.add(
+          JOB_NAMES.SEARCH_INDEX_UPDATER,
+          {
+            workspaceId,
+            pageId: page.id,
+            revisionId: revision.id,
+          },
+          DEFAULT_JOB_OPTIONS,
+        );
       } else {
         // Suggested / needs_review / noop: the classifier's job is done.
         // Mark the ingestion complete so it drops off the active queue; the
@@ -608,7 +666,10 @@ export function createRouteClassifierWorker(): Worker {
 
   worker.on("completed", (job, result) => {
     const log = createJobLogger("route-classifier", job.id);
-    log.info({ action: result.action, confidence: result.confidence }, "Route classification completed");
+    log.info(
+      { action: result.action, confidence: result.confidence },
+      "Route classification completed",
+    );
   });
 
   worker.on("failed", (job, err) => {

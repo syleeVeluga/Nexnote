@@ -465,12 +465,18 @@ export const pages = {
   graph(
     workspaceId: string,
     pageId: string,
-    params?: { depth?: number; limit?: number; minConfidence?: number },
+    params?: {
+      depth?: number;
+      limit?: number;
+      minConfidence?: number;
+      locale?: "ko" | "en";
+    },
   ) {
     const q = buildQuery({
       depth: params?.depth,
       limit: params?.limit,
       minConfidence: params?.minConfidence,
+      locale: params?.locale,
     });
     return request<GraphData>(
       `/workspaces/${workspaceId}/pages/${pageId}/graph${q}`,
@@ -480,9 +486,9 @@ export const pages = {
   entityProvenance(
     workspaceId: string,
     entityId: string,
-    params?: { limit?: number; signal?: AbortSignal },
+    params?: { limit?: number; locale?: "ko" | "en"; signal?: AbortSignal },
   ) {
-    const q = buildQuery({ limit: params?.limit });
+    const q = buildQuery({ limit: params?.limit, locale: params?.locale });
     return request<EntityProvenance>(
       `/workspaces/${workspaceId}/entities/${entityId}/provenance${q}`,
       { signal: params?.signal },
@@ -606,6 +612,8 @@ export interface IngestionSummary {
   status: IngestionStatus;
   receivedAt: string;
   processedAt: string | null;
+  hasOriginal?: boolean;
+  originalSizeBytes?: number | null;
 }
 
 export interface IngestionDetail extends IngestionSummary {
@@ -627,12 +635,36 @@ interface DecisionBase {
   createdAt: string;
 }
 
+export type CandidateMatchSource = "title" | "fts" | "trigram" | "entity";
+
+export interface DecisionCandidate {
+  id: string;
+  title: string;
+  slug: string;
+  matchSources?: CandidateMatchSource[];
+}
+
+export interface DecisionConflict {
+  type: "conflict_with_human_edit";
+  humanRevisionId: string;
+  humanUserId: string | null;
+  humanEditedAt: string;
+  humanRevisionNote: string | null;
+  baseRevisionId: string | null;
+}
+
 export interface DecisionSummary extends DecisionBase {
-  rationale: { reason?: string } | null;
+  rationale: {
+    reason?: string;
+    candidates?: DecisionCandidate[];
+    baseRevisionId?: string | null;
+    conflict?: DecisionConflict;
+  } | null;
 }
 
 export interface DecisionListItem extends DecisionBase {
   reason: string | null;
+  hasConflict?: boolean;
   ingestion: {
     sourceName: string;
     titleHint: string | null;
@@ -646,6 +678,8 @@ export interface DecisionListItem extends DecisionBase {
 }
 
 export interface DecisionDetail extends Omit<DecisionListItem, "ingestion"> {
+  candidates: DecisionCandidate[];
+  conflict: DecisionConflict | null;
   ingestion: {
     id: string;
     sourceName: string;
@@ -914,6 +948,74 @@ export const decisions = {
       method: "PATCH",
       body: JSON.stringify(data),
     });
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Activity feed
+// ---------------------------------------------------------------------------
+
+export type ActivityActorType = "ai" | "user" | "system";
+export type ActivityEntityType =
+  | "page"
+  | "ingestion"
+  | "folder"
+  | "workspace"
+  | "decision";
+
+export interface ActivityItem {
+  id: string;
+  createdAt: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  actor: {
+    type: ActivityActorType;
+    user: { id: string; name: string; email: string } | null;
+    aiModel: { provider: string; modelName: string } | null;
+  };
+  entity: {
+    type: string;
+    id: string;
+    label: string | null;
+    slug: string | null;
+    deleted: boolean;
+  } | null;
+  context: {
+    source: string | null;
+    ingestion: { id: string; sourceName: string } | null;
+    decisionId: string | null;
+    revisionId: string | null;
+  };
+}
+
+export interface ActivityListParams {
+  actorType?: ActivityActorType;
+  entityType?: ActivityEntityType;
+  action?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export const activity = {
+  list(workspaceId: string, params?: ActivityListParams) {
+    const q = buildQuery({
+      actorType: params?.actorType,
+      entityType: params?.entityType,
+      action: params?.action,
+      from: params?.from,
+      to: params?.to,
+      limit: params?.limit,
+      offset: params?.offset,
+    });
+    return request<{
+      data: ActivityItem[];
+      total: number;
+      limit: number;
+      offset: number;
+    }>(`/workspaces/${workspaceId}/activity${q}`);
   },
 };
 

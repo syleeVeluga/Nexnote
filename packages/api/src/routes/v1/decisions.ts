@@ -1,5 +1,16 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and, or, desc, inArray, notInArray, sql, gte, isNull, isNotNull } from "drizzle-orm";
+import {
+  eq,
+  and,
+  or,
+  desc,
+  inArray,
+  notInArray,
+  sql,
+  gte,
+  isNull,
+  isNotNull,
+} from "drizzle-orm";
 import { z } from "zod";
 import {
   uuidSchema,
@@ -80,7 +91,14 @@ interface DecisionListRow extends IngestionDecision {
 }
 
 function mapDecisionListItem(row: DecisionListRow) {
-  const rationale = row.rationaleJson as { reason?: string } | null;
+  const rationale = row.rationaleJson as {
+    reason?: string;
+    conflict?: {
+      type: string;
+      humanEditedAt: string;
+      humanUserId: string | null;
+    };
+  } | null;
   return {
     id: row.id,
     ingestionId: row.ingestionId,
@@ -92,6 +110,7 @@ function mapDecisionListItem(row: DecisionListRow) {
     proposedPageTitle: row.proposedPageTitle,
     confidence: row.confidence,
     reason: rationale?.reason ?? null,
+    hasConflict: Boolean(rationale?.conflict),
     createdAt: row.createdAt.toISOString(),
     ingestion: {
       sourceName: row.ingestionSourceName,
@@ -116,7 +135,8 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
     { onRequest: [fastify.authenticate] },
     async (request, reply) => {
       const params = workspaceParamsSchema.safeParse(request.params);
-      if (!params.success) return sendValidationError(reply, params.error.issues);
+      if (!params.success)
+        return sendValidationError(reply, params.error.issues);
 
       const query = listQuerySchema.safeParse(request.query);
       if (!query.success) return sendValidationError(reply, query.error.issues);
@@ -144,7 +164,10 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
       }
       conditions.push(
         or(
-          and(isNotNull(ingestionDecisions.targetPageId), isNull(pages.deletedAt)),
+          and(
+            isNotNull(ingestionDecisions.targetPageId),
+            isNull(pages.deletedAt),
+          ),
           and(
             isNull(ingestionDecisions.targetPageId),
             notInArray(ingestionDecisions.status, ["auto_applied", "approved"]),
@@ -209,7 +232,8 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
     { onRequest: [fastify.authenticate] },
     async (request, reply) => {
       const params = workspaceParamsSchema.safeParse(request.params);
-      if (!params.success) return sendValidationError(reply, params.error.issues);
+      if (!params.success)
+        return sendValidationError(reply, params.error.issues);
 
       const { workspaceId } = params.data;
       const userId = request.user.sub;
@@ -232,10 +256,16 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
           and(
             eq(ingestions.workspaceId, workspaceId),
             or(
-              and(isNotNull(ingestionDecisions.targetPageId), isNull(pages.deletedAt)),
+              and(
+                isNotNull(ingestionDecisions.targetPageId),
+                isNull(pages.deletedAt),
+              ),
               and(
                 isNull(ingestionDecisions.targetPageId),
-                notInArray(ingestionDecisions.status, ["auto_applied", "approved"]),
+                notInArray(ingestionDecisions.status, [
+                  "auto_applied",
+                  "approved",
+                ]),
               ),
             ),
           ),
@@ -259,7 +289,8 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
     { onRequest: [fastify.authenticate] },
     async (request, reply) => {
       const params = decisionParamsSchema.safeParse(request.params);
-      if (!params.success) return sendValidationError(reply, params.error.issues);
+      if (!params.success)
+        return sendValidationError(reply, params.error.issues);
 
       const { workspaceId, decisionId } = params.data;
       const userId = request.user.sub;
@@ -338,7 +369,24 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      const rationale = row.rationaleJson as { reason?: string } | null;
+      const rationale = row.rationaleJson as {
+        reason?: string;
+        candidates?: Array<{
+          id: string;
+          title: string;
+          slug: string;
+          matchSources?: string[];
+        }>;
+        baseRevisionId?: string | null;
+        conflict?: {
+          type: "conflict_with_human_edit";
+          humanRevisionId: string;
+          humanUserId: string | null;
+          humanEditedAt: string;
+          humanRevisionNote: string | null;
+          baseRevisionId: string | null;
+        };
+      } | null;
 
       return reply.send({
         id: row.id,
@@ -351,6 +399,8 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
         proposedPageTitle: row.proposedPageTitle,
         confidence: row.confidence,
         reason: rationale?.reason ?? null,
+        candidates: rationale?.candidates ?? [],
+        conflict: rationale?.conflict ?? null,
         createdAt: row.createdAt.toISOString(),
         ingestion: {
           id: row.ingestionId,
@@ -391,7 +441,8 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
     { onRequest: [fastify.authenticate] },
     async (request, reply) => {
       const params = decisionParamsSchema.safeParse(request.params);
-      if (!params.success) return sendValidationError(reply, params.error.issues);
+      if (!params.success)
+        return sendValidationError(reply, params.error.issues);
 
       const { workspaceId, decisionId } = params.data;
       const userId = request.user.sub;
@@ -420,6 +471,7 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
       const result = await approveDecision({
         db: fastify.db,
         extractionQueue: fastify.queues.extraction,
+        searchQueue: fastify.queues.search,
         workspaceId,
         decision,
         userId,
@@ -443,7 +495,8 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
     { onRequest: [fastify.authenticate] },
     async (request, reply) => {
       const params = decisionParamsSchema.safeParse(request.params);
-      if (!params.success) return sendValidationError(reply, params.error.issues);
+      if (!params.success)
+        return sendValidationError(reply, params.error.issues);
 
       const body = rejectBodySchema.safeParse(request.body ?? {});
       if (!body.success) return sendValidationError(reply, body.error.issues);
@@ -475,6 +528,7 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
       const result = await rejectDecision({
         db: fastify.db,
         extractionQueue: fastify.queues.extraction,
+        searchQueue: fastify.queues.search,
         workspaceId,
         decision,
         userId,
@@ -491,7 +545,8 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
     { onRequest: [fastify.authenticate] },
     async (request, reply) => {
       const params = decisionParamsSchema.safeParse(request.params);
-      if (!params.success) return sendValidationError(reply, params.error.issues);
+      if (!params.success)
+        return sendValidationError(reply, params.error.issues);
 
       const body = editBodySchema.safeParse(request.body ?? {});
       if (!body.success) return sendValidationError(reply, body.error.issues);
@@ -629,10 +684,7 @@ async function loadDecision(
       createdAt: ingestionDecisions.createdAt,
     })
     .from(ingestionDecisions)
-    .innerJoin(
-      ingestions,
-      eq(ingestions.id, ingestionDecisions.ingestionId),
-    )
+    .innerJoin(ingestions, eq(ingestions.id, ingestionDecisions.ingestionId))
     .where(
       and(
         eq(ingestionDecisions.id, decisionId),
