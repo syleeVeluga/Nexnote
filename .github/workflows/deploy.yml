@@ -6,32 +6,96 @@ on:
   workflow_dispatch:
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
-  REGION: asia-northeast3                   # 서울 리전
+  REGION: asia-northeast3
   REGISTRY: asia-northeast3-docker.pkg.dev
   REPO: wekiflow
 
 jobs:
+  preflight:
+    name: Deployment Preflight
+    runs-on: ubuntu-latest
+    outputs:
+      auth_mode: ${{ steps.detect.outputs.auth_mode }}
+      should_deploy: ${{ steps.detect.outputs.should_deploy }}
+
+    steps:
+      - name: Detect deployment configuration
+        id: detect
+        shell: bash
+        env:
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          GCE_INSTANCE_NAME: ${{ vars.GCE_INSTANCE_NAME }}
+          GCE_ZONE: ${{ vars.GCE_ZONE }}
+          GCE_SSH_PRIVATE_KEY: ${{ secrets.GCE_SSH_PRIVATE_KEY }}
+        run: |
+          auth_mode="none"
+          should_deploy="false"
+          reason="Missing Google Cloud authentication configuration."
+
+          if [[ -n "$GCP_WORKLOAD_IDENTITY_PROVIDER" && -n "$GCP_SERVICE_ACCOUNT" ]]; then
+            auth_mode="workload_identity"
+            should_deploy="true"
+            reason="Using Workload Identity Federation."
+          elif [[ -n "$GCP_SA_KEY" ]]; then
+            auth_mode="service_account_key"
+            should_deploy="true"
+            reason="Using service account JSON credentials."
+          fi
+
+          if [[ "$should_deploy" == "true" ]] && [[ -z "$GCE_INSTANCE_NAME" || -z "$GCE_ZONE" || -z "$GCE_SSH_PRIVATE_KEY" ]]; then
+            auth_mode="none"
+            should_deploy="false"
+            reason="Missing GCE deployment settings (instance, zone, or SSH key)."
+          fi
+
+          echo "auth_mode=$auth_mode" >> "$GITHUB_OUTPUT"
+          echo "should_deploy=$should_deploy" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+
+      - name: Explain skipped deployment
+        if: steps.detect.outputs.should_deploy != 'true'
+        run: |
+          echo "::warning::Skipping build and deploy: ${{ steps.detect.outputs.reason }}"
+          echo "Skipping build and deploy: ${{ steps.detect.outputs.reason }}" >> "$GITHUB_STEP_SUMMARY"
+
   build-push:
     name: Build & Push Images
+    needs: preflight
+    if: needs.preflight.outputs.should_deploy == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write                       # Workload Identity 사용 시 필요
+      id-token: write
 
     outputs:
       image_tag: ${{ steps.meta.outputs.tag }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - name: Authenticate to Google Cloud (Workload Identity)
+        if: needs.preflight.outputs.auth_mode == 'workload_identity'
+        uses: google-github-actions/auth@v3
         with:
+          project_id: ${{ env.PROJECT_ID }}
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-          # 대안: service_account_key 방식 (더 간단하지만 보안상 비추)
-          # credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Authenticate to Google Cloud (Service Account Key)
+        if: needs.preflight.outputs.auth_mode == 'service_account_key'
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
 
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
@@ -76,20 +140,30 @@ jobs:
 
   deploy:
     name: Deploy to GCE VM
-    needs: build-push
+    needs: [preflight, build-push]
+    if: needs.preflight.outputs.should_deploy == 'true'
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - name: Authenticate to Google Cloud (Workload Identity)
+        if: needs.preflight.outputs.auth_mode == 'workload_identity'
+        uses: google-github-actions/auth@v3
         with:
+          project_id: ${{ env.PROJECT_ID }}
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
+      - name: Authenticate to Google Cloud (Service Account Key)
+        if: needs.preflight.outputs.auth_mode == 'service_account_key'
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
       - name: Deploy via SSH
-        uses: google-github-actions/ssh-compute@v1
+        uses: google-github-actions/ssh-compute@v2
         with:
           instance_name: ${{ vars.GCE_INSTANCE_NAME }}
           zone: ${{ vars.GCE_ZONE }}
