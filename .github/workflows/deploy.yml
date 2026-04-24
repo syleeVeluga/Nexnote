@@ -167,6 +167,7 @@ jobs:
         with:
           instance_name: ${{ vars.GCE_INSTANCE_NAME }}
           zone: ${{ vars.GCE_ZONE }}
+          user: parkjinhun
           ssh_private_key: ${{ secrets.GCE_SSH_PRIVATE_KEY }}
           command: |
             set -e
