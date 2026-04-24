@@ -1,8 +1,24 @@
 # WekiFlow Chunking Plan
 
-> Status: Draft proposal
-> Last updated: 2026-04-21
+> Status: Reviewed proposal
+> Last updated: 2026-04-24
 > Scope: Design only, no implementation in this document
+
+## Review note - 2026-04-24
+
+This plan is still valid as the direction for a persisted, revision-scoped chunk layer, but several assumptions changed after the original draft.
+
+What changed since the first version:
+
+1. Phase 0 is real code, not just a planned precursor. `route-classifier`, `patch-generator`, `triple-extractor`, and the newer `content-reformatter` now use provider-aware token budgets instead of fixed small prefixes.
+2. There is still no persisted `revision_chunks` / `chunk_embeddings` schema, no chunk-indexing worker, and no chunk-level triple provenance.
+3. The most urgent reason for chunking is now narrower: not "all AI sees only fixed prefixes", but "single-call, budget-bound AI still has no stable retrieval/provenance unit when content exceeds the model budget or when facts need local evidence."
+4. The supervision layer advanced: ingestion detail, human-edit conflict downgrade, activity feed, original-ingestion storage, predicate display labels, and reviewed content reformatting have landed. Chunk work should plug into those surfaces rather than introduce a parallel review/provenance path.
+5. A practical next step before building schema is to query `model_runs.requestMetaJson->budget->truncated` by mode. If truncation is rare except for `content_reformat`, the first persisted-chunk tranche should prioritize triple evidence and future retrieval rather than routing.
+
+Recommended adjustment:
+
+Start implementation with a thin, internal `revision_chunks` table plus a chunk builder library and tests. Wire it first after revision creation, then use it to improve triple extraction provenance. Leave route classification and patch generation on the current large-context path until truncation telemetry proves they need chunk digests or merge windows.
 
 ## 0. Phase 0 — Large-context-first pre-chunk rollout (shipped)
 
@@ -19,6 +35,7 @@ Where the old cutoffs used to live (allocation policy is **incoming-priority**, 
 - [route-classifier.ts](packages/worker/src/workers/route-classifier.ts) — candidate excerpts are no longer pre-sliced inside the worker; the DB query applies a `SUBSTRING` cap of 50k chars per candidate for bandwidth, and only the top 3 candidates by search rank are rendered in the prompt. `incoming` gets `minTokens: 80_000, weight: 10` and absorbs almost all slack; each prompted candidate gets `minTokens: 100, weight: 1` — enough to identify the page, not to rewrite it. Remaining matches from `findCandidatePages` stay DB-side for recall statistics.
 - [patch-generator.ts](packages/worker/src/workers/patch-generator.ts) — update merge uses `incoming { minTokens: 100_000, weight: 1 }` and `existing { minTokens: 10_000, weight: 0 }`. Incoming is guaranteed up to 100k tokens and gets the entire remainder; existing only receives its floor plus any slack incoming can't use. `append` remains a plain concat.
 - [triple-extractor.ts](packages/worker/src/workers/triple-extractor.ts) — the 6000-char cap is gone; the full `revision.contentMd` is sent up to the per-model budget. Output reserve tightened from 8k to 4k tokens (actual triple output rarely exceeds 2k), freeing ~4k more input tokens. `MODEL_RUNS` now logs truncation stats so the actual need for sub-page chunking can be measured instead of assumed.
+- [content-reformatter.ts](packages/worker/src/workers/content-reformatter.ts) — newer than the first draft. It also uses `allocateBudgets` and `MODE_OUTPUT_RESERVE.content_reformat`, queues a reviewed suggestion through the ingestion-decision path, and should eventually consume chunk-derived structure for very long or weakly structured documents.
 
 Out of scope for Phase 0 and still owned by the remaining sections of this plan:
 
@@ -39,10 +56,10 @@ WekiFlow aims to solve the long-term maintenance problem of knowledge systems wh
 
 This creates a direct requirement for a chunking strategy.
 
-Without chunking, long or weakly structured inputs create four problems:
+Without chunking, long or weakly structured inputs still create four problems:
 
-1. AI classification becomes front-biased and overweights the beginning of the document.
-2. Triple extraction misses facts that appear later in long documents.
+1. AI classification can still become budget-biased when the incoming document or candidate set exceeds the available model window.
+2. Triple extraction can still miss facts that appear outside the assembled single-call context.
 3. Graph provenance becomes coarse because facts can only be tied to a page/revision, not a more precise source region.
 4. Future vector indexing becomes expensive or inconsistent because there is no stable unit of retrieval.
 
@@ -50,7 +67,7 @@ WekiFlow already preserves full raw input and full page revisions. That is a str
 
 ## 2. Problem Statement
 
-The current pipeline stores the full source and full page revision, but AI processing is effectively truncated to fixed prefixes at several stages. This means the system preserves source data, yet many downstream AI behaviors do not fully see it.
+The current pipeline stores the full source and full page revision. Since Phase 0, AI processing is no longer truncated to small fixed prefixes; it is assembled with provider-aware token budgets. This means the system preserves source data and uses much larger context windows, but it still lacks a stable sub-page unit for retrieval, repeated extraction, and precise provenance.
 
 This becomes more serious because inputs are heterogeneous:
 
@@ -371,7 +388,7 @@ This worker should run after auto-create, update, or append revision creation.
 
 ### 12.3 Route classification
 
-Current route classification is front-biased. The improved approach should use a document digest derived from chunks.
+Route classification is less front-biased after Phase 0 because the incoming payload receives most of the available model budget and candidate excerpts are budgeted explicitly. The improved approach, when telemetry shows it is needed, should use a document digest derived from chunks.
 
 That digest should include:
 
@@ -383,7 +400,7 @@ That digest should include:
 
 ### 12.4 Triple extraction
 
-Current triple extraction should be replaced with chunk iteration.
+Triple extraction is no longer capped to a short prefix, but it is still a single budget-bound AI call over the revision. Chunk iteration should replace or augment that path when long revisions truncate, when extraction recall is weak, or when graph evidence needs chunk-level provenance.
 
 Each extraction call should see:
 
@@ -400,7 +417,7 @@ Then the system should:
 
 ### 12.5 Patch generation
 
-Patch generation does not need to change in V1, but the chunk model should prepare for a future improvement where the model receives relevant merge windows instead of only fixed prefixes.
+Patch generation does not need to change in V1, but the chunk model should prepare for a future improvement where the model receives relevant merge windows instead of one budgeted existing/incoming context pair.
 
 ### 12.6 Search indexing
 
@@ -478,7 +495,7 @@ This avoids a second chunk redesign when vector indexing is introduced.
 ### Phase 6. Merge-window improvements
 
 1. Keep the full-document revision model.
-2. Later replace prefix-based merge context with chunk-derived merge windows.
+2. Later replace budget-only merge context with chunk-derived merge windows.
 
 ### Phase 7. Vector indexing and optional virtual section navigation
 
@@ -507,7 +524,7 @@ The chunk builder should be tested against:
 
 1. chunk indexing should be idempotent,
 2. unchanged revisions should produce stable chunk ordering and checksums,
-3. chunk-aware triple extraction should recover facts beyond the current first-window limit,
+3. chunk-aware triple extraction should recover facts beyond any budget-truncated single-call context,
 4. page-level APIs should remain backward-compatible when chunk metadata is missing.
 
 ### 16.3 Manual validation set

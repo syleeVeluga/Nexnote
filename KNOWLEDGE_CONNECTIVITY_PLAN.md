@@ -1,5 +1,10 @@
 # 지식 연결성 구현 계획
 
+> 2026-04-24 문서 점검 메모: 이 파일은 인코딩이 깨져 있어 세부 작업 지시서로 사용하지 않는다. 내용상 `pages.parentPageId`, graph scope/subtree, page links/backlinks, graph UI 정리에 관한 초기 설계 메모였고, 현재 활성 계획은 [TASKS.md](TASKS.md)의 UX-N4(Page links & mentions), G-4(workspace-wide graph), G-5(entity detail panel), G-6/G-7(graph filters/search) 항목으로 흡수한다.
+>
+> 현재 코드 상태: page hierarchy와 subtree delete/restore/purge는 구현되어 있고, editor graph panel에는 per-page BFS, predicate/entity/min-confidence filters, confidence encoding, predicate display labels, NodeInspector evidence panel이 있다. 아직 없는 것: page link/backlink 저장 모델, workspace-wide graph, node search/pathfinding, persisted graph preferences, 3D toggle.
+
+
 ## 문서 목적
 
 이 문서는 WekiFlow의 지식 연결성을 과도한 재설계 없이 강화하기 위한 구현 기준 문서다.

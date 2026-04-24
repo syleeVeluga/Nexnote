@@ -1,9 +1,9 @@
 # WekiFlow — Task Backlog
 
-> **Snapshot:** 2026-04-17
+> **Snapshot:** 2026-04-24
 > **North-star goal:** External signals flow in continuously; the wiki stays automatically up-to-date under human supervision. AI classifies/merges/deduplicates; humans review/correct/approve.
 >
-> **Status of the core loop** — see [CLAUDE.md](CLAUDE.md#current-implementation-status-snapshot-2026-04-17). Backend pipeline (①→②→③-auto) works. The human-supervision half (④ review, ⑤ provenance/freshness) is largely missing in the UI. Closing those gaps is the priority.
+> **Status of the core loop** — see [CLAUDE.md](CLAUDE.md#current-implementation-status-snapshot-2026-04-24-docs-reviewed). The ingest/classify/apply path works, the review/provenance/activity surfaces are now usable, and the remaining trust gaps are conflict breadth, triple contradictions, API-token management, and sidebar/digest surfacing.
 
 Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH] / [MED] / [LOW]** marks urgency toward the goal.
 
@@ -18,6 +18,8 @@ Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH]
 > **S5-3 landed (2026-04-22):** patch-generator accepts `baseRevisionId` from the classifier's enqueue snapshot; before auto-applying it runs `detectHumanConflict()` on `page_revisions` and, if any `actor_type='user'` revision landed after the base, writes the proposed revision as `suggested` with `rationaleJson.conflict = { type: 'conflict_with_human_edit', humanRevisionId, humanEditedAt, humanRevisionNote, baseRevisionId }` instead of promoting to current. Decision list returns `hasConflict`; detail returns full `conflict` object. ReviewQueuePage list chips and ReviewDetail / IngestionDetailPage banners highlight these with an "approve will stack on human edits" warning.
 >
 > **S6-1 landed (2026-04-22):** member-readable `GET /workspaces/:id/activity` endpoint joins `audit_logs` with `users` + `model_runs`, batch-loads page/ingestion/folder labels, derives `actor_type` (ai/user/system). New `/activity` page renders "AI (gpt-5.4) updated *Page X* from ingestion *Slack*" style rows with actor/entity/action/date filters and load-more pagination; sidebar gains an Activity nav link. Next up: S5-4 (triple contradictions), S6-2 (sidebar badges).
+>
+> **Post-S6 updates observed (2026-04-24):** soft-delete/trash/purge flows (`0006`), archived original ingestion storage (`0007`), predicate display-label cache/backfill (`0008`/`0009`), graph filters + confidence visual encoding + node evidence inspector, reviewed AI content reformatting via the `reformat` queue, pipeline integration tests, and Playwright smoke tests are in the codebase. Still not present: persisted chunk tables/workers, 3D graph toggle, CI, broad route-level API coverage, and Yjs/Hocuspocus.
 
 ---
 
@@ -27,7 +29,7 @@ Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH]
 Currently a failed patch-generator sets `ingestions.status="failed"` and logs. The new `/admin/queues` page (S3-4) now exposes BullMQ-level failed jobs with retry/remove, which partially covers the operator case. Still open: surface the per-ingestion error excerpt in `/review` itself, and wire an "Abandon" (audit-logged close) action next to the queue-level retry.
 
 ### S3-4 · [DONE · 2026-04-18] Queue observability + DLQ visibility
-- Admin-only `/admin/queues` page shows per-queue counts (waiting/active/failed/delayed/stalled/paused) for all five queues (ingestion, patch, extraction, publish, search).
+- Admin-only `/admin/queues` page shows per-queue counts (waiting/active/failed/delayed/stalled/paused) for all six queues (ingestion, patch, extraction, publish, search, reformat).
 - Failed and stalled (active > 2min) jobs listed with `failedReason`, attempts/max, timestamps, and workspace/ingestion/page chips drilled from job data.
 - Retry and remove actions per job; cross-workspace jobs are read-only guard-rails.
 - Backend: [packages/api/src/routes/v1/admin-queues.ts](packages/api/src/routes/v1/admin-queues.ts) mounted under `/workspaces/:id/admin/queues`, gated by `ADMIN_PLUS_ROLES`; queue plugin updated to expose the `patch` queue. Frontend: [packages/web/src/pages/QueueHealthPage.tsx](packages/web/src/pages/QueueHealthPage.tsx) with optional 10s auto-refresh.
@@ -201,13 +203,12 @@ Clicking a node currently doesn't open anything meaningful.
 - Side panel: entity label, type, aliases, all triples where it appears (in/out), pages that mention it (via `triple_mentions`), confidence distribution
 - Actions: rename, merge with another entity, change type, delete
 
-### G-6 · [MED] Graph filters + confidence encoding
-The force-graph renders all edges at equal weight, which hides signal.
+### G-6 · [PARTIAL · 2026-04-24] Graph filters + confidence encoding
+The editor graph panel now has predicate filters, entity-type filters, a min-confidence control, focus dimming, predicate display labels, and confidence-based edge opacity/width.
 - Update: predicate multiselect, confidence slider, entity-type toggles, and edge opacity/width encoding are now shipped in the editor graph panel.
 - Update: predicate labels can now be served from a locale-aware cache (`ko` / `en`) in graph edges and provenance excerpts, with regional browser locales normalized on the client and a worker backfill script for existing triples.
-- Remaining: add time-range filtering and conflict-specific styling once `conflict=true` triples land.
-- Filters: predicate multiselect, confidence slider, entity-type toggles, time range (based on `triples.created_at`)
-- Visual encoding: edge opacity/width ∝ confidence; dashed edges for `conflict=true` triples (from S5-4)
+- Remaining: add time-range filtering (`triples.created_at`) and conflict-specific styling once `conflict=true` triples land.
+- Conflict styling: dashed edges for `conflict=true` triples after S5-4 lands.
 
 ### G-7 · [MED] Node search + focus
 - Search box above graph — fuzzy match on entity label + aliases
@@ -215,8 +216,10 @@ The force-graph renders all edges at equal weight, which hides signal.
 - "Find path between X and Y" — shortest-path query over triples
 
 ### G-8 · [MED] 3D toggle UX surface
-The 3D renderer is lazy-loaded in [GraphPanel.tsx](packages/web/src/components/graph/GraphPanel.tsx); the editor graph panel now exposes a 2D / 3D toggle.
-- Remaining: persist the choice per user and evaluate whether 3D needs graph-specific camera defaults.
+The current editor graph panel is still 2D-only (`react-force-graph-2d`). Add a lazy-loaded 3D renderer only if it remains useful after workspace-wide graph work lands.
+- Add a 2D / 3D toggle.
+- Persist the choice per user.
+- Evaluate graph-specific camera defaults before enabling 3D broadly.
 
 ### G-9 · [LOW] Graph export
 `.graphml` / `.json` export for external tooling (Gephi, Cytoscape).
@@ -231,11 +234,13 @@ Overlay recent triple additions (last 7d) with a pulse animation so users see th
 ### X-1 · [HIGH] CI workflow (`.github/workflows/ci.yml`)
 Install, lint, typecheck, unit tests, migration sanity. Services: Postgres + Redis. Every PR runs this.
 
-### X-2 · [HIGH] Pipeline integration test
-End-to-end test: synthetic ingestion → route-classifier → patch-generator → triple-extractor. Assert decision row, revision row, triples row, audit entries all chain with correct FKs. Use testcontainers or a docker-compose.test.yml. Mock the AI adapter with deterministic responses.
+### X-2 · [DONE · 2026-04-24] Pipeline integration tests
+- `tests/integration/pipeline.smoke.test.ts` covers synthetic ingestion through route-classifier, revision creation, triple extraction, and audit persistence with deterministic AI fixtures.
+- `tests/integration/pipeline.nightly.test.ts` covers suggested/needs-review decisions, approval/rejection, publish snapshot serving, and failed-ingestion behavior.
+- Remaining test gap is CI enforcement, not local coverage definition.
 
 ### X-3 · [MED] API route integration tests
-`packages/api` has zero test files. Cover at minimum: auth flows, role guards, ingestion intake, decision approve/reject, graph endpoint, ai-edit SSE.
+`packages/api` has unit tests for shared helpers, but still lacks route-level integration coverage. Cover at minimum: auth flows, role guards, ingestion intake, decision approve/reject, graph endpoint, ai-edit SSE.
 
 ### X-4 · [MED] Observability: queue depth + job duration metrics
 `prom-client` endpoint on api + worker. Surface: queue depth per stage, job duration histogram, AI latency + cost. Without this, pipeline stalls are invisible.
@@ -244,7 +249,7 @@ End-to-end test: synthetic ingestion → route-classifier → patch-generator �
 Currently route-classifier uses FTS + trigram. pgvector would help when incoming text uses different vocabulary than the page.
 
 ### X-6 · [LOW] Yjs/Hocuspocus collaboration
-PRD calls for it; not installed. Until concurrent-edit guard (S5-3) is in place, this is risky to add.
+PRD calls for it; not installed. S5-3 reduced the worst AI-vs-human overwrite risk, but real collaboration should still wait until edit-session UX, accept/reject AI proposals, and conflict notifications are more mature.
 
 ---
 
@@ -256,10 +261,10 @@ PRD calls for it; not installed. Until concurrent-edit guard (S5-3) is in place,
    - **UX-N (Notion-like polish)** — can be worked by a frontend-focused contributor without blocking the backend loop work. UX-N1 through UX-N4 are what visitors notice first.
    - **G (graph & triple quality)** — G-1/G-2/G-3 are backend/prompt work; G-4/G-5/G-6 are frontend. G-1 should land before G-4/G-5 or the big graph view will be full of `concept`-typed noise.
 4. **[HIGH] within each section** before anything lower.
-5. Do NOT start S4 tasks before P0-2 and S3-1 — the review UI depends on decisions being correctly banded and revisions being linked to ingestions.
+5. Keep the review/supervision surfaces coherent when adding new AI flows; every AI proposal should land in the same decision/provenance/activity model unless there is a clear reason not to.
 6. When a task completes, delete it from this file in the same PR. The goal is for this file to shrink.
 
 Avoid:
 - Adding more AI capabilities (better prompts, more models, smarter extraction) before the supervision loop is closed. AI quality doesn't matter if nobody can review its output.
 - Building the workspace-wide graph (G-4) before G-1/G-2 — a dense graph of `concept` nodes with fragmented duplicates is worse than no graph.
-- Reviving "Yjs collaboration" (X-6) until S5-3 conflict handling exists.
+- Reviving "Yjs collaboration" (X-6) before edit-session UX and AI proposal accept/reject are strong enough for real concurrent editing.
