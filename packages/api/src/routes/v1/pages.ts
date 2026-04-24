@@ -1795,33 +1795,40 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       let frontier = new Set(centerEntityIds);
 
       // Cap BFS to avoid oversized IN clauses in dense graphs
-      const maxBfsNodes = limit * 5;
+      const maxBfsNodes = limit * 3;
 
       for (let hop = 1; hop <= depth; hop++) {
         if (frontier.size === 0 || allEntityIds.size >= maxBfsNodes) break;
 
         const frontierArr = [...frontier];
+        const CHUNK_SIZE = 1000;
+        const neighborRows: Array<{
+          subjectEntityId: string;
+          objectEntityId: string | null;
+        }> = [];
 
-        // Find triples where any frontier entity is subject or entity-object.
-        // We only care about entity-object triples (objectEntityId IS NOT NULL)
-        // because literal triples cannot produce graph edges.
-        const neighborRows = await db
-          .select({
-            subjectEntityId: triples.subjectEntityId,
-            objectEntityId: triples.objectEntityId,
-          })
-          .from(triples)
-          .where(
-            and(
-              eq(triples.workspaceId, workspaceId),
-              eq(triples.status, "active"),
-              isNotNull(triples.objectEntityId),
-              ...(minConfidence > 0
-                ? [gte(triples.confidence, minConfidence)]
-                : []),
-              sql`(${inArray(triples.subjectEntityId, frontierArr)} OR ${inArray(triples.objectEntityId, frontierArr)})`,
-            ),
-          );
+        // Chunk large frontiers to keep PostgreSQL IN-list performant
+        for (let i = 0; i < frontierArr.length; i += CHUNK_SIZE) {
+          const chunk = frontierArr.slice(i, i + CHUNK_SIZE);
+          const rows = await db
+            .select({
+              subjectEntityId: triples.subjectEntityId,
+              objectEntityId: triples.objectEntityId,
+            })
+            .from(triples)
+            .where(
+              and(
+                eq(triples.workspaceId, workspaceId),
+                eq(triples.status, "active"),
+                isNotNull(triples.objectEntityId),
+                ...(minConfidence > 0
+                  ? [gte(triples.confidence, minConfidence)]
+                  : []),
+                sql`(${inArray(triples.subjectEntityId, chunk)} OR ${inArray(triples.objectEntityId, chunk)})`,
+              ),
+            );
+          neighborRows.push(...rows);
+        }
 
         const nextFrontier = new Set<string>();
         for (const row of neighborRows) {

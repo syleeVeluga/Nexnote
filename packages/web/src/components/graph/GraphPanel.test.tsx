@@ -76,13 +76,6 @@ vi.mock("react-force-graph-2d", () => ({
   ),
 }));
 
-vi.mock("react-force-graph-3d", () => ({
-  default: ({
-    graphData,
-  }: {
-    graphData: { nodes: Array<{ id: string; label: string }> };
-  }) => <div data-testid="force-graph-3d">{graphData.nodes.length}</div>,
-}));
 
 vi.mock("./NodeInspector.js", () => ({
   NodeInspector: ({ entityId }: { entityId: string }) => (
@@ -167,7 +160,7 @@ describe("GraphPanel", () => {
     await waitFor(() =>
       expect(graphMock).toHaveBeenCalledWith("workspace-1", "page-1", {
         depth: 1,
-        limit: 250,
+        limit: 400,
         minConfidence: 0,
         locale: "ko",
       }),
@@ -178,7 +171,7 @@ describe("GraphPanel", () => {
     await waitFor(() =>
       expect(graphMock).toHaveBeenLastCalledWith("workspace-1", "page-1", {
         depth: 2,
-        limit: 250,
+        limit: 800,
         minConfidence: 0,
         locale: "ko",
       }),
@@ -191,7 +184,7 @@ describe("GraphPanel", () => {
     await waitFor(() =>
       expect(graphMock).toHaveBeenLastCalledWith("workspace-1", "page-1", {
         depth: 2,
-        limit: 250,
+        limit: 800,
         minConfidence: 0.6,
         locale: "ko",
       }),
@@ -254,7 +247,7 @@ describe("GraphPanel", () => {
     await waitFor(() =>
       expect(graphMock).toHaveBeenCalledWith("workspace-1", "page-1", {
         depth: 1,
-        limit: 250,
+        limit: 400,
         minConfidence: 0,
         locale: "en",
       }),

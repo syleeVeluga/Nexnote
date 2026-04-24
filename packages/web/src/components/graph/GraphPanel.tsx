@@ -4,8 +4,6 @@ import {
   useCallback,
   useRef,
   useMemo,
-  lazy,
-  Suspense,
 } from "react";
 import { useTranslation } from "react-i18next";
 import ForceGraph2D from "react-force-graph-2d";
@@ -27,9 +25,6 @@ import {
   hasActiveGraphFilters,
   type GraphViewFilters,
 } from "./graph-helpers.js";
-
-// Lazy-load 3D graph to avoid adding Three.js weight to the initial bundle
-const ForceGraph3D = lazy(() => import("react-force-graph-3d"));
 
 interface GraphPanelProps {
   workspaceId: string;
@@ -82,18 +77,6 @@ function getNodeColor(type: string): string {
   );
 }
 
-function withOpacity(color: string, opacity: number): string {
-  const normalized = color.trim();
-  if (!normalized.startsWith("#") || normalized.length !== 7) {
-    return color;
-  }
-
-  const r = Number.parseInt(normalized.slice(1, 3), 16);
-  const g = Number.parseInt(normalized.slice(3, 5), 16);
-  const b = Number.parseInt(normalized.slice(5, 7), 16);
-
-  return `rgba(${r}, ${g}, ${b}, ${opacity})`;
-}
 
 export function GraphPanel({
   workspaceId,
@@ -104,7 +87,6 @@ export function GraphPanel({
   const { t, i18n } = useTranslation(["editor", "common"]);
   const locale = resolveSupportedLocale(i18n.resolvedLanguage ?? i18n.language);
   const [depth, setDepth] = useState<1 | 2>(1);
-  const [mode, setMode] = useState<"2d" | "3d">("2d");
   const [minConfidence, setMinConfidence] = useState(0);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
@@ -197,7 +179,7 @@ export function GraphPanel({
     pagesApi
       .graph(workspaceId, pageId, {
         depth,
-        limit: 250,
+        limit: depth === 1 ? 400 : 800,
         minConfidence,
         locale,
       })
@@ -473,25 +455,6 @@ export function GraphPanel({
     [isEdgeDimmed],
   );
 
-  const nodeColor3D = useCallback(
-    (node: NodeObject) => {
-      const n = node as GNode;
-      const baseColor = n.isCenter
-        ? "#1d4ed8"
-        : getNodeColor(n.type ?? "other");
-      return isNodeDimmed(n.id) ? withOpacity(baseColor, 0.22) : baseColor;
-    },
-    [isNodeDimmed],
-  );
-
-  const linkColor3D = useCallback(
-    (link: LinkObject) =>
-      isEdgeDimmed((link as GLink).id)
-        ? "rgba(203, 213, 225, 0.24)"
-        : "#94a3b8",
-    [isEdgeDimmed],
-  );
-
   const hasServerData = (graphData?.nodes.length ?? 0) > 0;
   const hasVisibleData = (visibleGraph?.nodes.length ?? 0) > 0;
 
@@ -546,18 +509,6 @@ export function GraphPanel({
             <span className="graph-range-value">{minConfidence.toFixed(1)}</span>
           </label>
           <span className="graph-controls-sep" />
-          <button
-            className={`depth-btn${mode === "2d" ? " active" : ""}`}
-            onClick={() => setMode("2d")}
-          >
-            2D
-          </button>
-          <button
-            className={`depth-btn${mode === "3d" ? " active" : ""}`}
-            onClick={() => setMode("3d")}
-          >
-            3D
-          </button>
         </div>
 
         <div className="graph-filter-groups">
@@ -616,7 +567,7 @@ export function GraphPanel({
           <div className="graph-empty">{t("noGraphData")}</div>
         ) : !hasVisibleData ? (
           <div className="graph-empty">{t("graphNoFilteredData")}</div>
-        ) : mode === "2d" ? (
+        ) : (
           <>
             <ForceGraph2D
               graphData={forceGraphData}
@@ -654,30 +605,6 @@ export function GraphPanel({
               </div>
             )}
           </>
-        ) : (
-          <Suspense
-            fallback={<div className="graph-empty">{t("common:loading")}</div>}
-          >
-            <ForceGraph3D
-              graphData={forceGraphData}
-              width={dimensions.width}
-              height={dimensions.height}
-              onNodeClick={(node) => setSelectedEntityId((node as GNode).id)}
-              onNodeHover={(node) =>
-                setHoveredEntityId(node ? (node as GNode).id : null)
-              }
-              nodeLabel="label"
-              nodeColor={nodeColor3D}
-              nodeVal={(node) => (node as GNode).val ?? 1}
-              linkColor={linkColor3D}
-              linkWidth={(link) =>
-                Math.max(((link as GLink).confidence ?? 0.5) * 2, 0.75)
-              }
-              linkDirectionalArrowLength={4}
-              linkDirectionalArrowRelPos={1}
-              cooldownTicks={200}
-            />
-          </Suspense>
         )}
       </div>
 
