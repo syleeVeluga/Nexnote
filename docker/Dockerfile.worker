@@ -29,14 +29,17 @@ FROM node:24-alpine AS runner
 ENV NODE_ENV=production
 WORKDIR /app
 
-COPY --from=build /app/node_modules              ./node_modules
-COPY --from=build /app/packages/shared/dist      ./packages/shared/dist
-COPY --from=build /app/packages/shared/package.json ./packages/shared/package.json
-COPY --from=build /app/packages/db/dist          ./packages/db/dist
-COPY --from=build /app/packages/db/package.json  ./packages/db/package.json
-COPY --from=build /app/packages/worker/dist      ./packages/worker/dist
-COPY --from=build /app/packages/worker/package.json ./packages/worker/package.json
-COPY --from=build /app/package.json              ./package.json
-COPY --from=build /app/pnpm-workspace.yaml       ./pnpm-workspace.yaml
+COPY --from=build /app/node_modules                   ./node_modules
+COPY --from=build /app/packages/shared/dist           ./packages/shared/dist
+COPY --from=build /app/packages/shared/package.json   ./packages/shared/package.json
+COPY --from=build /app/packages/shared/node_modules   ./packages/shared/node_modules
+COPY --from=build /app/packages/db/dist               ./packages/db/dist
+COPY --from=build /app/packages/db/package.json       ./packages/db/package.json
+COPY --from=build /app/packages/db/node_modules       ./packages/db/node_modules
+COPY --from=build /app/packages/worker/dist           ./packages/worker/dist
+COPY --from=build /app/packages/worker/package.json   ./packages/worker/package.json
+COPY --from=build /app/packages/worker/node_modules   ./packages/worker/node_modules
+COPY --from=build /app/package.json                   ./package.json
+COPY --from=build /app/pnpm-workspace.yaml            ./pnpm-workspace.yaml
 
 CMD ["node", "packages/worker/dist/index.js"]

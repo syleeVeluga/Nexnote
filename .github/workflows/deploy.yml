@@ -222,5 +222,5 @@ jobs:
               gcloud auth configure-docker asia-northeast3-docker.pkg.dev --quiet
               docker compose -f docker-compose.prod.yml --env-file .env.prod pull
               docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --remove-orphans
-              docker image prune -f
+              docker image prune -f || true
             '
