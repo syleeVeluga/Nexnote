@@ -162,37 +162,65 @@ jobs:
           project_id: ${{ env.PROJECT_ID }}
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Deploy via SSH
-        uses: google-github-actions/ssh-compute@v2
-        with:
-          instance_name: ${{ vars.GCE_INSTANCE_NAME }}
-          zone: ${{ vars.GCE_ZONE }}
-          user: parkjinhun
-          ssh_private_key: ${{ secrets.GCE_SSH_PRIVATE_KEY }}
-          command: |
-            set -e
-            cd /opt/wekiflow
+      - name: Deploy via direct SSH
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          IMAGE_TAG: ${{ needs.build-push.outputs.image_tag }}
+        run: |
+          # SSH 키 설정
+          mkdir -p ~/.ssh
+          echo "${{ secrets.GCE_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
 
-            # pull latest compose file from repo
-            git pull origin main
+          # VM 외부 IP 조회
+          VM_IP=$(gcloud compute instances describe ${{ vars.GCE_INSTANCE_NAME }} \
+            --zone=${{ vars.GCE_ZONE }} \
+            --project=${{ env.PROJECT_ID }} \
+            --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
 
-            # configure docker auth for Artifact Registry
-            gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+          # 공개키를 인스턴스 메타데이터에 등록
+          PUB_KEY=$(ssh-keygen -y -f ~/.ssh/deploy_key)
+          gcloud compute instances add-metadata ${{ vars.GCE_INSTANCE_NAME }} \
+            --zone=${{ vars.GCE_ZONE }} \
+            --project=${{ env.PROJECT_ID }} \
+            --metadata="ssh-keys=parkjinhun:${PUB_KEY}"
+          sleep 8
 
-            # write .env.prod (secrets injected by GitHub Actions)
-            cat > .env.prod <<'ENVEOF'
-            IMAGE_REGISTRY=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}
-            IMAGE_TAG=${{ needs.build-push.outputs.image_tag }}
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-            REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-            MINIO_ROOT_PASSWORD=${{ secrets.MINIO_ROOT_PASSWORD }}
-            DATABASE_URL=postgresql://wekiflow:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/wekiflow
-            REDIS_URL=redis://:${{ secrets.REDIS_PASSWORD }}@redis:6379
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-            ENVEOF
+          # .env.prod 작성 후 SCP 전송
+          cat > /tmp/env.prod << EOF
+          IMAGE_REGISTRY=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}
+          IMAGE_TAG=${IMAGE_TAG}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          REDIS_PASSWORD=${REDIS_PASSWORD}
+          MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+          DATABASE_URL=postgresql://wekiflow:${POSTGRES_PASSWORD}@postgres:5432/wekiflow
+          REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+          JWT_SECRET=${JWT_SECRET}
+          OPENAI_API_KEY=${OPENAI_API_KEY}
+          GEMINI_API_KEY=${GEMINI_API_KEY}
+          EOF
+          sed -i 's/^[[:space:]]*//' /tmp/env.prod
 
-            docker compose -f docker-compose.prod.yml --env-file .env.prod pull
-            docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --remove-orphans
-            docker image prune -f
+          scp -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            /tmp/env.prod parkjinhun@${VM_IP}:/opt/wekiflow/.env.prod
+
+          # 배포 실행
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            parkjinhun@${VM_IP} '
+              set -e
+              cd /opt/wekiflow
+              git pull origin main
+              gcloud auth configure-docker asia-northeast3-docker.pkg.dev --quiet
+              docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+              docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --remove-orphans
+              docker image prune -f
+            '
