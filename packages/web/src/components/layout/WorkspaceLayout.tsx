@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../hooks/use-auth.js";
 import { useWorkspace } from "../../hooks/use-workspace.js";
+import { workspaces as wsApi } from "../../lib/api-client.js";
+import { slugify } from "@wekiflow/shared";
 import { Sidebar } from "./Sidebar.js";
 
 export function WorkspaceLayout() {
@@ -12,6 +14,22 @@ export function WorkspaceLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
+
+  const handleCreateWorkspace = useCallback(async () => {
+    const name = window.prompt(t("createWorkspacePrompt"), "")?.trim();
+    if (!name) return;
+
+    try {
+      const slug = slugify(name);
+      const workspace = await wsApi.create({ name, slug });
+      select(workspace);
+      navigate("/");
+      void refresh();
+    } catch (err) {
+      console.error(err);
+      window.alert(t("createWorkspaceFailed"));
+    }
+  }, [navigate, refresh, select, t]);
 
   useEffect(() => {
     if (window.matchMedia("(max-width: 768px)").matches) {
@@ -35,6 +53,9 @@ export function WorkspaceLayout() {
         onSelectWorkspace={(ws) => {
           select(ws);
           navigate("/");
+        }}
+        onCreateWorkspace={() => {
+          void handleCreateWorkspace();
         }}
         onRenameWorkspace={refresh}
         onCollapse={() => setSidebarOpen(false)}

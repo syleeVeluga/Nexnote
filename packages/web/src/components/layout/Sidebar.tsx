@@ -218,6 +218,7 @@ interface SidebarProps {
   workspace: Workspace;
   workspaceList: Workspace[];
   onSelectWorkspace: (ws: Workspace) => void;
+  onCreateWorkspace: () => void;
   onRenameWorkspace: () => void;
   onCollapse: () => void;
   onNewPage: () => void;
@@ -229,6 +230,7 @@ export function Sidebar({
   workspace,
   workspaceList,
   onSelectWorkspace,
+  onCreateWorkspace,
   onRenameWorkspace,
   onCollapse,
   onNewPage,
@@ -908,6 +910,15 @@ export function Sidebar({
               </button>
             ))}
             <div className="ws-dropdown-divider" />
+            <button
+              className="ws-dropdown-item"
+              onClick={() => {
+                setWsDropdown(false);
+                onCreateWorkspace();
+              }}
+            >
+              {t("createWorkspace")}
+            </button>
             <button className="ws-dropdown-item" onClick={startWsRename}>
               {t("renameWorkspace")}
             </button>
