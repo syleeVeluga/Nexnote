@@ -52,6 +52,10 @@ export const triples = pgTable(
       "triples_object_xor_check",
       sql`(${t.objectEntityId} IS NOT NULL AND ${t.objectLiteral} IS NULL) OR (${t.objectEntityId} IS NULL AND ${t.objectLiteral} IS NOT NULL)`,
     ),
+    check(
+      "triples_status_chk",
+      sql`${t.status} IN ('active','deprecated','rejected','page_deleted','superseded')`,
+    ),
     index("triples_workspace_subject_idx").on(
       t.workspaceId,
       t.subjectEntityId,

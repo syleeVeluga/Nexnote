@@ -69,6 +69,7 @@ export const MODEL_RUN_MODES = [
   "route_decision",
   "patch_generation",
   "triple_extraction",
+  "entity_match_judge",
   "content_reformat",
   "predicate_label",
   "synthesis_generation",
@@ -100,6 +101,7 @@ export const TRIPLE_STATUSES = [
   "deprecated",
   "rejected",
   "page_deleted",
+  "superseded",
 ] as const;
 export type TripleStatus = (typeof TRIPLE_STATUSES)[number];
 
@@ -143,6 +145,7 @@ export const MODE_OUTPUT_RESERVE: Record<ModelRunMode, number> = {
   route_decision: 2_048,
   patch_generation: 8_192,
   triple_extraction: 16_384,
+  entity_match_judge: 2_048,
   content_reformat: 8_192,
   predicate_label: 1_024,
   synthesis_generation: 8_192,

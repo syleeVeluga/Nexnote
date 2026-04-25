@@ -20,6 +20,7 @@ interface MockFixtureFile {
       route_decision?: Record<string, unknown>;
       patch_generation?: string;
       triple_extraction?: Record<string, unknown>;
+      entity_match_judge?: Record<string, unknown>;
       content_reformat?: string;
       predicate_label?: Record<string, unknown>;
       synthesis_generation?: string;
@@ -69,6 +70,13 @@ function resolveMockContent(request: AIRequest): string {
     }
     if (request.mode === "predicate_label") {
       return JSON.stringify({ labels: [] });
+    }
+    if (request.mode === "entity_match_judge") {
+      return JSON.stringify({
+        sameEntity: false,
+        confidence: 0,
+        reason: "No explicit marker was provided.",
+      });
     }
     if (request.mode === "synthesis_generation") {
       return "# E2E Synthesis\n\nNo explicit marker was provided.\n";

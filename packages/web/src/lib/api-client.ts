@@ -15,6 +15,7 @@ import {
   type GraphEdge,
   type GraphData,
   type EntityProvenance,
+  type EntityAliasDto,
   type IngestionAction,
   type IngestionStatus,
   type DecisionStatus,
@@ -162,6 +163,7 @@ export interface Workspace {
   name: string;
   slug: string;
   defaultAiPolicy: string | null;
+  useReconciliationDefault: boolean;
   role?: WorkspaceRole;
   createdAt: string;
   updatedAt: string;
@@ -180,13 +182,20 @@ export const workspaces = {
   get(id: string) {
     return request<Workspace & { role: WorkspaceRole }>(`/workspaces/${id}`);
   },
-  create(data: { name: string; slug: string }) {
+  create(data: {
+    name: string;
+    slug: string;
+    useReconciliationDefault?: boolean;
+  }) {
     return request<Workspace>("/workspaces", {
       method: "POST",
       body: JSON.stringify(data),
     });
   },
-  update(id: string, data: { name?: string }) {
+  update(
+    id: string,
+    data: { name?: string; useReconciliationDefault?: boolean },
+  ) {
     return request<Workspace>(`/workspaces/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -311,6 +320,7 @@ export type {
   GraphEdge,
   GraphData,
   EntityProvenance,
+  EntityAliasDto,
 } from "@wekiflow/shared";
 export type {
   IngestionAction,
@@ -496,6 +506,30 @@ export const pages = {
     return request<EntityProvenance>(
       `/workspaces/${workspaceId}/entities/${entityId}/provenance${q}`,
       { signal: params?.signal },
+    );
+  },
+
+  entityAliases(
+    workspaceId: string,
+    entityId: string,
+    params?: { signal?: AbortSignal },
+  ) {
+    return request<{ aliases: EntityAliasDto[] }>(
+      `/workspaces/${workspaceId}/entities/${entityId}/aliases`,
+      { signal: params?.signal },
+    );
+  },
+
+  rejectEntityAlias(workspaceId: string, entityId: string, aliasId: string) {
+    return request<{
+      aliasId: string;
+      entityId: string;
+      splitEntityId: string | null;
+      rewiredTriples: number;
+      copiedMentions: number;
+    }>(
+      `/workspaces/${workspaceId}/entities/${entityId}/aliases/${aliasId}/reject`,
+      { method: "POST", body: JSON.stringify({}) },
     );
   },
 

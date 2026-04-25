@@ -5,6 +5,7 @@ import {
   apiTokens,
   auditLogs,
   ingestions,
+  workspaces,
   type Ingestion,
 } from "@wekiflow/db";
 import {
@@ -97,6 +98,18 @@ export async function enqueueIngestion(
   const apiTokenId =
     input.apiTokenId ??
     (await getOrCreateImportTokenId(fastify, input.workspaceId, input.userId));
+  const useReconciliation =
+    input.useReconciliation ??
+    (
+      await fastify.db
+        .select({
+          useReconciliationDefault: workspaces.useReconciliationDefault,
+        })
+        .from(workspaces)
+        .where(eq(workspaces.id, input.workspaceId))
+        .limit(1)
+    )[0]?.useReconciliationDefault ??
+    true;
 
   // XOR is enforced by the Zod refine on /import schemas and the DB CHECK on
   // ingestions; no inline guard needed here.
@@ -118,7 +131,7 @@ export async function enqueueIngestion(
         storageSha256: input.storageSha256 ?? null,
         targetFolderId: input.targetFolderId ?? null,
         targetParentPageId: input.targetParentPageId ?? null,
-        useReconciliation: input.useReconciliation ?? true,
+        useReconciliation,
         status: "pending",
       })
       .returning();

@@ -58,3 +58,19 @@ export interface EntityProvenance {
   sourcePages: EntityProvenanceSourcePage[];
   truncated: boolean;
 }
+
+export interface EntityAliasDto {
+  id: string;
+  entityId: string;
+  alias: string;
+  normalizedAlias: string;
+  status: "active" | "rejected";
+  similarityScore: number | null;
+  matchMethod: string | null;
+  sourcePageId: string | null;
+  sourcePageTitle: string | null;
+  createdByExtractionId: string | null;
+  createdAt: string;
+  rejectedAt: string | null;
+  rejectedByUserId: string | null;
+}

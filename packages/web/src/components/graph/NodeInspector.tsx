@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   pages as pagesApi,
+  type EntityAliasDto,
   type EntityProvenance,
   type GraphData,
 } from "../../lib/api-client.js";
@@ -41,22 +42,32 @@ export function NodeInspector({
   const { t, i18n } = useTranslation(["editor", "common"]);
   const locale = resolveSupportedLocale(i18n.resolvedLanguage ?? i18n.language);
   const [detail, setDetail] = useState<EntityProvenance | null>(null);
+  const [aliases, setAliases] = useState<EntityAliasDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [rejectingAliasId, setRejectingAliasId] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
     setDetail(null);
+    setAliases([]);
 
-    pagesApi
-      .entityProvenance(workspaceId, entityId, {
+    Promise.all([
+      pagesApi.entityProvenance(workspaceId, entityId, {
         limit: 5,
         locale,
         signal: controller.signal,
+      }),
+      pagesApi.entityAliases(workspaceId, entityId, {
+        signal: controller.signal,
+      }),
+    ])
+      .then(([provenance, aliasResult]) => {
+        setDetail(provenance);
+        setAliases(aliasResult.aliases);
       })
-      .then((res) => setDetail(res))
       .catch((err) => {
         if (controller.signal.aborted) return;
         void err;
@@ -89,6 +100,28 @@ export function NodeInspector({
 
   const totalDirectRelations =
     relations.outgoing.length + relations.incoming.length;
+
+  const activeAliases = aliases.filter((alias) => alias.status === "active");
+  const rejectedAliases = aliases.filter(
+    (alias) => alias.status === "rejected",
+  );
+
+  const handleRejectAlias = async (alias: EntityAliasDto) => {
+    const confirmed = window.confirm(
+      t("graphNodeInspectorUnaliasConfirm", { alias: alias.alias }),
+    );
+    if (!confirmed) return;
+    setRejectingAliasId(alias.id);
+    try {
+      await pagesApi.rejectEntityAlias(workspaceId, entityId, alias.id);
+      const refreshed = await pagesApi.entityAliases(workspaceId, entityId);
+      setAliases(refreshed.aliases);
+    } catch {
+      window.alert(t("graphNodeInspectorUnaliasFailed"));
+    } finally {
+      setRejectingAliasId(null);
+    }
+  };
 
   return (
     <section
@@ -133,6 +166,72 @@ export function NodeInspector({
           </div>
 
           <div className="node-inspector-body">
+            <div className="node-inspector-section">
+              <div className="node-inspector-section-header">
+                <h4>{t("graphNodeInspectorAliases")}</h4>
+                <span className="node-inspector-section-meta">
+                  {t("graphNodeInspectorAliasCount", {
+                    count: activeAliases.length,
+                  })}
+                </span>
+              </div>
+
+              {activeAliases.length === 0 && rejectedAliases.length === 0 ? (
+                <div className="node-relation-empty">
+                  {t("graphNodeInspectorNoAliases")}
+                </div>
+              ) : (
+                <div className="node-alias-list">
+                  {activeAliases.map((alias) => (
+                    <div className="node-alias-row" key={alias.id}>
+                      <div className="node-alias-copy">
+                        <span className="node-alias-text">{alias.alias}</span>
+                        <span className="node-alias-meta">
+                          {alias.matchMethod
+                            ? t("graphNodeInspectorAliasMethod", {
+                                method: alias.matchMethod,
+                              })
+                            : t("graphNodeInspectorAliasManual")}
+                          {alias.sourcePageTitle
+                            ? ` / ${alias.sourcePageTitle}`
+                            : ""}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="node-alias-reject-btn"
+                        onClick={() => void handleRejectAlias(alias)}
+                        disabled={rejectingAliasId === alias.id}
+                      >
+                        {rejectingAliasId === alias.id
+                          ? t("common:loading")
+                          : t("graphNodeInspectorUnalias")}
+                      </button>
+                    </div>
+                  ))}
+                  {rejectedAliases.length > 0 && (
+                    <details className="node-rejected-aliases">
+                      <summary>
+                        {t("graphNodeInspectorRejectedAliases", {
+                          count: rejectedAliases.length,
+                        })}
+                      </summary>
+                      {rejectedAliases.map((alias) => (
+                        <div className="node-alias-row rejected" key={alias.id}>
+                          <span className="node-alias-text">{alias.alias}</span>
+                          <span className="node-alias-meta">
+                            {alias.rejectedAt
+                              ? new Date(alias.rejectedAt).toLocaleDateString()
+                              : t("graphNodeInspectorRejected")}
+                          </span>
+                        </div>
+                      ))}
+                    </details>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="node-inspector-section">
               <div className="node-inspector-section-header">
                 <h4>{t("graphNodeInspectorRelations")}</h4>

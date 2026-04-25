@@ -92,6 +92,13 @@
       "when": 1777399200000,
       "tag": "0012_reconciliation",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1777485600000,
+      "tag": "0013_entity_reconciliation_hardening",
+      "breakpoints": true
     }
   ]
 }

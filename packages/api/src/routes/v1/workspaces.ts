@@ -58,6 +58,7 @@ function toWorkspaceDto(row: typeof workspaces.$inferSelect) {
     name: row.name,
     slug: row.slug,
     defaultAiPolicy: row.defaultAiPolicy,
+    useReconciliationDefault: row.useReconciliationDefault,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -112,6 +113,8 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
               name: body.name,
               slug: body.slug,
               defaultAiPolicy: body.defaultAiPolicy ?? null,
+              useReconciliationDefault:
+                body.useReconciliationDefault ?? true,
             })
             .returning();
 
@@ -165,6 +168,7 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
             name: workspaces.name,
             slug: workspaces.slug,
             defaultAiPolicy: workspaces.defaultAiPolicy,
+            useReconciliationDefault: workspaces.useReconciliationDefault,
             createdAt: workspaces.createdAt,
             updatedAt: workspaces.updatedAt,
             role: workspaceMembers.role,

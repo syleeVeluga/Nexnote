@@ -2,18 +2,10 @@ import { z } from "zod";
 import { uuidSchema } from "./common.js";
 import { INGESTION_ACTIONS } from "../constants/index.js";
 
-export const createIngestionSchema = z.object({
-  sourceName: z.string().min(1).max(200),
-  externalRef: z.string().max(500).optional(),
-  idempotencyKey: z.string().min(1).max(200),
-  contentType: z.string().max(100).default("text/plain"),
-  titleHint: z.string().max(500).optional(),
-  rawPayload: z.record(z.unknown()),
-});
-
 // Shared destination + reconciliation fields for /import endpoints.
 // Cannot specify both `targetFolderId` and `targetParentPageId`; root import
-// is the default when both are absent. `useReconciliation` defaults to true.
+// is the default when both are absent. When omitted, `useReconciliation`
+// resolves to the workspace default.
 const importDestinationFields = {
   targetFolderId: uuidSchema.nullable().optional(),
   targetParentPageId: uuidSchema.nullable().optional(),
@@ -28,6 +20,18 @@ const xorTargetMessage = {
   message: "Specify only one of targetFolderId or targetParentPageId",
   path: ["targetParentPageId"],
 };
+
+export const createIngestionSchema = z
+  .object({
+    sourceName: z.string().min(1).max(200),
+    externalRef: z.string().max(500).optional(),
+    idempotencyKey: z.string().min(1).max(200),
+    contentType: z.string().max(100).default("text/plain"),
+    titleHint: z.string().max(500).optional(),
+    rawPayload: z.record(z.unknown()),
+    ...importDestinationFields,
+  })
+  .refine(xorTargetCheck, xorTargetMessage);
 
 export const importUrlBodySchema = z
   .object({
@@ -96,6 +100,13 @@ export const tripleExtractionSchema = z.object({
   ),
 });
 
+export const entityMatchJudgeSchema = z.object({
+  sameEntity: z.boolean(),
+  confidence: z.number().min(0).max(1),
+  reason: z.string(),
+  alias: z.string().optional(),
+});
+
 export type CreateIngestion = z.infer<typeof createIngestionSchema>;
 export type ImportUrlBody = z.infer<typeof importUrlBodySchema>;
 export type ImportTextBody = z.infer<typeof importTextBodySchema>;
@@ -103,3 +114,4 @@ export type ImportFileFields = z.infer<typeof importFileFieldsSchema>;
 export type RouteDecision = z.infer<typeof routeDecisionSchema>;
 export type PatchProposal = z.infer<typeof patchProposalSchema>;
 export type TripleExtraction = z.infer<typeof tripleExtractionSchema>;
+export type EntityMatchJudge = z.infer<typeof entityMatchJudgeSchema>;

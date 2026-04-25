@@ -52,5 +52,9 @@
   "apiGuideRateLimitsDesc": "분당 60회 (사용자) · 하루 5,000회 (워크스페이스). 초과 시 429와 Retry-After 헤더가 반환됩니다.",
   "apiGuideCopy": "복사",
   "apiGuideCopied": "복사됨!",
-  "apiGuideReviewCta": "검토 대기열 열기"
+  "apiGuideReviewCta": "검토 대기열 열기",
+  "workspaceReconciliationDefault": "워크스페이스 기본값: reconciliation {{state}}",
+  "workspaceReconciliationDefaultOn": "켜짐",
+  "workspaceReconciliationDefaultOff": "꺼짐",
+  "workspaceReconciliationDefaultToggle": "기본값 전환"
 }

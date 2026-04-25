@@ -18,7 +18,7 @@
 //   3. honorific stop-list strip → exact normalizedKey
 //   4. pg_trgm similarity ≥ SIM_THRESHOLD with a length-difference guard
 
-import { inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { entityAliases } from "@wekiflow/db";
 import { normalizeKey } from "@wekiflow/shared";
 
@@ -457,7 +457,12 @@ export async function reconcileEntitiesBulk(
       normalizedAlias: entityAliases.normalizedAlias,
     })
     .from(entityAliases)
-    .where(inArray(entityAliases.entityId, candidateIds));
+    .where(
+      and(
+        inArray(entityAliases.entityId, candidateIds),
+        eq(entityAliases.status, "active"),
+      ),
+    );
   const contextAliasIndex = new Map<string, string>();
   for (const r of aliasRows) contextAliasIndex.set(r.normalizedAlias, r.entityId);
 

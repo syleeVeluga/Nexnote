@@ -30,6 +30,8 @@ import { consumeRateLimit, parsePositiveInt } from "../../lib/rate-limit.js";
 import { enqueueIngestion } from "../../lib/enqueue-ingestion.js";
 import { mapIngestionDto } from "../../lib/ingestion-dto.js";
 import { registerImportRoutes } from "./ingestions-import.js";
+import { loadFolderHierarchyRow } from "../../lib/folder-hierarchy.js";
+import { loadPageHierarchyRow } from "../../lib/page-hierarchy.js";
 import {
   getOriginalStream,
   OriginalNotFoundError,
@@ -146,6 +148,60 @@ function mapDecisionDto(row: IngestionDecision) {
   };
 }
 
+async function resolveIngestionDestination(
+  fastify: FastifyInstance,
+  reply: FastifyReply,
+  workspaceId: string,
+  raw: {
+    targetFolderId?: string | null;
+    targetParentPageId?: string | null;
+  },
+): Promise<
+  | {
+      targetFolderId: string | null;
+      targetParentPageId: string | null;
+    }
+  | null
+> {
+  const targetFolderId = raw.targetFolderId ?? null;
+  const targetParentPageId = raw.targetParentPageId ?? null;
+
+  if (targetFolderId && targetParentPageId) {
+    reply.code(400).send({
+      error: "Bad request",
+      code: ERROR_CODES.PAGE_PARENT_CONFLICT,
+      details: "Specify only one of targetFolderId or targetParentPageId",
+    });
+    return null;
+  }
+
+  if (targetFolderId) {
+    const folder = await loadFolderHierarchyRow(fastify.db, targetFolderId);
+    if (!folder || folder.workspaceId !== workspaceId) {
+      reply.code(400).send({
+        error: "Bad request",
+        code: ERROR_CODES.FOLDER_PARENT_NOT_FOUND,
+        details: "targetFolderId does not exist in this workspace",
+      });
+      return null;
+    }
+  }
+
+  if (targetParentPageId) {
+    const page = await loadPageHierarchyRow(fastify.db, targetParentPageId);
+    if (!page || page.workspaceId !== workspaceId) {
+      reply.code(400).send({
+        error: "Bad request",
+        code: ERROR_CODES.PAGE_PARENT_NOT_FOUND,
+        details: "targetParentPageId does not exist in this workspace",
+      });
+      return null;
+    }
+  }
+
+  return { targetFolderId, targetParentPageId };
+}
+
 const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
   // POST / — Submit a new ingestion (JWT auth, returns 202)
   fastify.post(
@@ -208,6 +264,14 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(200).send(mapIngestionDto(existing));
       }
 
+      const destination = await resolveIngestionDestination(
+        fastify,
+        reply,
+        workspaceId,
+        body.data,
+      );
+      if (!destination) return;
+
       // Key per authenticated user, not per API token. The route is JWT-auth;
       // `token.id` above is arbitrarily selected with `.limit(1)` and no
       // deterministic ordering, so keying on it would let a user with multiple
@@ -252,6 +316,9 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
           contentType: body.data.contentType,
           titleHint: body.data.titleHint,
           rawPayload: body.data.rawPayload,
+          targetFolderId: destination.targetFolderId,
+          targetParentPageId: destination.targetParentPageId,
+          useReconciliation: body.data.useReconciliation,
         },
       );
 

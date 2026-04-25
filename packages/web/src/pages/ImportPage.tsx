@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../hooks/use-workspace.js";
@@ -6,6 +6,7 @@ import {
   ApiError,
   decisions as decisionsApi,
   ingestions as ingestionsApi,
+  workspaces as workspaceApi,
 } from "../lib/api-client.js";
 import { dispatchDecisionCountsUpdated } from "../lib/decision-events.js";
 import { dispatchPagesUpdated } from "../lib/page-events.js";
@@ -61,7 +62,7 @@ function mapErrorCode(code: string | undefined, fallback: string): string {
 export function ImportPage() {
   const { t } = useTranslation(["import", "common"]);
   const navigate = useNavigate();
-  const { current } = useWorkspace();
+  const { current, refresh } = useWorkspace();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [activeTab, setActiveTab] = useState<TabKey>("file");
@@ -93,9 +94,16 @@ export function ImportPage() {
     kind: "root",
   });
   const [useReconciliation, setUseReconciliation] = useState(true);
+  const [reconciliationTouched, setReconciliationTouched] = useState(false);
+  const [workspaceDefaultBusy, setWorkspaceDefaultBusy] = useState(false);
 
   const workspaceId = current?.id;
   const pollingIngestionIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!current || reconciliationTouched) return;
+    setUseReconciliation(current.useReconciliationDefault);
+  }, [current, reconciliationTouched]);
 
   const watchIngestion = useCallback(
     async (ingestionId: string) => {
@@ -307,6 +315,24 @@ export function ImportPage() {
     }
   };
 
+  const canEditWorkspaceDefault =
+    current?.role === "owner" || current?.role === "admin";
+
+  const toggleWorkspaceDefault = async () => {
+    if (!current || workspaceDefaultBusy) return;
+    const next = !current.useReconciliationDefault;
+    setWorkspaceDefaultBusy(true);
+    try {
+      await workspaceApi.update(current.id, {
+        useReconciliationDefault: next,
+      });
+      await refresh();
+      if (!reconciliationTouched) setUseReconciliation(next);
+    } finally {
+      setWorkspaceDefaultBusy(false);
+    }
+  };
+
   if (!current) return null;
 
   return (
@@ -357,7 +383,10 @@ export function ImportPage() {
             <input
               type="checkbox"
               checked={useReconciliation}
-              onChange={(e) => setUseReconciliation(e.target.checked)}
+              onChange={(e) => {
+                setReconciliationTouched(true);
+                setUseReconciliation(e.target.checked);
+              }}
             />
             <span>
               {t(
@@ -377,6 +406,27 @@ export function ImportPage() {
                   "Fresh extraction — every entity name found in this import becomes a new entity.",
                 )}
           </p>
+          {canEditWorkspaceDefault && (
+            <div className="import-workspace-default">
+              <span>
+                {t("workspaceReconciliationDefault", {
+                  state: current.useReconciliationDefault
+                    ? t("workspaceReconciliationDefaultOn")
+                    : t("workspaceReconciliationDefaultOff"),
+                })}
+              </span>
+              <button
+                type="button"
+                className="import-link-btn"
+                onClick={() => void toggleWorkspaceDefault()}
+                disabled={workspaceDefaultBusy}
+              >
+                {workspaceDefaultBusy
+                  ? t("common:loading")
+                  : t("workspaceReconciliationDefaultToggle")}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

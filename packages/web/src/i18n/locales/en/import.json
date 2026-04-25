@@ -52,5 +52,9 @@
   "apiGuideRateLimitsDesc": "60 requests / minute per user · 5 000 requests / day per workspace. Exceeding limits returns 429 with a Retry-After header.",
   "apiGuideCopy": "Copy",
   "apiGuideCopied": "Copied!",
-  "apiGuideReviewCta": "Open review queue"
+  "apiGuideReviewCta": "Open review queue",
+  "workspaceReconciliationDefault": "Workspace default: reconciliation {{state}}",
+  "workspaceReconciliationDefaultOn": "on",
+  "workspaceReconciliationDefaultOff": "off",
+  "workspaceReconciliationDefaultToggle": "Toggle default"
 }

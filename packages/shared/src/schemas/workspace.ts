@@ -6,6 +6,7 @@ export const createWorkspaceSchema = z.object({
   name: z.string().min(1).max(200),
   slug: slugSchema,
   defaultAiPolicy: z.string().optional(),
+  useReconciliationDefault: z.boolean().optional(),
 });
 
 export const updateWorkspaceSchema = createWorkspaceSchema.partial();

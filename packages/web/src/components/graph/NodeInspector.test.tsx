@@ -1,10 +1,16 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { EntityProvenance, GraphData } from "../../lib/api-client.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  EntityAliasDto,
+  EntityProvenance,
+  GraphData,
+} from "../../lib/api-client.js";
 import { NodeInspector } from "./NodeInspector.js";
 
 const entityProvenanceMock = vi.fn();
+const entityAliasesMock = vi.fn();
+const rejectEntityAliasMock = vi.fn();
 let resolvedLanguage = "ko";
 
 vi.mock("react-i18next", () => ({
@@ -43,6 +49,17 @@ vi.mock("react-i18next", () => ({
         graphNodeInspectorNoEvidence:
           "No evidence excerpts captured for this entity yet.",
         graphNodeInspectorMorePages: "+{{count}} more pages",
+        graphNodeInspectorAliases: "Aliases",
+        graphNodeInspectorAliasCount: "{{count}} active",
+        graphNodeInspectorNoAliases: "No aliases recorded for this entity.",
+        graphNodeInspectorAliasMethod: "{{method}} match",
+        graphNodeInspectorAliasManual: "manual",
+        graphNodeInspectorUnalias: "Unalias",
+        graphNodeInspectorUnaliasConfirm:
+          "Reject alias {{alias}} and split its page triples forward?",
+        graphNodeInspectorUnaliasFailed: "Could not reject this alias.",
+        graphNodeInspectorRejectedAliases: "{{count}} rejected",
+        graphNodeInspectorRejected: "rejected",
         "common:loading": "Loading",
         ...predicateMessages,
       };
@@ -58,6 +75,8 @@ vi.mock("react-i18next", () => ({
 vi.mock("../../lib/api-client.js", () => ({
   pages: {
     entityProvenance: (...args: unknown[]) => entityProvenanceMock(...args),
+    entityAliases: (...args: unknown[]) => entityAliasesMock(...args),
+    rejectEntityAlias: (...args: unknown[]) => rejectEntityAliasMock(...args),
   },
 }));
 
@@ -144,10 +163,44 @@ const provenance: EntityProvenance = {
   truncated: false,
 };
 
+const aliases: EntityAliasDto[] = [
+  {
+    id: "alias-1",
+    entityId: "alice",
+    alias: "A. Lee",
+    normalizedAlias: "a_lee",
+    status: "active",
+    similarityScore: 0.92,
+    matchMethod: "trigram",
+    sourcePageId: "page-2",
+    sourcePageTitle: "Team Notes",
+    createdByExtractionId: "run-1",
+    createdAt: "2026-04-22T00:00:00.000Z",
+    rejectedAt: null,
+    rejectedByUserId: null,
+  },
+];
+
 beforeEach(() => {
   entityProvenanceMock.mockReset();
+  entityAliasesMock.mockReset();
+  rejectEntityAliasMock.mockReset();
   entityProvenanceMock.mockResolvedValue(provenance);
+  entityAliasesMock.mockResolvedValue({ aliases });
+  rejectEntityAliasMock.mockResolvedValue({
+    aliasId: "alias-1",
+    entityId: "alice",
+    splitEntityId: "split-1",
+    rewiredTriples: 1,
+    copiedMentions: 1,
+  });
   resolvedLanguage = "ko";
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.spyOn(window, "alert").mockImplementation(() => undefined);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("NodeInspector", () => {
@@ -179,10 +232,14 @@ describe("NodeInspector", () => {
       locale: "ko",
       signal: expect.any(AbortSignal),
     });
+    expect(entityAliasesMock).toHaveBeenCalledWith("workspace-1", "alice", {
+      signal: expect.any(AbortSignal),
+    });
 
     fireEvent.click(screen.getByRole("button", { name: /OpenAI/i }));
 
     expect(onSelectEntity).toHaveBeenCalledWith("acme");
+    expect(screen.getByText("A. Lee")).toBeInTheDocument();
     expect(screen.getByText("Evidence")).toBeInTheDocument();
   });
 
@@ -208,5 +265,28 @@ describe("NodeInspector", () => {
       locale: "en",
       signal: expect.any(AbortSignal),
     });
+  });
+
+  it("rejects an active alias from the inspector", async () => {
+    render(
+      <NodeInspector
+        workspaceId="workspace-1"
+        entityId="alice"
+        currentPageId="page-1"
+        graphData={graphData}
+        onClose={() => {}}
+        onSelectEntity={() => {}}
+        onNavigateToPage={() => {}}
+        getTypeColor={() => "#000000"}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Unalias" }));
+
+    expect(rejectEntityAliasMock).toHaveBeenCalledWith(
+      "workspace-1",
+      "alice",
+      "alias-1",
+    );
   });
 });

@@ -5,6 +5,7 @@ import {
   timestamp,
   uuid,
   primaryKey,
+  boolean,
 } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -23,6 +24,9 @@ export const workspaces = pgTable("workspaces", {
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   defaultAiPolicy: text("default_ai_policy"),
+  useReconciliationDefault: boolean("use_reconciliation_default")
+    .notNull()
+    .default(true),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
