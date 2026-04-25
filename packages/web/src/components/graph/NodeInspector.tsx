@@ -44,13 +44,13 @@ export function NodeInspector({
   const [detail, setDetail] = useState<EntityProvenance | null>(null);
   const [aliases, setAliases] = useState<EntityAliasDto[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [errorKey, setErrorKey] = useState<string | null>(null);
   const [rejectingAliasId, setRejectingAliasId] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    setError(null);
+    setErrorKey(null);
     setDetail(null);
     setAliases([]);
 
@@ -71,7 +71,7 @@ export function NodeInspector({
       .catch((err) => {
         if (controller.signal.aborted) return;
         void err;
-        setError(t("graphNodeInspectorLoadFailed"));
+        setErrorKey("graphNodeInspectorLoadFailed");
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -80,7 +80,7 @@ export function NodeInspector({
       });
 
     return () => controller.abort();
-  }, [workspaceId, entityId, locale, t]);
+  }, [workspaceId, entityId, locale]);
 
   const hiddenPageCount = useMemo(() => {
     if (!detail?.truncated) return 0;
@@ -130,9 +130,9 @@ export function NodeInspector({
     >
       {loading ? (
         <div className="graph-empty">{t("common:loading")}</div>
-      ) : error ? (
+      ) : errorKey ? (
         <div className="graph-empty" style={{ color: "#dc2626" }}>
-          {error}
+          {t(errorKey)}
         </div>
       ) : !detail ? (
         <div className="graph-empty">{t("graphNodeInspectorEmpty")}</div>
