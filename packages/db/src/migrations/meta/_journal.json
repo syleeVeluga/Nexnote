@@ -71,6 +71,20 @@
       "when": 1777222800000,
       "tag": "0009_predicate_display_labels_repair",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1777226400000,
+      "tag": "0010_revision_chunks_and_synthesis",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1777312800000,
+      "tag": "0011_page_parent_folder",
+      "breakpoints": true
     }
   ]
 }

@@ -43,6 +43,7 @@ export interface AIResponse {
   tokenInput: number;
   tokenOutput: number;
   latencyMs: number;
+  finishReason?: string | null;
 }
 
 /** Adapter interface that OpenAI / Gemini implementations must fulfill */

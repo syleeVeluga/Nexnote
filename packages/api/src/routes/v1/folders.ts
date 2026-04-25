@@ -4,7 +4,7 @@ import { folders, auditLogs } from "@wekiflow/db";
 import {
   createFolderSchema,
   updateFolderSchema,
-  paginationSchema,
+  treePaginationSchema,
   uuidSchema,
   ERROR_CODES,
 } from "@wekiflow/shared";
@@ -18,6 +18,16 @@ import {
   workspaceParamsSchema,
 } from "../../lib/workspace-auth.js";
 import { sendValidationError, isUniqueViolation } from "../../lib/reply-helpers.js";
+import {
+  getNextFolderSortOrder,
+  loadFolderHierarchyRow,
+  validateParentFolderAssignment,
+} from "../../lib/folder-hierarchy.js";
+import {
+  reorderFolder,
+  ReorderFailedError,
+  type FolderParent,
+} from "../../lib/reorder.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -27,7 +37,7 @@ const folderParamsSchema = workspaceParamsSchema.extend({
   folderId: uuidSchema,
 });
 
-const listQuerySchema = paginationSchema.extend({
+const listQuerySchema = treePaginationSchema.extend({
   parentFolderId: uuidSchema.nullable().optional(),
 });
 
@@ -82,6 +92,18 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const { name, slug, parentFolderId, sortOrder } = bodyResult.data;
+
+      if (parentFolderId) {
+        const parentValidation = await validateParentFolderAssignment(
+          (id) => loadFolderHierarchyRow(fastify.db, id),
+          { workspaceId, parentFolderId },
+        );
+        if (parentValidation) {
+          return reply
+            .code(parentValidation.statusCode)
+            .send(parentValidation.body);
+        }
+      }
 
       try {
         const folder = await fastify.db.transaction(async (tx) => {
@@ -240,17 +262,101 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      const [existing] = await fastify.db
+        .select()
+        .from(folders)
+        .where(
+          and(eq(folders.id, folderId), eq(folders.workspaceId, workspaceId)),
+        )
+        .limit(1);
+      if (!existing) {
+        return reply.code(404).send({
+          error: "Folder not found",
+          code: ERROR_CODES.FOLDER_NOT_FOUND,
+        });
+      }
+
+      const nextParentFolderId =
+        updates.parentFolderId !== undefined
+          ? updates.parentFolderId
+          : existing.parentFolderId;
+      const parentChanged =
+        updates.parentFolderId !== undefined &&
+        updates.parentFolderId !== existing.parentFolderId;
+
+      if (updates.parentFolderId !== undefined) {
+        const parentValidation = await validateParentFolderAssignment(
+          (id) => loadFolderHierarchyRow(fastify.db, id),
+          { workspaceId, folderId, parentFolderId: nextParentFolderId },
+        );
+        if (parentValidation) {
+          return reply
+            .code(parentValidation.statusCode)
+            .send(parentValidation.body);
+        }
+      }
+
       try {
         const folder = await fastify.db.transaction(async (tx) => {
-          const [row] = await tx
-            .update(folders)
-            .set({ ...updates, updatedAt: new Date() })
-            .where(
-              and(eq(folders.id, folderId), eq(folders.workspaceId, workspaceId)),
-            )
-            .returning();
+          const metadataPatch: Record<string, unknown> = {
+            updatedAt: new Date(),
+          };
+          if (updates.name !== undefined) metadataPatch.name = updates.name;
+          if (updates.slug !== undefined) metadataPatch.slug = updates.slug;
 
-          if (!row) return null;
+          if (Object.keys(metadataPatch).length > 1) {
+            await tx
+              .update(folders)
+              .set(metadataPatch)
+              .where(
+                and(
+                  eq(folders.id, folderId),
+                  eq(folders.workspaceId, workspaceId),
+                ),
+              );
+          }
+
+          if (updates.reorderIntent) {
+            const parent: FolderParent = nextParentFolderId
+              ? { kind: "folder", folderId: nextParentFolderId }
+              : { kind: "root" };
+            const reorderError = await reorderFolder(tx, {
+              workspaceId,
+              movingId: folderId,
+              parent,
+              intent: updates.reorderIntent,
+            });
+            if (reorderError) throw new ReorderFailedError(reorderError);
+          } else if (parentChanged) {
+            const nextSort = await getNextFolderSortOrder(
+              tx,
+              workspaceId,
+              nextParentFolderId,
+            );
+            await tx
+              .update(folders)
+              .set({
+                parentFolderId: nextParentFolderId,
+                sortOrder: nextSort,
+                updatedAt: new Date(),
+              })
+              .where(
+                and(
+                  eq(folders.id, folderId),
+                  eq(folders.workspaceId, workspaceId),
+                ),
+              );
+          } else if (updates.sortOrder !== undefined) {
+            await tx
+              .update(folders)
+              .set({ sortOrder: updates.sortOrder, updatedAt: new Date() })
+              .where(
+                and(
+                  eq(folders.id, folderId),
+                  eq(folders.workspaceId, workspaceId),
+                ),
+              );
+          }
 
           await tx.insert(auditLogs).values({
             workspaceId,
@@ -258,9 +364,25 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
             entityType: "folder",
             entityId: folderId,
             action: "folder.update",
+            beforeJson: {
+              name: existing.name,
+              slug: existing.slug,
+              parentFolderId: existing.parentFolderId,
+              sortOrder: existing.sortOrder,
+            },
             afterJson: updates,
           });
 
+          const [row] = await tx
+            .select()
+            .from(folders)
+            .where(
+              and(
+                eq(folders.id, folderId),
+                eq(folders.workspaceId, workspaceId),
+              ),
+            )
+            .limit(1);
           return row;
         });
 
@@ -273,6 +395,9 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
 
         return reply.code(200).send({ data: toFolderDto(folder) });
       } catch (err: unknown) {
+        if (err instanceof ReorderFailedError) {
+          return reply.code(err.detail.statusCode).send(err.detail.body);
+        }
         if (isUniqueViolation(err)) {
           return reply.code(409).send({
             error: "A folder with this slug already exists in the same parent",

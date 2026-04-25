@@ -12,6 +12,7 @@ import {
 import { workspaces } from "./users.js";
 import { pages } from "./pages.js";
 import { pageRevisions } from "./revisions.js";
+import { revisionChunks } from "./chunks.js";
 import { entities } from "./entities.js";
 import { modelRuns } from "./audit.js";
 
@@ -77,6 +78,10 @@ export const tripleMentions = pgTable(
     revisionId: uuid("revision_id")
       .notNull()
       .references(() => pageRevisions.id, { onDelete: "cascade" }),
+    revisionChunkId: uuid("revision_chunk_id").references(
+      () => revisionChunks.id,
+      { onDelete: "set null" },
+    ),
     spanStart: integer("span_start").notNull(),
     spanEnd: integer("span_end").notNull(),
     excerpt: text("excerpt"),
@@ -88,6 +93,7 @@ export const tripleMentions = pgTable(
     index("triple_mentions_triple_idx").on(t.tripleId),
     index("triple_mentions_revision_idx").on(t.revisionId),
     index("triple_mentions_page_triple_idx").on(t.pageId, t.tripleId),
+    index("triple_mentions_chunk_idx").on(t.revisionChunkId),
   ],
 );
 
@@ -140,6 +146,10 @@ export const tripleMentionsRelations = relations(
     revision: one(pageRevisions, {
       fields: [tripleMentions.revisionId],
       references: [pageRevisions.id],
+    }),
+    revisionChunk: one(revisionChunks, {
+      fields: [tripleMentions.revisionChunkId],
+      references: [revisionChunks.id],
     }),
   }),
 );

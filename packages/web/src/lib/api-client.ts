@@ -4,6 +4,8 @@ import {
   type Register,
   type Login,
   type UpdatePage,
+  type UpdateFolder,
+  type ReorderIntent,
   type PageStatus,
   type ActorType,
   type RevisionSource,
@@ -17,6 +19,8 @@ import {
   type IngestionStatus,
   type DecisionStatus,
 } from "@wekiflow/shared";
+
+export type { ReorderIntent } from "@wekiflow/shared";
 
 const BASE_URL = "/api/v1";
 
@@ -230,11 +234,7 @@ export const folders = {
       body: JSON.stringify(data),
     });
   },
-  patch(
-    workspaceId: string,
-    folderId: string,
-    data: { name?: string; slug?: string; parentFolderId?: string | null },
-  ) {
+  patch(workspaceId: string, folderId: string, data: UpdateFolder) {
     return request<{ data: Folder }>(
       `/workspaces/${workspaceId}/folders/${folderId}`,
       { method: "PATCH", body: JSON.stringify(data) },
@@ -255,6 +255,7 @@ export interface Page {
   id: string;
   workspaceId: string;
   parentPageId: string | null;
+  parentFolderId: string | null;
   title: string;
   slug: string;
   status: PageStatus;
@@ -322,6 +323,7 @@ export const pages = {
     workspaceId: string,
     params?: {
       parentPageId?: string;
+      parentFolderId?: string;
       status?: string;
       limit?: number;
       offset?: number;
@@ -331,6 +333,7 @@ export const pages = {
       limit: params?.limit,
       offset: params?.offset,
       parentPageId: params?.parentPageId,
+      parentFolderId: params?.parentFolderId,
       status: params?.status,
     });
     return request<Paginated<Page>>(`/workspaces/${workspaceId}/pages${q}`);
@@ -346,6 +349,7 @@ export const pages = {
       title: string;
       slug: string;
       parentPageId?: string | null;
+      parentFolderId?: string | null;
       contentMd?: string;
       contentJson?: Record<string, unknown>;
     },
@@ -948,6 +952,30 @@ export const decisions = {
       method: "PATCH",
       body: JSON.stringify(data),
     });
+  },
+};
+
+/** @deprecated Internal-only. Synthesis surface is hidden from the UI. */
+export const synthesis = {
+  create(
+    workspaceId: string,
+    body: {
+      prompt: string;
+      sourceText?: string;
+      titleHint?: string;
+      targetPageId?: string;
+      seedPageIds?: string[];
+      seedEntityIds?: string[];
+      idempotencyKey?: string;
+    },
+  ) {
+    return request<IngestionSummary & { replayed: boolean }>(
+      `/workspaces/${workspaceId}/synthesis`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
   },
 };
 

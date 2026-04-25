@@ -11,6 +11,7 @@ export function NewPagePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const parentId = searchParams.get("parentId") ?? null;
+  const parentFolderId = searchParams.get("parentFolderId") ?? null;
   const parentTitle = searchParams.get("parentTitle") ?? null;
 
   const [title, setTitle] = useState("");
@@ -36,7 +37,8 @@ export function NewPagePage() {
       const res = await pagesApi.create(workspace.id, {
         title,
         slug: slug || slugify(title),
-        parentPageId: parentId,
+        parentPageId: parentFolderId ? null : parentId,
+        parentFolderId,
         contentMd: `# ${title}\n`,
       });
       navigate(`/pages/${res.page.id}`);

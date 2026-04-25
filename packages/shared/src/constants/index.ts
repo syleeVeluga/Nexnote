@@ -9,6 +9,7 @@ export const REVISION_SOURCES = [
   "ingest_api",
   "rollback",
   "publish",
+  "ai_synthesis",
 ] as const;
 export type RevisionSource = (typeof REVISION_SOURCES)[number];
 
@@ -25,6 +26,7 @@ export const IMPORT_SOURCE_NAMES = {
   WEB_URL: "web-url",
   MANUAL_PASTE: "manual-paste",
   REFORMAT_REQUEST: "reformat_request",
+  SYNTHESIS_REQUEST: "synthesis_request",
 } as const;
 export type ImportSourceName =
   (typeof IMPORT_SOURCE_NAMES)[keyof typeof IMPORT_SOURCE_NAMES];
@@ -69,6 +71,8 @@ export const MODEL_RUN_MODES = [
   "triple_extraction",
   "content_reformat",
   "predicate_label",
+  "synthesis_generation",
+  "synthesis_map",
 ] as const;
 export type ModelRunMode = (typeof MODEL_RUN_MODES)[number];
 
@@ -131,16 +135,18 @@ export const DEFAULT_MODEL_CONTEXT_BUDGET: ModelContextBudget = {
   safetyMarginRatio: 0.85,
 };
 
-// Output token reserve per mode — mirrors the `maxTokens` currently passed on
-// each worker's AIRequest so budgeting math matches actual request shape.
-// triple_extraction caps at ~40 triples × ~200 chars ≈ 2k tokens in practice,
-// so 4k leaves comfortable headroom while freeing input budget.
+// Output token reserve per mode. This mirrors the `maxTokens` passed on each
+// worker's AIRequest so budgeting math matches the actual request shape.
+// Triple extraction can emit long Korean object values and evidence excerpts;
+// keep a large reserve so structured JSON is less likely to be cut mid-object.
 export const MODE_OUTPUT_RESERVE: Record<ModelRunMode, number> = {
   route_decision: 2_048,
   patch_generation: 8_192,
-  triple_extraction: 4_096,
+  triple_extraction: 16_384,
   content_reformat: 8_192,
   predicate_label: 1_024,
+  synthesis_generation: 8_192,
+  synthesis_map: 512,
 };
 
 export function getModelContextBudget(
@@ -164,6 +170,7 @@ export const QUEUE_NAMES = {
   PUBLISH: "publish",
   SEARCH: "search",
   REFORMAT: "reformat",
+  SYNTHESIS: "synthesis",
 } as const;
 
 export const QUEUE_KEYS = [
@@ -173,6 +180,7 @@ export const QUEUE_KEYS = [
   QUEUE_NAMES.PUBLISH,
   QUEUE_NAMES.SEARCH,
   QUEUE_NAMES.REFORMAT,
+  QUEUE_NAMES.SYNTHESIS,
 ] as const;
 export type QueueKey = (typeof QUEUE_KEYS)[number];
 
@@ -183,6 +191,7 @@ export const JOB_NAMES = {
   PUBLISH_RENDERER: "publish-renderer",
   SEARCH_INDEX_UPDATER: "search-index-updater",
   CONTENT_REFORMATTER: "content-reformatter",
+  SYNTHESIS_GENERATOR: "synthesis-generator",
 } as const;
 
 export const ERROR_CODES = {
@@ -193,10 +202,16 @@ export const ERROR_CODES = {
   EMPTY_UPDATE: "EMPTY_UPDATE",
   SLUG_CONFLICT: "SLUG_CONFLICT",
   FOLDER_NOT_FOUND: "FOLDER_NOT_FOUND",
+  FOLDER_PARENT_NOT_FOUND: "FOLDER_PARENT_NOT_FOUND",
+  FOLDER_PARENT_INVALID: "FOLDER_PARENT_INVALID",
+  FOLDER_PARENT_CYCLE: "FOLDER_PARENT_CYCLE",
   PAGE_NOT_FOUND: "PAGE_NOT_FOUND",
   PAGE_PARENT_NOT_FOUND: "PAGE_PARENT_NOT_FOUND",
   PAGE_PARENT_INVALID: "PAGE_PARENT_INVALID",
   PAGE_PARENT_CYCLE: "PAGE_PARENT_CYCLE",
+  PAGE_PARENT_CONFLICT: "PAGE_PARENT_CONFLICT",
+  REORDER_ANCHOR_NOT_FOUND: "REORDER_ANCHOR_NOT_FOUND",
+  REORDER_INTENT_INVALID: "REORDER_INTENT_INVALID",
   REVISION_NOT_FOUND: "REVISION_NOT_FOUND",
   DIFF_NOT_FOUND: "DIFF_NOT_FOUND",
   NO_REVISION: "NO_REVISION",

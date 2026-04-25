@@ -10,6 +10,7 @@ import {
   createPublishRendererWorker,
   createSearchIndexUpdaterWorker,
   createContentReformatterWorker,
+  createSynthesisGeneratorWorker,
 } from "./workers/index.js";
 import { closeAllQueues } from "./queues.js";
 import { logger } from "./logger.js";
@@ -42,6 +43,10 @@ function startWorkers(): void {
   workers.push(createPublishRendererWorker());
   workers.push(createSearchIndexUpdaterWorker());
   workers.push(createContentReformatterWorker());
+  if (process.env["ENABLE_SYNTHESIS_WORKER"] === "true") {
+    workers.push(createSynthesisGeneratorWorker());
+    logger.info("Synthesis worker enabled via ENABLE_SYNTHESIS_WORKER");
+  }
   logger.info({ count: workers.length }, "Workers running");
 }
 

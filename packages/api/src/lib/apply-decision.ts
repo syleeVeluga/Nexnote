@@ -18,6 +18,7 @@ import {
   JOB_NAMES,
   DEFAULT_JOB_OPTIONS,
   ERROR_CODES,
+  IMPORT_SOURCE_NAMES,
 } from "@wekiflow/shared";
 import type { TripleExtractorJobData } from "@wekiflow/shared";
 
@@ -82,6 +83,17 @@ export async function approveDecision(
     };
   }
 
+  // Synthesis ingestions cannot be approved — the lane is hidden and stale
+  // decisions from the DB must be rejected instead.
+  if (ingestion.sourceName === IMPORT_SOURCE_NAMES.SYNTHESIS_REQUEST) {
+    return {
+      code: "SYNTHESIS_DISABLED",
+      details:
+        "Synthesis-request decisions can no longer be approved; reject instead.",
+      statusCode: 400,
+    };
+  }
+
   if (decision.action === "create") {
     const title =
       decision.proposedPageTitle ??
@@ -101,6 +113,7 @@ export async function approveDecision(
         pageId: page.id,
         actorUserId: userId,
         actorType: "ai",
+        modelRunId: decision.modelRunId,
         source: "ingest_api",
         sourceIngestionId: ingestionId,
         sourceDecisionId: decision.id,
@@ -241,6 +254,7 @@ export async function approveDecision(
           baseRevisionId: currentPage?.currentRevisionId ?? null,
           actorUserId: userId,
           actorType: "ai",
+          modelRunId: decision.modelRunId,
           source: "ingest_api",
           sourceIngestionId: ingestionId,
           sourceDecisionId: decision.id,

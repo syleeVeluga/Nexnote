@@ -19,3 +19,17 @@ export {
   type BudgetSlot,
   type AllocatedSlot,
 } from "./token-budget.js";
+export {
+  extractDeterministicFacts,
+  type DeterministicFacts,
+  type ExtractedExternalLink,
+  type ExtractedWikilink,
+} from "./deterministic-extractor.js";
+export {
+  partitionLeafChunksByHash,
+  buildFocusedInput,
+  remapFocusedSpan,
+  type ChunkPartitionResult,
+  type FocusedInputEntry,
+  type FocusedInputResult,
+} from "./chunk-diff.js";

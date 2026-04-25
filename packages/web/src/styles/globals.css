@@ -437,6 +437,87 @@ label {
   min-width: 0;
 }
 
+/* ── Unified explorer: folders + drag-and-drop ── */
+.drag-handle {
+  flex-shrink: 0;
+  width: 14px;
+  color: #cbd5e1;
+  font-size: 10px;
+  cursor: grab;
+  user-select: none;
+  text-align: center;
+  padding: 4px 0;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.page-node-row:hover .drag-handle {
+  opacity: 1;
+}
+
+.folder-row .folder-icon {
+  flex-shrink: 0;
+  width: 18px;
+  color: #64748b;
+  font-size: 12px;
+  text-align: center;
+}
+
+.folder-link {
+  flex: 1;
+  padding: 4px 4px;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.folder-link:hover {
+  color: #0f172a;
+}
+
+.page-node-row.drop-before::before,
+.page-node-row.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 16px;
+  right: 4px;
+  height: 2px;
+  background: #2563eb;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.page-node-row.drop-before::before {
+  top: -1px;
+}
+
+.page-node-row.drop-after::after {
+  bottom: -1px;
+}
+
+.page-node-row.drop-as-child {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.sidebar-dnd-error {
+  color: #dc2626;
+  padding: 4px 8px;
+}
+
 /* context menu */
 .context-menu {
   background: #f8fafc;

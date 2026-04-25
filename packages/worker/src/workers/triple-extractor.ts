@@ -1,6 +1,7 @@
+// chunk-aware triple extraction
 import { Worker } from "bullmq";
 import type { Job } from "bullmq";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, notInArray, isNotNull } from "drizzle-orm";
 import { createRedisConnection } from "../connection.js";
 import { QUEUE_NAMES } from "../queues.js";
 import { getAIAdapter, getDefaultProvider } from "../ai-gateway.js";
@@ -13,11 +14,19 @@ import {
   tripleMentions,
   modelRuns,
   pageRevisions,
+  pages,
+  revisionChunks,
+  getOrBuildRevisionChunks,
 } from "@wekiflow/db";
+import type { DeterministicFacts } from "@wekiflow/shared";
 import {
   tripleExtractionSchema,
   normalizeKey,
   estimateTokens,
+  extractDeterministicFacts,
+  buildFocusedInput,
+  partitionLeafChunksByHash,
+  remapFocusedSpan,
   sliceWithinTokenBudget,
   getModelContextBudget,
   MODE_OUTPUT_RESERVE,
@@ -26,6 +35,7 @@ import type {
   TripleExtractorJobData,
   TripleExtractorJobResult,
   AIRequest,
+  AIResponse,
   AIBudgetMeta,
   TripleExtraction,
 } from "@wekiflow/shared";
@@ -80,6 +90,48 @@ function mergeSpans(
   }
 
   return merged;
+}
+
+export type DeterministicSeed = {
+  subjectKey: string;
+  subjectName: string;
+  predicate: string;
+  objectLiteral: string;
+};
+
+/**
+ * Produces literal-object triples for facts a deterministic parser found in
+ * the page (frontmatter, explicit links, wikilinks). All seeds share the
+ * page's title entity as subject — the subject represents "this page" in the
+ * knowledge graph, so tags/aliases/links attach directly to it.
+ */
+export function buildDeterministicSeeds(
+  facts: DeterministicFacts,
+  pageTitle: string,
+): DeterministicSeed[] {
+  const subjectName = pageTitle.trim();
+  if (!subjectName) return [];
+  const subjectKey = normalizeKey(subjectName);
+  const seeds: DeterministicSeed[] = [];
+  const seen = new Set<string>();
+  const push = (predicate: string, object: string) => {
+    const key = `${predicate}|${object}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    seeds.push({
+      subjectKey,
+      subjectName,
+      predicate,
+      objectLiteral: object,
+    });
+  };
+  for (const alias of facts.aliases) if (alias) push("has_alias", alias);
+  for (const tag of facts.tags) if (tag) push("has_tag", tag);
+  for (const link of facts.externalLinks)
+    if (link.url) push("mentions_url", link.url);
+  for (const wiki of facts.wikilinks)
+    if (wiki.target) push("links_to", wiki.target);
+  return seeds;
 }
 
 export function prepareTriplesForInsert({
@@ -159,8 +211,13 @@ export function createTripleExtractorWorker(): Worker {
       log.info({ pageId, revisionId }, "Processing page");
 
       const [revision] = await db
-        .select({ contentMd: pageRevisions.contentMd })
+        .select({
+          contentMd: pageRevisions.contentMd,
+          pageTitle: pages.title,
+          baseRevisionId: pageRevisions.baseRevisionId,
+        })
         .from(pageRevisions)
+        .innerJoin(pages, eq(pages.id, pageRevisions.pageId))
         .where(eq(pageRevisions.id, revisionId))
         .limit(1);
 
@@ -169,6 +226,113 @@ export function createTripleExtractorWorker(): Worker {
       }
 
       await job.updateProgress(10);
+
+      const chunkRefs = await getOrBuildRevisionChunks(db, {
+        workspaceId,
+        pageId,
+        revisionId,
+        contentMd: revision.contentMd,
+      });
+
+      const leafChunks = chunkRefs.filter((chunk) => chunk.chunkKind === "leaf");
+      const findChunkIdForSpan = (span: {
+        start: number;
+        end: number;
+      }): string | null => {
+        const match = leafChunks.find(
+          (chunk) => span.start >= chunk.charStart && span.end <= chunk.charEnd,
+        );
+        return match?.id ?? null;
+      };
+
+      // Chunk-aware strategy: if the previous revision's leaves are cached,
+      // partition the new leaves into unchanged vs changed. Unchanged leaves'
+      // LLM triples can be carried over (saving another LLM call for them),
+      // and the LLM only has to re-scan the changed leaves. We read
+      // revision_chunks directly here so a missed cache on the prior
+      // revision simply yields [] (no spurious rebuild with empty content).
+      const prevLeafChunks = revision.baseRevisionId
+        ? await db
+            .select({
+              id: revisionChunks.id,
+              chunkIndex: revisionChunks.chunkIndex,
+              charStart: revisionChunks.charStart,
+              charEnd: revisionChunks.charEnd,
+              contentHash: revisionChunks.contentHash,
+            })
+            .from(revisionChunks)
+            .where(
+              and(
+                eq(revisionChunks.revisionId, revision.baseRevisionId),
+                eq(revisionChunks.chunkKind, "leaf"),
+              ),
+            )
+        : [];
+
+      const chunkPartition = partitionLeafChunksByHash(
+        prevLeafChunks,
+        leafChunks,
+      );
+      const unchangedPrevChunkIds = new Set(
+        chunkPartition.unchanged.map((entry) => entry.prev.id),
+      );
+      const hasReusableChunks =
+        prevLeafChunks.length > 0 && chunkPartition.unchanged.length > 0;
+
+      // Compute reusable triples up-front — we need this to pick the right
+      // strategy. Without it, a page whose prior extraction left no active
+      // triples (e.g. a failed earlier run, or a concurrent revision race)
+      // would take the "skip" path, do nothing, and leave the page with
+      // zero triples forever.
+      let reusableTripleIds: string[] = [];
+      if (unchangedPrevChunkIds.size > 0) {
+        const tripleMentionRows = await db
+          .select({
+            tripleId: triples.id,
+            mentionChunkId: tripleMentions.revisionChunkId,
+          })
+          .from(triples)
+          .leftJoin(tripleMentions, eq(tripleMentions.tripleId, triples.id))
+          .where(
+            and(
+              eq(triples.workspaceId, workspaceId),
+              eq(triples.sourcePageId, pageId),
+              eq(triples.status, "active"),
+              isNotNull(triples.extractionModelRunId),
+            ),
+          );
+
+        const byTriple = new Map<string, Array<string | null>>();
+        for (const row of tripleMentionRows) {
+          const arr = byTriple.get(row.tripleId) ?? [];
+          arr.push(row.mentionChunkId);
+          byTriple.set(row.tripleId, arr);
+        }
+        for (const [tripleId, chunkIds] of byTriple) {
+          const nonNull = chunkIds.filter(
+            (id): id is string => id !== null,
+          );
+          if (nonNull.length === 0) continue;
+          if (nonNull.length !== chunkIds.length) continue;
+          const allPreserved = nonNull.every((id) =>
+            unchangedPrevChunkIds.has(id),
+          );
+          if (allPreserved) reusableTripleIds.push(tripleId);
+        }
+      }
+
+      // "skip" is only valid when every leaf matched AND we actually have
+      // triples to keep alive; otherwise the page would end up wiped.
+      // "chunk_delta" needs reusable chunks (not necessarily reusable
+      // triples — the model may just rescan changed content).
+      const everythingUnchanged =
+        hasReusableChunks && chunkPartition.changed.length === 0;
+      const llmInputStrategy: "full" | "chunk_delta" | "skip" =
+        everythingUnchanged && reusableTripleIds.length > 0
+          ? "skip"
+          : hasReusableChunks && chunkPartition.changed.length > 0
+            ? "chunk_delta"
+            : "full";
 
       const { provider, model } = getDefaultProvider();
       const adapter = getAIAdapter(provider);
@@ -298,102 +462,208 @@ Expected output:
         Math.floor(rawAvailable * budget.safetyMarginRatio),
       );
 
-      const contentSlice = sliceWithinTokenBudget(
-        revision.contentMd,
-        available,
-        { preserveStructure: true },
-      );
+      // Strip frontmatter before the LLM sees it. Tags/aliases are already
+      // structured and will be surfaced separately — spending tokens on the
+      // YAML block only adds noise. For the "full" strategy, spans returned
+      // by the model are into the stripped text; shift them back so mention
+      // offsets index the original contentMd. The "chunk_delta" path uses
+      // `remapFocusedSpan` instead, which already outputs original coords.
+      const deterministicFacts = extractDeterministicFacts(revision.contentMd);
 
-      const budgetMeta: AIBudgetMeta = {
-        inputTokenBudget: available,
-        estimatedInputTokens:
-          systemTokens + SCAFFOLD_TOKENS + contentSlice.estimatedTokens,
-        inputCharLength: systemPrompt.length + contentSlice.text.length,
-        truncated: contentSlice.truncated,
-        strategy: "single_slot_structure_preserving",
-        slotAllocations: {
-          content: {
-            allocatedTokens: available,
-            estimatedTokens: contentSlice.estimatedTokens,
-            truncated: contentSlice.truncated,
+      // Shape a minimal focused input from just the changed leaves when we
+      // have prior-revision coverage, otherwise fall back to the stripped
+      // full document.
+      const focused =
+        llmInputStrategy === "chunk_delta"
+          ? buildFocusedInput(chunkPartition.changed)
+          : null;
+
+      const rawInputForLlm = focused
+        ? focused.inputText
+        : deterministicFacts.strippedMarkdown;
+      const fullDocOffsetShift = focused
+        ? 0
+        : revision.contentMd.length - deterministicFacts.strippedMarkdown.length;
+
+      // Skip path: no LLM call, keep reusable triples alive, refresh deterministic.
+      // contentSlice / budgetMeta are only meaningful when we actually call the
+      // model, so defer the slice (string work on large markdown) and the
+      // metadata struct behind the same guard as the LLM call.
+      let aiResponse: AIResponse | null = null;
+      let budgetMeta: AIBudgetMeta | null = null;
+      if (llmInputStrategy !== "skip") {
+        const contentSlice = sliceWithinTokenBudget(rawInputForLlm, available, {
+          preserveStructure: true,
+        });
+
+        budgetMeta = {
+          inputTokenBudget: available,
+          estimatedInputTokens:
+            systemTokens + SCAFFOLD_TOKENS + contentSlice.estimatedTokens,
+          inputCharLength: systemPrompt.length + contentSlice.text.length,
+          truncated: contentSlice.truncated,
+          strategy: focused
+            ? "chunk_delta_focused"
+            : "single_slot_structure_preserving",
+          slotAllocations: {
+            content: {
+              allocatedTokens: available,
+              estimatedTokens: contentSlice.estimatedTokens,
+              truncated: contentSlice.truncated,
+            },
           },
-        },
-      };
+        };
 
-      const aiRequest: AIRequest = {
-        provider,
-        model,
-        mode: "triple_extraction",
-        promptVersion: PROMPT_VERSION,
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: `Extract triples from this document:
+        const aiRequest: AIRequest = {
+          provider,
+          model,
+          mode: "triple_extraction",
+          promptVersion: PROMPT_VERSION,
+          messages: [
+            { role: "system", content: systemPrompt },
+            {
+              role: "user",
+              content: `Extract triples from this document:
 \`\`\`markdown
 ${contentSlice.text}
 \`\`\``,
-          },
-        ],
-        temperature: 0.1,
-        maxTokens: MODE_OUTPUT_RESERVE.triple_extraction,
-        responseFormat: "json",
-        budgetMeta,
-      };
+            },
+          ],
+          temperature: 0.1,
+          maxTokens: MODE_OUTPUT_RESERVE.triple_extraction,
+          responseFormat: "json",
+          budgetMeta,
+        };
 
-      const aiResponse = await adapter.chat(aiRequest);
+        aiResponse = await adapter.chat(aiRequest);
+      }
 
       await job.updateProgress(50);
 
-      let extracted;
+      let extracted: TripleExtraction = { triples: [] };
       let parseFailed = false;
-      try {
-        const raw = JSON.parse(aiResponse.content);
-        extracted = tripleExtractionSchema.parse(raw);
-      } catch (err) {
-        log.error({ err, revisionId }, "Failed to parse LLM response");
-        parseFailed = true;
-        extracted = { triples: [] };
+      let outputTruncated = false;
+      if (aiResponse) {
+        const finishReason = aiResponse.finishReason?.toLowerCase() ?? null;
+        outputTruncated =
+          finishReason === "length" ||
+          finishReason === "max_tokens" ||
+          aiResponse.tokenOutput >= MODE_OUTPUT_RESERVE.triple_extraction;
+
+        if (outputTruncated) {
+          log.error(
+            {
+              revisionId,
+              finishReason: aiResponse.finishReason,
+              tokenOutput: aiResponse.tokenOutput,
+              maxTokens: MODE_OUTPUT_RESERVE.triple_extraction,
+            },
+            "Triple extraction response hit the output limit",
+          );
+          parseFailed = true;
+        } else {
+          try {
+            const raw = JSON.parse(aiResponse.content);
+            extracted = tripleExtractionSchema.parse(raw);
+          } catch (err) {
+            log.error(
+              { err, revisionId, finishReason: aiResponse.finishReason },
+              "Failed to parse LLM response",
+            );
+            parseFailed = true;
+          }
+        }
       }
 
-      const [modelRun] = await db
-        .insert(modelRuns)
-        .values({
-          workspaceId,
-          provider,
-          modelName: model,
-          mode: "triple_extraction",
-          promptVersion: PROMPT_VERSION,
-          tokenInput: aiResponse.tokenInput,
-          tokenOutput: aiResponse.tokenOutput,
-          latencyMs: aiResponse.latencyMs,
-          status: parseFailed ? "failed" : "success",
-          requestMetaJson: { pageId, revisionId, budget: budgetMeta },
-          responseMetaJson: parseFailed
-            ? { error: "parse_failed", raw: aiResponse.content.slice(0, 500) }
-            : { tripleCount: extracted.triples.length },
-        })
-        .returning();
+      const modelRun = aiResponse
+        ? (
+            await db
+              .insert(modelRuns)
+              .values({
+                workspaceId,
+                provider,
+                modelName: model,
+                mode: "triple_extraction",
+                promptVersion: PROMPT_VERSION,
+                tokenInput: aiResponse.tokenInput,
+                tokenOutput: aiResponse.tokenOutput,
+                latencyMs: aiResponse.latencyMs,
+                status: parseFailed ? "failed" : "success",
+                requestMetaJson: {
+                  pageId,
+                  revisionId,
+                  budget: budgetMeta,
+                  strategy: llmInputStrategy,
+                  maxOutputTokens: MODE_OUTPUT_RESERVE.triple_extraction,
+                  changedChunks: chunkPartition.changed.length,
+                  unchangedChunks: chunkPartition.unchanged.length,
+                },
+                responseMetaJson: parseFailed
+                  ? {
+                      error: outputTruncated
+                        ? "output_truncated"
+                        : "parse_failed",
+                      finishReason: aiResponse.finishReason ?? null,
+                      tokenOutput: aiResponse.tokenOutput,
+                      maxOutputTokens: MODE_OUTPUT_RESERVE.triple_extraction,
+                      contentLength: aiResponse.content.length,
+                      rawStart: aiResponse.content.slice(0, 500),
+                      rawEnd: aiResponse.content.slice(-500),
+                    }
+                  : {
+                      tripleCount: extracted.triples.length,
+                      finishReason: aiResponse.finishReason ?? null,
+                    },
+              })
+              .returning()
+          )[0]
+        : null;
 
       await job.updateProgress(60);
 
+      const deterministicSeeds = buildDeterministicSeeds(
+        deterministicFacts,
+        revision.pageTitle,
+      );
+
+      if (parseFailed) {
+        throw new Error(
+          outputTruncated
+            ? `Triple extraction response hit the output limit for revision ${revisionId}`
+            : `Triple extraction response could not be parsed for revision ${revisionId}`,
+        );
+      }
+
       const triplesCreated = await db.transaction(async (tx) => {
-        await tx
-          .update(triples)
-          .set({ status: "superseded" })
-          .where(
-            and(
+        const supersedeCondition = reusableTripleIds.length > 0
+          ? and(
               eq(triples.workspaceId, workspaceId),
               eq(triples.sourcePageId, pageId),
               eq(triples.status, "active"),
-            ),
-          );
+              notInArray(triples.id, reusableTripleIds),
+            )
+          : and(
+              eq(triples.workspaceId, workspaceId),
+              eq(triples.sourcePageId, pageId),
+              eq(triples.status, "active"),
+            );
 
-        if (extracted.triples.length === 0) {
-          return 0;
+        await tx
+          .update(triples)
+          .set({ status: "superseded" })
+          .where(supersedeCondition);
+
+        if (extracted.triples.length === 0 && deterministicSeeds.length === 0) {
+          return {
+            llm: 0,
+            deterministic: 0,
+            reused: reusableTripleIds.length,
+          };
         }
 
-        // Batch entity resolution: collect all unique entity names, then bulk upsert
+        // Batch entity resolution: collect all unique entity names from the
+        // LLM extraction AND the deterministic seeds (the page's own title
+        // entity anchors every seed), then bulk upsert.
         const entityNames = new Map<string, { name: string; type: string }>();
         for (const t of extracted.triples) {
           const subKey = normalizeKey(t.subject);
@@ -407,6 +677,14 @@ ${contentSlice.text}
             }
           }
         }
+        for (const seed of deterministicSeeds) {
+          if (!entityNames.has(seed.subjectKey)) {
+            entityNames.set(seed.subjectKey, {
+              name: seed.subjectName,
+              type: "concept",
+            });
+          }
+        }
 
         // Bulk insert new entities (skip conflicts)
         const entityValues = [...entityNames.entries()].map(([key, val]) => ({
@@ -416,73 +694,144 @@ ${contentSlice.text}
           entityType: val.type,
         }));
 
-        await tx.insert(entities).values(entityValues).onConflictDoNothing();
+        if (entityValues.length > 0) {
+          await tx.insert(entities).values(entityValues).onConflictDoNothing();
+        }
 
         // Bulk fetch all entity ids
         const allKeys = [...entityNames.keys()];
-        const existingEntities = await tx
-          .select({ id: entities.id, normalizedKey: entities.normalizedKey })
-          .from(entities)
-          .where(
-            and(
-              eq(entities.workspaceId, workspaceId),
-              inArray(entities.normalizedKey, allKeys),
-            ),
-          );
+        const existingEntities = allKeys.length > 0
+          ? await tx
+              .select({ id: entities.id, normalizedKey: entities.normalizedKey })
+              .from(entities)
+              .where(
+                and(
+                  eq(entities.workspaceId, workspaceId),
+                  inArray(entities.normalizedKey, allKeys),
+                ),
+              )
+          : [];
 
         const entityIdMap = new Map<string, string>();
         for (const e of existingEntities) {
           entityIdMap.set(e.normalizedKey, e.id);
         }
 
-        const preparedTriples = prepareTriplesForInsert({
-          extractedTriples: extracted.triples,
-          entityIdMap,
-          workspaceId,
-          pageId,
-          revisionId,
-          modelRunId: modelRun.id,
-        });
+        // LLM triples. Span remap depends on input strategy: "chunk_delta"
+        // uses the focused-input index; "full" uses a flat shift for the
+        // stripped frontmatter. A span that fails to remap (e.g. straddles
+        // a chunk boundary in focused mode, or lands outside the sliced
+        // content) is dropped — we never store coordinates we can't verify.
+        const remapSpan = (
+          span: ExtractedSpan,
+        ): { start: number; end: number } | null => {
+          if (focused) {
+            return remapFocusedSpan(focused.index, {
+              start: span.start,
+              end: span.end,
+            });
+          }
+          return {
+            start: span.start + fullDocOffsetShift,
+            end: span.end + fullDocOffsetShift,
+          };
+        };
 
-        const tripleValues = preparedTriples.map(({ spans, ...triple }) => triple);
-
-        if (tripleValues.length === 0) {
-          return 0;
-        }
-
-        const insertedTriples = await tx
-          .insert(triples)
-          .values(tripleValues)
-          .returning({ id: triples.id });
-
-        // Build mention rows from inserted triples
-        const mentionRows: Array<{
-          tripleId: string;
-          pageId: string;
-          revisionId: string;
-          spanStart: number;
-          spanEnd: number;
-          excerpt: string | null;
-        }> = [];
-
-        for (let i = 0; i < insertedTriples.length; i++) {
-          for (const span of preparedTriples[i].spans) {
-            mentionRows.push({
-              tripleId: insertedTriples[i].id,
+        const preparedTriples = modelRun
+          ? prepareTriplesForInsert({
+              extractedTriples: extracted.triples,
+              entityIdMap,
+              workspaceId,
               pageId,
               revisionId,
-              spanStart: span.start,
-              spanEnd: span.end,
-              excerpt: span.excerpt,
-            });
+              modelRunId: modelRun.id,
+            })
+          : [];
+        const llmTripleValues = preparedTriples.map(
+          ({ spans, ...triple }) => triple,
+        );
+
+        let llmInsertedCount = 0;
+        if (llmTripleValues.length > 0) {
+          const insertedTriples = await tx
+            .insert(triples)
+            .values(llmTripleValues)
+            .returning({ id: triples.id });
+          llmInsertedCount = insertedTriples.length;
+
+          // Build mention rows from inserted LLM triples
+          const mentionRows: Array<{
+            tripleId: string;
+            pageId: string;
+            revisionId: string;
+            revisionChunkId: string | null;
+            spanStart: number;
+            spanEnd: number;
+            excerpt: string | null;
+          }> = [];
+
+          for (let i = 0; i < insertedTriples.length; i++) {
+            for (const span of preparedTriples[i].spans) {
+              const remapped = remapSpan(span);
+              if (!remapped) continue;
+              mentionRows.push({
+                tripleId: insertedTriples[i].id,
+                pageId,
+                revisionId,
+                revisionChunkId: findChunkIdForSpan(remapped),
+                spanStart: remapped.start,
+                spanEnd: remapped.end,
+                excerpt: span.excerpt,
+              });
+            }
+          }
+
+          if (mentionRows.length > 0) {
+            await tx.insert(tripleMentions).values(mentionRows);
           }
         }
 
-        if (mentionRows.length > 0) {
-          await tx.insert(tripleMentions).values(mentionRows);
+        // Deterministic triples: always literal-object, confidence=1.0, no
+        // modelRunId (NULL is the discriminator for "came from the pure
+        // parser, not an LLM"). No mentions: the evidence is structural
+        // (frontmatter or link syntax), not a prose span.
+        let deterministicInsertedCount = 0;
+        if (deterministicSeeds.length > 0) {
+          const deterministicValues = deterministicSeeds
+            .map((seed) => {
+              const subjectEntityId = entityIdMap.get(seed.subjectKey);
+              if (!subjectEntityId) return null;
+              return {
+                workspaceId,
+                subjectEntityId,
+                predicate: seed.predicate,
+                objectEntityId: null,
+                objectLiteral: seed.objectLiteral,
+                confidence: 1,
+                sourcePageId: pageId,
+                sourceRevisionId: revisionId,
+                extractionModelRunId: null,
+                status: "active",
+              };
+            })
+            .filter(
+              (v): v is NonNullable<typeof v> => v !== null,
+            );
+
+          if (deterministicValues.length > 0) {
+            const inserted = await tx
+              .insert(triples)
+              .values(deterministicValues)
+              .returning({ id: triples.id });
+            deterministicInsertedCount = inserted.length;
+          }
         }
 
-        return insertedTriples.length;
+        return {
+          llm: llmInsertedCount,
+          deterministic: deterministicInsertedCount,
+          reused: reusableTripleIds.length,
+        };
       });
 
       await job.updateProgress(80);
@@ -504,9 +853,32 @@ ${contentSlice.text}
 
       await job.updateProgress(100);
 
-      log.info({ pageId, triplesCreated }, "Extraction complete");
+      const total =
+        triplesCreated.llm +
+        triplesCreated.deterministic +
+        triplesCreated.reused;
+      log.info(
+        {
+          pageId,
+          triplesCreated: total,
+          llmCreated: triplesCreated.llm,
+          deterministicCreated: triplesCreated.deterministic,
+          llmReused: triplesCreated.reused,
+          llmInputStrategy,
+          changedChunks: chunkPartition.changed.length,
+          unchangedChunks: chunkPartition.unchanged.length,
+        },
+        "Extraction complete",
+      );
 
-      return { pageId, triplesCreated };
+      return {
+        pageId,
+        triplesCreated: total,
+        llmCreated: triplesCreated.llm,
+        deterministicCreated: triplesCreated.deterministic,
+        llmReused: triplesCreated.reused,
+        llmInputStrategy,
+      };
     },
     {
       connection: createRedisConnection(),

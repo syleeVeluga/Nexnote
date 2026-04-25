@@ -3,6 +3,7 @@ export * from "./pages.js";
 export * from "./revisions.js";
 export * from "./published.js";
 export * from "./ingestions.js";
+export * from "./chunks.js";
 export * from "./entities.js";
 export * from "./triples.js";
 export * from "./predicate-labels.js";
@@ -13,6 +14,7 @@ import * as _pages from "./pages.js";
 import * as _revisions from "./revisions.js";
 import * as _published from "./published.js";
 import * as _ingestions from "./ingestions.js";
+import * as _chunks from "./chunks.js";
 import * as _entities from "./entities.js";
 import * as _triples from "./triples.js";
 import * as _predicateLabels from "./predicate-labels.js";
@@ -24,6 +26,7 @@ export const schema = {
   ..._revisions,
   ..._published,
   ..._ingestions,
+  ..._chunks,
   ..._entities,
   ..._triples,
   ..._predicateLabels,

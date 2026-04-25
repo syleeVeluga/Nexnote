@@ -28,9 +28,9 @@ const jobParamSchema = z.object({
 });
 
 function queueFromFastify(
-  fastify: { queues: Record<QueueKey, Queue> },
+  fastify: { queues: Partial<Record<QueueKey, Queue>> },
   key: QueueKey,
-): Queue {
+): Queue | undefined {
   return fastify.queues[key];
 }
 
@@ -145,12 +145,20 @@ const adminQueueRoutes: FastifyPluginAsync = async (fastify) => {
       if (!role) return forbidden(reply);
       if (!ADMIN_PLUS_ROLES.includes(role)) return insufficientRole(reply);
 
+      // Skip queues that aren't currently registered (e.g. synthesis when
+      // ENABLE_SYNTHESIS_WORKER is off) so the admin panel only reports
+      // queues that actually exist in this deployment.
+      const activeKeys = QUEUE_KEYS.filter(
+        (key) => queueFromFastify(fastify, key) !== undefined,
+      );
       const summaries = await Promise.all(
-        QUEUE_KEYS.map((key) => collectQueueSummary(queueFromFastify(fastify, key))),
+        activeKeys.map((key) =>
+          collectQueueSummary(queueFromFastify(fastify, key)!),
+        ),
       );
 
       return reply.send({
-        queues: QUEUE_KEYS.map((key, i) => ({
+        queues: activeKeys.map((key, i) => ({
           key,
           ...summaries[i],
         })),
@@ -173,6 +181,12 @@ const adminQueueRoutes: FastifyPluginAsync = async (fastify) => {
       if (!ADMIN_PLUS_ROLES.includes(role)) return insufficientRole(reply);
 
       const queue = queueFromFastify(fastify, queueName);
+      if (!queue) {
+        return reply.code(404).send({
+          error: "Queue not registered",
+          code: ERROR_CODES.NOT_FOUND,
+        });
+      }
       const jobs = await queue.getFailed(0, 49);
 
       const items = jobs.map((job) => serializeJob(job, workspaceId));
@@ -196,6 +210,12 @@ const adminQueueRoutes: FastifyPluginAsync = async (fastify) => {
       if (!ADMIN_PLUS_ROLES.includes(role)) return insufficientRole(reply);
 
       const queue = queueFromFastify(fastify, queueName);
+      if (!queue) {
+        return reply.code(404).send({
+          error: "Queue not registered",
+          code: ERROR_CODES.NOT_FOUND,
+        });
+      }
       const jobs = await queue.getJobs(["active"], 0, 49);
 
       const now = Date.now();
@@ -222,6 +242,12 @@ const adminQueueRoutes: FastifyPluginAsync = async (fastify) => {
       if (!ADMIN_PLUS_ROLES.includes(role)) return insufficientRole(reply);
 
       const queue = queueFromFastify(fastify, queueName);
+      if (!queue) {
+        return reply.code(404).send({
+          error: "Queue not registered",
+          code: ERROR_CODES.NOT_FOUND,
+        });
+      }
       const job = await queue.getJob(jobId);
       if (!job) {
         return reply.code(404).send({
@@ -256,6 +282,12 @@ const adminQueueRoutes: FastifyPluginAsync = async (fastify) => {
       if (!ADMIN_PLUS_ROLES.includes(role)) return insufficientRole(reply);
 
       const queue = queueFromFastify(fastify, queueName);
+      if (!queue) {
+        return reply.code(404).send({
+          error: "Queue not registered",
+          code: ERROR_CODES.NOT_FOUND,
+        });
+      }
       const job = await queue.getJob(jobId);
       if (!job) {
         return reply.code(404).send({

@@ -1,0 +1,48 @@
+.synthesis-page {
+  height: 100%;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.synthesis-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.synthesis-header h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+}
+
+.synthesis-header p {
+  margin: 4px 0 0;
+  color: #64748b;
+  max-width: 760px;
+}
+
+.synthesis-form {
+  max-width: 920px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.synthesis-message {
+  padding: 10px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 13px;
+}
+
+.synthesis-actions {
+  display: flex;
+  justify-content: flex-end;
+}

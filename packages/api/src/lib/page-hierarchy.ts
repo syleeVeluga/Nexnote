@@ -9,6 +9,7 @@ export interface PageHierarchyRow {
   id: string;
   workspaceId: string;
   parentPageId: string | null;
+  parentFolderId?: string | null;
 }
 
 export interface HierarchyValidationError {
@@ -28,6 +29,7 @@ export async function loadPageHierarchyRow(
       id: pages.id,
       workspaceId: pages.workspaceId,
       parentPageId: pages.parentPageId,
+      parentFolderId: pages.parentFolderId,
     })
     .from(pages)
     .where(eq(pages.id, pageId))
@@ -118,15 +120,43 @@ export async function validateParentPageAssignment(
   return null;
 }
 
+/**
+ * Enforce that exactly one of (parentPageId, parentFolderId) is set, or both
+ * null (workspace root). Mirrors the DB CHECK so API returns a readable 400
+ * instead of a raw constraint-violation 500.
+ */
+export function validatePageParentExclusive(params: {
+  parentPageId?: string | null;
+  parentFolderId?: string | null;
+}): HierarchyValidationError | null {
+  if (params.parentPageId != null && params.parentFolderId != null) {
+    return {
+      statusCode: 400,
+      body: {
+        error: "A page cannot have both a parent page and a parent folder",
+        code: ERROR_CODES.PAGE_PARENT_CONFLICT,
+      },
+    };
+  }
+  return null;
+}
+
 export async function getNextPageSortOrder(
   db: AnyDb,
   workspaceId: string,
-  parentPageId: string | null,
+  parent: { parentPageId: string | null; parentFolderId: string | null },
 ): Promise<number> {
-  const parentCondition =
-    parentPageId === null
-      ? isNull(pages.parentPageId)
-      : eq(pages.parentPageId, parentPageId);
+  const parentCondition = parent.parentFolderId
+    ? and(
+        isNull(pages.parentPageId),
+        eq(pages.parentFolderId, parent.parentFolderId),
+      )
+    : parent.parentPageId
+      ? and(
+          eq(pages.parentPageId, parent.parentPageId),
+          isNull(pages.parentFolderId),
+        )
+      : and(isNull(pages.parentPageId), isNull(pages.parentFolderId));
 
   const [lastSibling] = await db
     .select({ sortOrder: pages.sortOrder })

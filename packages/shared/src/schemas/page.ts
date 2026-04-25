@@ -2,10 +2,19 @@ import { z } from "zod";
 import { slugSchema, uuidSchema } from "./common.js";
 import { PAGE_STATUSES } from "../constants/index.js";
 
+export const reorderIntentSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("asFirstChild") }),
+  z.object({ kind: z.literal("asLastChild") }),
+  z.object({ kind: z.literal("before"), anchorId: uuidSchema }),
+  z.object({ kind: z.literal("after"), anchorId: uuidSchema }),
+]);
+export type ReorderIntent = z.infer<typeof reorderIntentSchema>;
+
 export const createPageSchema = z.object({
   title: z.string().min(1).max(500),
   slug: slugSchema,
   parentPageId: uuidSchema.nullable().default(null),
+  parentFolderId: uuidSchema.nullable().default(null),
   contentMd: z.string().default(""),
   contentJson: z.record(z.unknown()).optional(),
 });
@@ -14,8 +23,10 @@ export const updatePageSchema = z.object({
   title: z.string().min(1).max(500).optional(),
   slug: slugSchema.optional(),
   parentPageId: uuidSchema.nullable().optional(),
+  parentFolderId: uuidSchema.nullable().optional(),
   status: z.enum(PAGE_STATUSES).optional(),
   sortOrder: z.number().int().optional(),
+  reorderIntent: reorderIntentSchema.optional(),
 });
 
 export const createFolderSchema = z.object({
@@ -25,7 +36,9 @@ export const createFolderSchema = z.object({
   sortOrder: z.number().int().default(0),
 });
 
-export const updateFolderSchema = createFolderSchema.partial();
+export const updateFolderSchema = createFolderSchema
+  .partial()
+  .extend({ reorderIntent: reorderIntentSchema.optional() });
 
 export const AI_EDIT_MODES = [
   "selection-rewrite",

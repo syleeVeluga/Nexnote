@@ -13,6 +13,7 @@ declare module "fastify" {
       publish: Queue;
       search: Queue;
       reformat: Queue;
+      synthesis?: Queue;
     };
     redis: Redis;
   }
@@ -44,6 +45,14 @@ async function queuePluginImpl(fastify: FastifyInstance) {
   const reformatQueue = new Queue(QUEUE_NAMES.REFORMAT, {
     connection: createConnection(),
   });
+  // Synthesis is gated behind ENABLE_SYNTHESIS_WORKER on the worker side, so
+  // the API only spins up the queue (and its Redis connection) when that
+  // flag is on. Otherwise enqueueing would silently pile up jobs no one
+  // consumes.
+  const synthesisEnabled = process.env["ENABLE_SYNTHESIS_WORKER"] === "true";
+  const synthesisQueue = synthesisEnabled
+    ? new Queue(QUEUE_NAMES.SYNTHESIS, { connection: createConnection() })
+    : undefined;
 
   fastify.decorate("redis", sharedRedis);
   fastify.decorate("queues", {
@@ -53,6 +62,7 @@ async function queuePluginImpl(fastify: FastifyInstance) {
     publish: publishQueue,
     search: searchQueue,
     reformat: reformatQueue,
+    synthesis: synthesisQueue,
   });
 
   fastify.addHook("onClose", async () => {
@@ -63,6 +73,7 @@ async function queuePluginImpl(fastify: FastifyInstance) {
       publishQueue.close(),
       searchQueue.close(),
       reformatQueue.close(),
+      synthesisQueue?.close(),
       sharedRedis.quit(),
     ]);
   });

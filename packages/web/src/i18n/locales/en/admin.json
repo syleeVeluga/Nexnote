@@ -4,6 +4,8 @@
     "subtitle": "Live state of BullMQ queues. Retry or remove failed jobs here.",
     "refresh": "Refresh",
     "autoRefresh": "Auto-refresh every 10s",
+    "lastUpdated": "Last updated",
+    "notUpdated": "Not yet",
     "paused": "Paused",
     "running": "Running",
     "selectQueue": "Select a queue to inspect failed or stalled jobs.",

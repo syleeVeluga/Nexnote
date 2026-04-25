@@ -22,6 +22,8 @@ interface MockFixtureFile {
       triple_extraction?: Record<string, unknown>;
       content_reformat?: string;
       predicate_label?: Record<string, unknown>;
+      synthesis_generation?: string;
+      synthesis_map?: string;
     }
   >;
 }
@@ -68,6 +70,12 @@ function resolveMockContent(request: AIRequest): string {
     if (request.mode === "predicate_label") {
       return JSON.stringify({ labels: [] });
     }
+    if (request.mode === "synthesis_generation") {
+      return "# E2E Synthesis\n\nNo explicit marker was provided.\n";
+    }
+    if (request.mode === "synthesis_map") {
+      return "E2E map summary placeholder.";
+    }
     throw new Error(
       `AI_TEST_MODE=mock requires one of the registered markers (${Object.keys(loadMockFixtures().markers).join(", ")}) in the prompt`,
     );
@@ -98,6 +106,7 @@ class MockAIAdapter implements AIAdapter {
       tokenInput: Math.max(16, content.length),
       tokenOutput: Math.max(16, Math.ceil(content.length / 4)),
       latencyMs: 1,
+      finishReason: "stop",
     };
   }
 }
@@ -134,15 +143,20 @@ class OpenAIAdapter implements AIAdapter {
     }
 
     const data = (await res.json()) as {
-      choices: Array<{ message: { content: string } }>;
+      choices: Array<{
+        finish_reason?: string | null;
+        message: { content: string };
+      }>;
       usage: { prompt_tokens: number; completion_tokens: number };
     };
 
+    const choice = data.choices[0];
     return {
-      content: data.choices[0].message.content,
+      content: choice.message.content,
       tokenInput: data.usage.prompt_tokens,
       tokenOutput: data.usage.completion_tokens,
       latencyMs: Date.now() - start,
+      finishReason: choice.finish_reason ?? null,
     };
   }
 }
@@ -194,18 +208,23 @@ class GeminiAdapter implements AIAdapter {
     }
 
     const data = (await res.json()) as {
-      candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
+      candidates: Array<{
+        finishReason?: string;
+        content: { parts: Array<{ text: string }> };
+      }>;
       usageMetadata: {
         promptTokenCount: number;
         candidatesTokenCount: number;
       };
     };
 
+    const candidate = data.candidates[0];
     return {
-      content: data.candidates[0].content.parts[0].text,
+      content: candidate.content.parts[0].text,
       tokenInput: data.usageMetadata.promptTokenCount,
       tokenOutput: data.usageMetadata.candidatesTokenCount,
       latencyMs: Date.now() - start,
+      finishReason: candidate.finishReason ?? null,
     };
   }
 }

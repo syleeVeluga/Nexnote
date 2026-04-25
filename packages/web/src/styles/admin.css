@@ -27,6 +27,12 @@
   margin: 4px 0 0;
 }
 
+.queue-updated {
+  font-size: 12px;
+  color: #94a3b8;
+  margin: 4px 0 0;
+}
+
 .queue-header-actions {
   display: flex;
   align-items: center;

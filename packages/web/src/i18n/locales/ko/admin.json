@@ -4,6 +4,8 @@
     "subtitle": "BullMQ 큐의 실시간 상태입니다. 실패한 잡을 재시도하거나 제거할 수 있습니다.",
     "refresh": "새로 고침",
     "autoRefresh": "10초마다 자동 새로 고침",
+    "lastUpdated": "마지막 갱신",
+    "notUpdated": "아직 없음",
     "paused": "일시 정지",
     "running": "실행 중",
     "selectQueue": "실패·스톨된 잡을 확인하려면 큐를 선택하세요.",

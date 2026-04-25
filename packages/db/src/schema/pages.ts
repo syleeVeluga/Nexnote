@@ -8,6 +8,7 @@ import {
   boolean,
   uniqueIndex,
   index,
+  check,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { workspaces, users } from "./users.js";
@@ -53,6 +54,10 @@ export const pages = pgTable(
       (): AnyPgColumn => pages.id,
       { onDelete: "set null" },
     ),
+    parentFolderId: uuid("parent_folder_id").references(
+      (): AnyPgColumn => folders.id,
+      { onDelete: "set null" },
+    ),
     title: text("title").notNull(),
     slug: text("slug").notNull(),
     status: text("status").notNull().default("draft"),
@@ -82,12 +87,21 @@ export const pages = pgTable(
       t.parentPageId,
       t.sortOrder,
     ),
+    index("pages_workspace_folder_idx").on(
+      t.workspaceId,
+      t.parentFolderId,
+      t.sortOrder,
+    ),
     index("pages_workspace_active_idx")
       .on(t.workspaceId)
       .where(sql`${t.deletedAt} IS NULL`),
     index("pages_workspace_trashed_idx")
       .on(t.workspaceId, t.deletedAt)
       .where(sql`${t.deletedAt} IS NOT NULL`),
+    check(
+      "pages_single_parent_chk",
+      sql`${t.parentPageId} IS NULL OR ${t.parentFolderId} IS NULL`,
+    ),
   ],
 );
 
@@ -144,6 +158,10 @@ export const pagesRelations = relations(pages, ({ one, many }) => ({
     fields: [pages.parentPageId],
     references: [pages.id],
     relationName: "parentChild",
+  }),
+  parentFolder: one(folders, {
+    fields: [pages.parentFolderId],
+    references: [folders.id],
   }),
   childPages: many(pages, { relationName: "parentChild" }),
   pagePaths: many(pagePaths),

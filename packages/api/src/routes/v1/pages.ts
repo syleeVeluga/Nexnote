@@ -18,6 +18,7 @@ import {
   createPageSchema,
   updatePageSchema,
   paginationSchema,
+  treePaginationSchema,
   uuidSchema,
   createRevisionSchema,
   rollbackRevisionSchema,
@@ -69,7 +70,17 @@ import {
   getNextPageSortOrder,
   loadPageHierarchyRow,
   validateParentPageAssignment,
+  validatePageParentExclusive,
 } from "../../lib/page-hierarchy.js";
+import {
+  loadFolderHierarchyRow,
+  validateFolderExistsInWorkspace,
+} from "../../lib/folder-hierarchy.js";
+import {
+  reorderPage,
+  ReorderFailedError,
+  type PageParent,
+} from "../../lib/reorder.js";
 import {
   softDeleteSubtree,
   restoreSubtree,
@@ -95,8 +106,9 @@ const revisionParamsSchema = z.object({
   revisionId: uuidSchema,
 });
 
-const listPagesQuerySchema = paginationSchema.extend({
+const listPagesQuerySchema = treePaginationSchema.extend({
   parentPageId: uuidSchema.optional(),
+  parentFolderId: uuidSchema.optional(),
   status: z.enum(PAGE_STATUSES).optional(),
 });
 
@@ -116,6 +128,7 @@ function mapPageDto(page: {
   id: string;
   workspaceId: string;
   parentPageId: string | null;
+  parentFolderId?: string | null;
   title: string;
   slug: string;
   status: string;
@@ -130,6 +143,7 @@ function mapPageDto(page: {
     id: page.id,
     workspaceId: page.workspaceId,
     parentPageId: page.parentPageId,
+    parentFolderId: page.parentFolderId ?? null,
     title: page.title,
     slug: page.slug,
     status: page.status,
@@ -301,9 +315,17 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         return sendValidationError(reply, bodyResult.error.issues);
       }
 
-      const { title, slug, parentPageId, contentMd, contentJson } =
+      const { title, slug, parentPageId, parentFolderId, contentMd, contentJson } =
         bodyResult.data;
       const userId = request.user.sub;
+
+      const exclusiveError = validatePageParentExclusive({
+        parentPageId,
+        parentFolderId,
+      });
+      if (exclusiveError) {
+        return reply.code(exclusiveError.statusCode).send(exclusiveError.body);
+      }
 
       const parentValidation = await validateParentPageAssignment(
         (candidatePageId) => loadPageHierarchyRow(fastify.db, candidatePageId),
@@ -315,19 +337,30 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           .send(parentValidation.body);
       }
 
+      if (parentFolderId) {
+        const folderError = await validateFolderExistsInWorkspace(
+          (id) => loadFolderHierarchyRow(fastify.db, id),
+          workspaceId,
+          parentFolderId,
+        );
+        if (folderError) {
+          return reply.code(folderError.statusCode).send(folderError.body);
+        }
+      }
+
       try {
         const result = await fastify.db.transaction(async (tx) => {
-          const sortOrder = await getNextPageSortOrder(
-            tx,
-            workspaceId,
-            parentPageId,
-          );
+          const sortOrder = await getNextPageSortOrder(tx, workspaceId, {
+            parentPageId: parentPageId ?? null,
+            parentFolderId: parentFolderId ?? null,
+          });
 
           const [page] = await tx
             .insert(pages)
             .values({
               workspaceId,
               parentPageId,
+              parentFolderId,
               title,
               slug,
               status: "draft",
@@ -370,7 +403,13 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
             entityType: "page",
             entityId: page.id,
             action: "create",
-            afterJson: { title, slug, parentPageId, status: "draft" },
+            afterJson: {
+              title,
+              slug,
+              parentPageId,
+              parentFolderId,
+              status: "draft",
+            },
           });
 
           return { page: updatedPage, revision };
@@ -438,7 +477,8 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         return sendValidationError(reply, queryResult.error.issues);
       }
 
-      const { limit, offset, parentPageId, status } = queryResult.data;
+      const { limit, offset, parentPageId, parentFolderId, status } =
+        queryResult.data;
 
       // Build where conditions — active pages only; trash is a separate route
       const conditions = [
@@ -447,6 +487,9 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       ];
       if (parentPageId) {
         conditions.push(eq(pages.parentPageId, parentPageId));
+      }
+      if (parentFolderId) {
+        conditions.push(eq(pages.parentFolderId, parentFolderId));
       }
       if (status) {
         conditions.push(eq(pages.status, status));
@@ -459,6 +502,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
             id: pages.id,
             workspaceId: pages.workspaceId,
             parentPageId: pages.parentPageId,
+            parentFolderId: pages.parentFolderId,
             title: pages.title,
             slug: pages.slug,
             status: pages.status,
@@ -512,6 +556,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
             id: pages.id,
             workspaceId: pages.workspaceId,
             parentPageId: pages.parentPageId,
+            parentFolderId: pages.parentFolderId,
             title: pages.title,
             slug: pages.slug,
             status: pages.status,
@@ -617,9 +662,32 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       const userId = request.user.sub;
       const slugChanged =
         body.slug !== undefined && body.slug !== existing.slug;
+
+      // Resolve target parent if either parent field was sent. The DB enforces
+      // XOR via a CHECK — validate eagerly so callers get a readable 400.
+      const nextParentPageId =
+        body.parentPageId !== undefined
+          ? body.parentPageId
+          : existing.parentPageId;
+      const nextParentFolderId =
+        body.parentFolderId !== undefined
+          ? body.parentFolderId
+          : existing.parentFolderId;
+      const parentFieldTouched =
+        body.parentPageId !== undefined ||
+        body.parentFolderId !== undefined;
       const parentChanged =
-        body.parentPageId !== undefined &&
-        body.parentPageId !== existing.parentPageId;
+        parentFieldTouched &&
+        (nextParentPageId !== existing.parentPageId ||
+          nextParentFolderId !== existing.parentFolderId);
+
+      const exclusiveError = validatePageParentExclusive({
+        parentPageId: nextParentPageId,
+        parentFolderId: nextParentFolderId,
+      });
+      if (exclusiveError) {
+        return reply.code(exclusiveError.statusCode).send(exclusiveError.body);
+      }
 
       if (body.parentPageId !== undefined) {
         const parentValidation = await validateParentPageAssignment(
@@ -628,7 +696,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           {
             workspaceId,
             pageId,
-            parentPageId: body.parentPageId,
+            parentPageId: nextParentPageId,
           },
         );
         if (parentValidation) {
@@ -638,36 +706,71 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
+      if (body.parentFolderId !== undefined && nextParentFolderId) {
+        const folderError = await validateFolderExistsInWorkspace(
+          (id) => loadFolderHierarchyRow(fastify.db, id),
+          workspaceId,
+          nextParentFolderId,
+        );
+        if (folderError) {
+          return reply.code(folderError.statusCode).send(folderError.body);
+        }
+      }
+
       try {
         const result = await fastify.db.transaction(async (tx) => {
-          const nextSortOrder =
-            parentChanged && body.sortOrder === undefined
-              ? await getNextPageSortOrder(
-                  tx,
-                  workspaceId,
-                  body.parentPageId ?? null,
-                )
-              : undefined;
+          // First, apply non-parent, non-reorder metadata (title/slug/status).
+          // Parent + sortOrder are handled either by reorderPage() below or by
+          // a simple "append to end" fallback when only parent changed.
+          const metadataPatch: Record<string, unknown> = {
+            updatedAt: sql`now()`,
+          };
+          if (body.title !== undefined) metadataPatch.title = body.title;
+          if (body.slug !== undefined) metadataPatch.slug = body.slug;
+          if (body.status !== undefined) metadataPatch.status = body.status;
 
-          const [updatedPage] = await tx
-            .update(pages)
-            .set({
-              ...(body.title !== undefined && { title: body.title }),
-              ...(body.slug !== undefined && { slug: body.slug }),
-              ...(body.parentPageId !== undefined && {
-                parentPageId: body.parentPageId,
-              }),
-              ...(body.status !== undefined && { status: body.status }),
-              ...(body.sortOrder !== undefined && {
-                sortOrder: body.sortOrder,
-              }),
-              ...(nextSortOrder !== undefined && {
+          if (Object.keys(metadataPatch).length > 1) {
+            await tx
+              .update(pages)
+              .set(metadataPatch)
+              .where(eq(pages.id, pageId));
+          }
+
+          if (body.reorderIntent) {
+            const parent: PageParent = nextParentFolderId
+              ? { kind: "folder", folderId: nextParentFolderId }
+              : nextParentPageId
+                ? { kind: "page", pageId: nextParentPageId }
+                : { kind: "root" };
+            const reorderError = await reorderPage(tx, {
+              workspaceId,
+              movingId: pageId,
+              parent,
+              intent: body.reorderIntent,
+            });
+            if (reorderError) throw new ReorderFailedError(reorderError);
+          } else if (parentChanged) {
+            // Parent changed but no explicit reorder — append to end of new
+            // parent, same behaviour as before parentFolderId existed.
+            const nextSortOrder = await getNextPageSortOrder(tx, workspaceId, {
+              parentPageId: nextParentPageId,
+              parentFolderId: nextParentFolderId,
+            });
+            await tx
+              .update(pages)
+              .set({
+                parentPageId: nextParentPageId,
+                parentFolderId: nextParentFolderId,
                 sortOrder: nextSortOrder,
-              }),
-              updatedAt: sql`now()`,
-            })
-            .where(eq(pages.id, pageId))
-            .returning();
+                updatedAt: sql`now()`,
+              })
+              .where(eq(pages.id, pageId));
+          } else if (body.sortOrder !== undefined) {
+            await tx
+              .update(pages)
+              .set({ sortOrder: body.sortOrder, updatedAt: sql`now()` })
+              .where(eq(pages.id, pageId));
+          }
 
           if (slugChanged) {
             await tx
@@ -698,17 +801,33 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
               title: existing.title,
               slug: existing.slug,
               parentPageId: existing.parentPageId,
+              parentFolderId: existing.parentFolderId,
               status: existing.status,
               sortOrder: existing.sortOrder,
             },
             afterJson: body,
           });
 
+          const [updatedPage] = await tx
+            .select()
+            .from(pages)
+            .where(eq(pages.id, pageId))
+            .limit(1);
           return updatedPage;
         });
 
+        if (!result) {
+          return reply.code(404).send({
+            error: "Page not found",
+            code: ERROR_CODES.PAGE_NOT_FOUND,
+          });
+        }
+
         return reply.code(200).send({ page: mapPageDto(result) });
       } catch (err: unknown) {
+        if (err instanceof ReorderFailedError) {
+          return reply.code(err.detail.statusCode).send(err.detail.body);
+        }
         if (isUniqueViolation(err)) {
           return reply.code(409).send({
             error: "A page with this slug already exists in this workspace",

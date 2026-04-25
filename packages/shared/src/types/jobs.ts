@@ -63,7 +63,20 @@ export interface TripleExtractorJobData {
 /** Result returned from the triple-extractor job */
 export interface TripleExtractorJobResult {
   pageId: string;
+  /** Total active triples on the page after this run (newly inserted + reused). */
   triplesCreated: number;
+  /** Breakdown: how many of `triplesCreated` came from the deterministic pre-pass vs the LLM. */
+  deterministicCreated?: number;
+  llmCreated?: number;
+  /** LLM triples from the prior revision that were kept alive because their evidence chunks didn't change. */
+  llmReused?: number;
+  /**
+   * LLM-input strategy the worker picked for this run:
+   * - `full`: whole document (no prior revision or no reusable chunks).
+   * - `chunk_delta`: only changed/new leaf chunks were sent.
+   * - `skip`: every leaf was identical to the prior revision; no LLM call was made.
+   */
+  llmInputStrategy?: "full" | "chunk_delta" | "skip";
 }
 
 /** Data passed to the search-index-updater job */
@@ -92,4 +105,18 @@ export interface ContentReformatterJobResult {
   status: "queued" | "skipped" | "already_pending";
   decisionId?: string;
   reason?: string;
+}
+
+/** Data passed to the synthesis-generator job */
+export interface SynthesisGeneratorJobData {
+  ingestionId: string;
+  workspaceId: string;
+  requestedByUserId: string;
+}
+
+/** Result returned from the synthesis-generator job */
+export interface SynthesisGeneratorJobResult {
+  status: "queued" | "failed";
+  ingestionId: string;
+  decisionId?: string;
 }

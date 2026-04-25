@@ -24,8 +24,9 @@ export function QueueHealthPage() {
   const [jobs, setJobs] = useState<FailedJob[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsError, setJobsError] = useState<string | null>(null);
-  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const workspaceId = current?.id;
   const role = current?.role;
@@ -38,6 +39,7 @@ export function QueueHealthPage() {
     try {
       const res = await adminQueues.overview(workspaceId);
       setSummaries(res.queues);
+      setLastUpdatedAt(new Date());
     } catch (err) {
       setSummaries([]);
       setLoadError(
@@ -136,6 +138,12 @@ export function QueueHealthPage() {
         <div>
           <h1>{t("queueHealth.title")}</h1>
           <p className="queue-subtitle">{t("queueHealth.subtitle")}</p>
+          <p className="queue-updated">
+            {t("queueHealth.lastUpdated")}:{" "}
+            {lastUpdatedAt
+              ? lastUpdatedAt.toLocaleTimeString()
+              : t("queueHealth.notUpdated")}
+          </p>
         </div>
         <div className="queue-header-actions">
           <label className="queue-auto-refresh">
