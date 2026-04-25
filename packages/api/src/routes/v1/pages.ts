@@ -823,6 +823,42 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           });
         }
 
+        // Move-time re-extraction. The page now lives under a different
+        // parent — the worker re-derives the destination at run time and
+        // reconciles fresh entities against the new vocabulary. We pass a
+        // unique jobId per move so back-to-back moves don't collapse into
+        // one BullMQ entry; the supersede logic in triple-extractor's tx
+        // serializes overlapping runs safely.
+        if (parentChanged && existing.currentRevisionId) {
+          const useReconciliation = body.useReconciliation ?? true;
+          await fastify.queues.extraction.add(
+            JOB_NAMES.TRIPLE_EXTRACTOR,
+            {
+              workspaceId,
+              pageId,
+              revisionId: existing.currentRevisionId,
+              useReconciliation,
+            },
+            {
+              jobId: `move:${pageId}:${Date.now()}`,
+              ...DEFAULT_JOB_OPTIONS,
+            },
+          );
+          await fastify.db.insert(auditLogs).values({
+            workspaceId,
+            userId,
+            entityType: "page",
+            entityId: pageId,
+            action: "reextract_enqueued",
+            afterJson: {
+              reason: "parent_changed",
+              useReconciliation,
+              previousParentPageId: existing.parentPageId,
+              previousParentFolderId: existing.parentFolderId,
+            },
+          });
+        }
+
         return reply.code(200).send({ page: mapPageDto(result) });
       } catch (err: unknown) {
         if (err instanceof ReorderFailedError) {

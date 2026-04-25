@@ -11,28 +11,55 @@ export const createIngestionSchema = z.object({
   rawPayload: z.record(z.unknown()),
 });
 
-export const importUrlBodySchema = z.object({
-  url: z.string().url().max(2048),
-  // Only "readable" is implemented today. A future tranche may add
-  // sidecar-based fetchers (e.g. firecrawl) behind a new enum value.
-  mode: z.literal("readable").default("readable"),
-  titleHint: z.string().max(500).optional(),
-  idempotencyKey: z.string().min(1).max(200).optional(),
-  forceRefresh: z.boolean().optional(),
-});
+// Shared destination + reconciliation fields for /import endpoints.
+// Cannot specify both `targetFolderId` and `targetParentPageId`; root import
+// is the default when both are absent. `useReconciliation` defaults to true.
+const importDestinationFields = {
+  targetFolderId: uuidSchema.nullable().optional(),
+  targetParentPageId: uuidSchema.nullable().optional(),
+  useReconciliation: z.boolean().optional(),
+};
 
-export const importTextBodySchema = z.object({
-  content: z.string().min(1).max(1_000_000),
-  sourceName: z.string().min(1).max(200).default("manual-paste"),
-  contentType: z.string().max(100).default("text/markdown"),
-  titleHint: z.string().max(500).optional(),
-  idempotencyKey: z.string().min(1).max(200).optional(),
-});
+const xorTargetCheck = (value: {
+  targetFolderId?: string | null;
+  targetParentPageId?: string | null;
+}): boolean => !(value.targetFolderId && value.targetParentPageId);
+const xorTargetMessage = {
+  message: "Specify only one of targetFolderId or targetParentPageId",
+  path: ["targetParentPageId"],
+};
 
-export const importFileFieldsSchema = z.object({
-  titleHint: z.string().max(500).optional(),
-  idempotencyKey: z.string().min(1).max(200).optional(),
-});
+export const importUrlBodySchema = z
+  .object({
+    url: z.string().url().max(2048),
+    // Only "readable" is implemented today. A future tranche may add
+    // sidecar-based fetchers (e.g. firecrawl) behind a new enum value.
+    mode: z.literal("readable").default("readable"),
+    titleHint: z.string().max(500).optional(),
+    idempotencyKey: z.string().min(1).max(200).optional(),
+    forceRefresh: z.boolean().optional(),
+    ...importDestinationFields,
+  })
+  .refine(xorTargetCheck, xorTargetMessage);
+
+export const importTextBodySchema = z
+  .object({
+    content: z.string().min(1).max(1_000_000),
+    sourceName: z.string().min(1).max(200).default("manual-paste"),
+    contentType: z.string().max(100).default("text/markdown"),
+    titleHint: z.string().max(500).optional(),
+    idempotencyKey: z.string().min(1).max(200).optional(),
+    ...importDestinationFields,
+  })
+  .refine(xorTargetCheck, xorTargetMessage);
+
+export const importFileFieldsSchema = z
+  .object({
+    titleHint: z.string().max(500).optional(),
+    idempotencyKey: z.string().min(1).max(200).optional(),
+    ...importDestinationFields,
+  })
+  .refine(xorTargetCheck, xorTargetMessage);
 
 export const routeDecisionSchema = z.object({
   action: z.enum(INGESTION_ACTIONS),

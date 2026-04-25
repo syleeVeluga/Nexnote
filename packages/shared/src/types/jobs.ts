@@ -58,6 +58,15 @@ export interface TripleExtractorJobData {
   pageId: string;
   revisionId: string;
   workspaceId: string;
+  /**
+   * When true (default), extracted entities are reconciled against the
+   * destination's vocabulary (folder closure or parent-page subtree the page
+   * currently lives under) — fuzzy/honorific matches reuse an existing entity
+   * instead of creating a duplicate. Set to false for "fresh" extraction.
+   * The worker re-derives the destination from `pages.parent_*_id` at run
+   * time, so move-time re-extraction always uses the current location.
+   */
+  useReconciliation?: boolean;
 }
 
 /** Result returned from the triple-extractor job */

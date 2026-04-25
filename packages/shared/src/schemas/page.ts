@@ -27,6 +27,10 @@ export const updatePageSchema = z.object({
   status: z.enum(PAGE_STATUSES).optional(),
   sortOrder: z.number().int().optional(),
   reorderIntent: reorderIntentSchema.optional(),
+  // When the parent changes, the worker re-extracts triples against the new
+  // destination and reconciles entities by default. Pass false from a
+  // "fresh extract" UI option to skip reconciliation on this move.
+  useReconciliation: z.boolean().optional(),
 });
 
 export const createFolderSchema = z.object({

@@ -415,3 +415,80 @@
 .api-guide-info-box-warn {
   border-left-color: #fbbf24;
 }
+
+/* Destination picker (import flow) */
+.import-destination {
+  margin: 16px 0;
+  padding: 14px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.import-destination-header { margin-bottom: 8px; }
+.import-destination-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+.import-destination-help {
+  margin: 0;
+  font-size: 12px;
+  color: #64748b;
+}
+.import-destination-toggle { margin-top: 10px; }
+.import-destination-toggle-help {
+  margin: 4px 0 0 24px;
+  font-size: 11px;
+  color: #64748b;
+}
+.destination-picker-tree {
+  margin-top: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  padding: 4px 0;
+}
+.destination-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  font-size: 13px;
+  cursor: default;
+}
+.destination-picker-row.selected { background: #dbeafe; }
+.destination-picker-toggle {
+  width: 16px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+.destination-picker-toggle.disabled,
+.destination-picker-toggle:disabled { cursor: default; color: #cbd5e1; }
+.destination-picker-label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  padding: 2px 4px;
+  color: #0f172a;
+}
+.destination-picker-label:hover { background: #eef2ff; border-radius: 4px; }
+.destination-picker-icon { font-size: 13px; }
+.destination-picker-loading,
+.destination-picker-error {
+  font-size: 12px;
+  color: #64748b;
+  padding: 8px;
+}
+.destination-picker-error { color: #dc2626; }

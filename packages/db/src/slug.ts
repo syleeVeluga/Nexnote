@@ -24,8 +24,22 @@ function isPageSlugCollision(err: unknown): boolean {
 
 export async function insertPageWithUniqueSlug(
   db: Database,
-  params: { workspaceId: string; title: string; baseSlug: string },
+  params: {
+    workspaceId: string;
+    title: string;
+    baseSlug: string;
+    parentFolderId?: string | null;
+    parentPageId?: string | null;
+  },
 ): Promise<typeof pages.$inferSelect> {
+  // Pages enforce a single-parent XOR (migration 0011): callers must not pass
+  // both. We surface a clear error here rather than relying on the DB CHECK
+  // failing mid-transaction.
+  if (params.parentFolderId && params.parentPageId) {
+    throw new Error(
+      "insertPageWithUniqueSlug: cannot specify both parentFolderId and parentPageId",
+    );
+  }
   for (let i = 0; i < SLUG_ALLOC_MAX_ATTEMPTS; i++) {
     const slug = i === 0 ? params.baseSlug : `${params.baseSlug}-${i + 1}`;
     try {
@@ -36,6 +50,8 @@ export async function insertPageWithUniqueSlug(
           title: params.title,
           slug,
           status: "draft",
+          parentFolderId: params.parentFolderId ?? null,
+          parentPageId: params.parentPageId ?? null,
         })
         .returning();
       return page;

@@ -565,6 +565,8 @@ export function createRouteClassifierWorker(): Worker {
           workspaceId,
           title,
           baseSlug: slugify(title),
+          parentFolderId: ingestion.targetFolderId ?? null,
+          parentPageId: ingestion.targetParentPageId ?? null,
         });
 
         const [revision] = await db
@@ -622,6 +624,7 @@ export function createRouteClassifierWorker(): Worker {
           workspaceId,
           pageId: page.id,
           revisionId: revision.id,
+          useReconciliation: ingestion.useReconciliation,
         };
         const extractionQueue = getQueue(QUEUE_NAMES.EXTRACTION);
         await extractionQueue.add(

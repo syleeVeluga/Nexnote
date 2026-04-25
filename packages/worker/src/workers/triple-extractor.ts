@@ -18,6 +18,11 @@ import {
   revisionChunks,
   getOrBuildRevisionChunks,
 } from "@wekiflow/db";
+import {
+  reconcileEntitiesBulk,
+  persistAliasInserts,
+  buildDestinationFromPage,
+} from "../lib/reconcile-entities.js";
 import type { DeterministicFacts } from "@wekiflow/shared";
 import {
   tripleExtractionSchema,
@@ -206,15 +211,22 @@ export function createTripleExtractorWorker(): Worker {
     QUEUE_NAMES.EXTRACTION,
     async (job: Job<TripleExtractorJobData>) => {
       const { pageId, revisionId, workspaceId } = job.data;
+      // Default to true so existing/manual enqueues (legacy ingestion path,
+      // /scripts/reextract-triples.ts) keep their post-extraction reconcile
+      // behavior. Callers that explicitly want fresh extraction (UI "Move
+      // (fresh extract)" or import toggle) must pass false.
+      const useReconciliation = job.data.useReconciliation ?? true;
       const log = createJobLogger("triple-extractor", job.id);
 
-      log.info({ pageId, revisionId }, "Processing page");
+      log.info({ pageId, revisionId, useReconciliation }, "Processing page");
 
       const [revision] = await db
         .select({
           contentMd: pageRevisions.contentMd,
           pageTitle: pages.title,
           baseRevisionId: pageRevisions.baseRevisionId,
+          parentFolderId: pages.parentFolderId,
+          parentPageId: pages.parentPageId,
         })
         .from(pageRevisions)
         .innerJoin(pages, eq(pages.id, pageRevisions.pageId))
@@ -224,6 +236,12 @@ export function createTripleExtractorWorker(): Worker {
       if (!revision) {
         throw new Error(`Revision ${revisionId} not found`);
       }
+
+      // Re-derive the destination at run time. The page may have moved
+      // between job enqueue and dequeue (BullMQ retries, or move events
+      // racing with import) — using current parent_*_id keeps reconciliation
+      // anchored to where the page lives now, not where it was enqueued.
+      const destination = buildDestinationFromPage(revision);
 
       await job.updateProgress(10);
 
@@ -686,35 +704,64 @@ ${contentSlice.text}
           }
         }
 
-        // Bulk insert new entities (skip conflicts)
-        const entityValues = [...entityNames.entries()].map(([key, val]) => ({
-          workspaceId,
-          canonicalName: val.name,
-          normalizedKey: key,
-          entityType: val.type,
-        }));
+        // The LLM never sees the destination vocabulary — reconciliation
+        // happens AFTER extraction so it can't bias the model.
+        const enableReconciliation =
+          useReconciliation &&
+          (destination.folderId !== undefined ||
+            destination.parentPageId !== undefined);
+
+        const reconcile = enableReconciliation
+          ? await reconcileEntitiesBulk(tx, workspaceId, {
+              entityNames,
+              destination,
+              modelRunId: modelRun?.id ?? null,
+              sourcePageId: pageId,
+            })
+          : { reuseMap: new Map<string, string>(), aliasInserts: [], vocabularySize: 0 };
+
+        const entityValues = [...entityNames.entries()]
+          .filter(([key]) => !reconcile.reuseMap.has(key))
+          .map(([key, val]) => ({
+            workspaceId,
+            canonicalName: val.name,
+            normalizedKey: key,
+            entityType: val.type,
+          }));
 
         if (entityValues.length > 0) {
           await tx.insert(entities).values(entityValues).onConflictDoNothing();
         }
 
-        // Bulk fetch all entity ids
-        const allKeys = [...entityNames.keys()];
-        const existingEntities = allKeys.length > 0
+        const newKeys = entityValues.map((v) => v.normalizedKey);
+        const existingEntities = newKeys.length > 0
           ? await tx
               .select({ id: entities.id, normalizedKey: entities.normalizedKey })
               .from(entities)
               .where(
                 and(
                   eq(entities.workspaceId, workspaceId),
-                  inArray(entities.normalizedKey, allKeys),
+                  inArray(entities.normalizedKey, newKeys),
                 ),
               )
           : [];
 
-        const entityIdMap = new Map<string, string>();
+        const entityIdMap = new Map<string, string>(reconcile.reuseMap);
         for (const e of existingEntities) {
           entityIdMap.set(e.normalizedKey, e.id);
+        }
+        if (reconcile.aliasInserts.length > 0) {
+          await persistAliasInserts(tx, reconcile.aliasInserts);
+        }
+        if (enableReconciliation) {
+          log.info(
+            {
+              vocabularySize: reconcile.vocabularySize,
+              reused: reconcile.reuseMap.size,
+              aliasesInserted: reconcile.aliasInserts.length,
+            },
+            "Reconciliation summary",
+          );
         }
 
         // LLM triples. Span remap depends on input strategy: "chunk_delta"

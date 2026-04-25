@@ -23,6 +23,8 @@ import {
   parsePositiveInt,
 } from "../../lib/rate-limit.js";
 import { enqueueIngestion } from "../../lib/enqueue-ingestion.js";
+import { loadFolderHierarchyRow } from "../../lib/folder-hierarchy.js";
+import { loadPageHierarchyRow } from "../../lib/page-hierarchy.js";
 import {
   ACCEPTED_UPLOAD_MIMES,
   ExtractError,
@@ -185,6 +187,68 @@ async function enforceImportRateLimits(
   return true;
 }
 
+/**
+ * Validate the optional destination on an import request. Returns the
+ * normalized values or `null` after sending a 4xx reply.
+ *
+ * Both target IDs together is a 400 (mirrors the DB CHECK on `ingestions`).
+ * A target referencing another workspace is also rejected so we never seed
+ * an ingestion that the destination's owner can't see.
+ */
+async function resolveImportDestination(
+  fastify: FastifyInstance,
+  reply: FastifyReply,
+  workspaceId: string,
+  raw: {
+    targetFolderId?: string | null;
+    targetParentPageId?: string | null;
+  },
+): Promise<
+  | {
+      targetFolderId: string | null;
+      targetParentPageId: string | null;
+    }
+  | null
+> {
+  const targetFolderId = raw.targetFolderId ?? null;
+  const targetParentPageId = raw.targetParentPageId ?? null;
+
+  if (targetFolderId && targetParentPageId) {
+    reply.code(400).send({
+      error: "Bad request",
+      code: ERROR_CODES.PAGE_PARENT_CONFLICT,
+      details: "Specify only one of targetFolderId or targetParentPageId",
+    });
+    return null;
+  }
+
+  if (targetFolderId) {
+    const folder = await loadFolderHierarchyRow(fastify.db, targetFolderId);
+    if (!folder || folder.workspaceId !== workspaceId) {
+      reply.code(400).send({
+        error: "Bad request",
+        code: ERROR_CODES.FOLDER_PARENT_NOT_FOUND,
+        details: "targetFolderId does not exist in this workspace",
+      });
+      return null;
+    }
+  }
+
+  if (targetParentPageId) {
+    const page = await loadPageHierarchyRow(fastify.db, targetParentPageId);
+    if (!page || page.workspaceId !== workspaceId) {
+      reply.code(400).send({
+        error: "Bad request",
+        code: ERROR_CODES.PAGE_PARENT_NOT_FOUND,
+        details: "targetParentPageId does not exist in this workspace",
+      });
+      return null;
+    }
+  }
+
+  return { targetFolderId, targetParentPageId };
+}
+
 async function readFileBuffer(part: MultipartFilePart): Promise<Buffer | null> {
   try {
     const chunks: Buffer[] = [];
@@ -241,6 +305,9 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
       let titleHint: string | undefined;
       let explicitIdempotencyKey: string | undefined;
       let forceRefresh = false;
+      let rawTargetFolderId: string | null = null;
+      let rawTargetParentPageId: string | null = null;
+      let rawUseReconciliation: boolean | undefined;
 
       try {
         for await (const part of request.parts()) {
@@ -272,6 +339,23 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
             typeof part.value === "string"
           ) {
             forceRefresh = part.value === "true";
+          } else if (
+            part.fieldname === "targetFolderId" &&
+            typeof part.value === "string" &&
+            part.value.length > 0
+          ) {
+            rawTargetFolderId = part.value;
+          } else if (
+            part.fieldname === "targetParentPageId" &&
+            typeof part.value === "string" &&
+            part.value.length > 0
+          ) {
+            rawTargetParentPageId = part.value;
+          } else if (
+            part.fieldname === "useReconciliation" &&
+            typeof part.value === "string"
+          ) {
+            rawUseReconciliation = part.value === "true";
           }
         }
       } catch (err) {
@@ -336,6 +420,17 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
       const idempotencyKey =
         explicitIdempotencyKey ?? `upload:${bufferSha256}:${auth.workspaceId}${forcePart}`;
 
+      const destination = await resolveImportDestination(
+        fastify,
+        reply,
+        auth.workspaceId,
+        {
+          targetFolderId: rawTargetFolderId,
+          targetParentPageId: rawTargetParentPageId,
+        },
+      );
+      if (!destination) return;
+
       const archive = await archiveOriginal(fastify, reply, {
         workspaceId: auth.workspaceId,
         buffer,
@@ -364,6 +459,9 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         storageKey: archive?.storageKey ?? null,
         storageBytes: archive?.storageBytes ?? null,
         storageSha256: archive?.storageSha256 ?? null,
+        targetFolderId: destination.targetFolderId,
+        targetParentPageId: destination.targetParentPageId,
+        useReconciliation: rawUseReconciliation,
       });
 
       return reply.code(replayed ? 200 : 202).send(mapIngestionDto(ingestion));
@@ -401,6 +499,14 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         }
         throw err;
       }
+
+      const destination = await resolveImportDestination(
+        fastify,
+        reply,
+        auth.workspaceId,
+        body.data,
+      );
+      if (!destination) return;
 
       const forcePart = body.data.forceRefresh
         ? `:force:${Date.now()}`
@@ -446,6 +552,9 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         storageKey: archive?.storageKey ?? null,
         storageBytes: archive?.storageBytes ?? null,
         storageSha256: archive?.storageSha256 ?? null,
+        targetFolderId: destination.targetFolderId,
+        targetParentPageId: destination.targetParentPageId,
+        useReconciliation: body.data.useReconciliation,
       });
 
       return reply.code(replayed ? 200 : 202).send(mapIngestionDto(ingestion));
@@ -469,6 +578,14 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
         return;
       }
 
+      const destination = await resolveImportDestination(
+        fastify,
+        reply,
+        auth.workspaceId,
+        body.data,
+      );
+      if (!destination) return;
+
       const idempotencyKey =
         body.data.idempotencyKey ??
         `text:${sha256(`${auth.workspaceId}|${body.data.content}`)}`;
@@ -484,6 +601,9 @@ export async function registerImportRoutes(fastify: FastifyInstance) {
           content: body.data.content,
           extractorVersion: "raw-text",
         },
+        targetFolderId: destination.targetFolderId,
+        targetParentPageId: destination.targetParentPageId,
+        useReconciliation: body.data.useReconciliation,
       });
 
       return reply.code(replayed ? 200 : 202).send(mapIngestionDto(ingestion));

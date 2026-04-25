@@ -5,9 +5,12 @@ import {
   timestamp,
   uuid,
   jsonb,
+  real,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { workspaces } from "./users.js";
+import { pages } from "./pages.js";
+import { modelRuns } from "./audit.js";
 
 export const entities = pgTable(
   "entities",
@@ -32,17 +35,35 @@ export const entities = pgTable(
   ],
 );
 
-export const entityAliases = pgTable("entity_aliases", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  entityId: uuid("entity_id")
-    .notNull()
-    .references(() => entities.id, { onDelete: "cascade" }),
-  alias: text("alias").notNull(),
-  normalizedAlias: text("normalized_alias").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const entityAliases = pgTable(
+  "entity_aliases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    entityId: uuid("entity_id")
+      .notNull()
+      .references(() => entities.id, { onDelete: "cascade" }),
+    alias: text("alias").notNull(),
+    normalizedAlias: text("normalized_alias").notNull(),
+    createdByExtractionId: uuid("created_by_extraction_id").references(
+      () => modelRuns.id,
+      { onDelete: "set null" },
+    ),
+    sourcePageId: uuid("source_page_id").references(() => pages.id, {
+      onDelete: "set null",
+    }),
+    similarityScore: real("similarity_score"),
+    matchMethod: text("match_method"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("entity_aliases_entity_norm_uk").on(
+      t.entityId,
+      t.normalizedAlias,
+    ),
+  ],
+);
 
 export type Entity = typeof entities.$inferSelect;
 export type NewEntity = typeof entities.$inferInsert;

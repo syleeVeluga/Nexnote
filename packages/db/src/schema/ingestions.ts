@@ -7,11 +7,12 @@ import {
   jsonb,
   real,
   bigint,
+  boolean,
   uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
 import { workspaces, users } from "./users.js";
-import { pages } from "./pages.js";
+import { pages, folders } from "./pages.js";
 import { pageRevisions } from "./revisions.js";
 import { modelRuns } from "./audit.js";
 
@@ -52,6 +53,14 @@ export const ingestions = pgTable(
     storageKey: text("storage_key"),
     storageBytes: bigint("storage_bytes", { mode: "number" }),
     storageSha256: text("storage_sha256"),
+    targetFolderId: uuid("target_folder_id").references(() => folders.id, {
+      onDelete: "set null",
+    }),
+    targetParentPageId: uuid("target_parent_page_id").references(
+      () => pages.id,
+      { onDelete: "set null" },
+    ),
+    useReconciliation: boolean("use_reconciliation").notNull().default(true),
     status: text("status").notNull().default("pending"),
     receivedAt: timestamp("received_at", { withTimezone: true })
       .notNull()

@@ -778,7 +778,14 @@ export const ingestions = {
   async importFile(
     workspaceId: string,
     file: File,
-    options?: { titleHint?: string; idempotencyKey?: string; forceRefresh?: boolean },
+    options?: {
+      titleHint?: string;
+      idempotencyKey?: string;
+      forceRefresh?: boolean;
+      targetFolderId?: string | null;
+      targetParentPageId?: string | null;
+      useReconciliation?: boolean;
+    },
   ): Promise<IngestionSummary & { replayed: boolean }> {
     const form = new FormData();
     form.append("file", file);
@@ -786,6 +793,15 @@ export const ingestions = {
     if (options?.idempotencyKey)
       form.append("idempotencyKey", options.idempotencyKey);
     if (options?.forceRefresh) form.append("forceRefresh", "true");
+    if (options?.targetFolderId)
+      form.append("targetFolderId", options.targetFolderId);
+    if (options?.targetParentPageId)
+      form.append("targetParentPageId", options.targetParentPageId);
+    if (options?.useReconciliation !== undefined)
+      form.append(
+        "useReconciliation",
+        options.useReconciliation ? "true" : "false",
+      );
 
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -812,6 +828,9 @@ export const ingestions = {
       titleHint?: string;
       idempotencyKey?: string;
       forceRefresh?: boolean;
+      targetFolderId?: string | null;
+      targetParentPageId?: string | null;
+      useReconciliation?: boolean;
     },
   ): Promise<IngestionSummary & { replayed: boolean }> {
     const headers: Record<string, string> = {
@@ -843,6 +862,9 @@ export const ingestions = {
       contentType?: string;
       titleHint?: string;
       idempotencyKey?: string;
+      targetFolderId?: string | null;
+      targetParentPageId?: string | null;
+      useReconciliation?: boolean;
     },
   ): Promise<IngestionSummary & { replayed: boolean }> {
     const headers: Record<string, string> = {

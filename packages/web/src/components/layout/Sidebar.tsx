@@ -49,6 +49,12 @@ interface MoveDialogState {
   pageId: string;
   currentTitle: string;
   parentPageId: string | null;
+  /**
+   * When false, the API skips post-extraction entity reconciliation against
+   * the new parent's vocabulary. The default move (drag-drop or "Move" menu)
+   * sets this true; only the explicit "Move (fresh extract)" menu opts out.
+   */
+  useReconciliation: boolean;
 }
 
 interface MoveOption {
@@ -137,6 +143,7 @@ function buildMoveOptions(
 function ContextMenu({
   menu,
   onMove,
+  onMoveFresh,
   onRename,
   onDelete,
   onAddChild,
@@ -144,6 +151,7 @@ function ContextMenu({
 }: {
   menu: ContextMenuState;
   onMove: (target: ContextMenuState["target"]) => void;
+  onMoveFresh: (target: ContextMenuState["target"]) => void;
   onRename: (target: ContextMenuState["target"]) => void;
   onDelete: (target: ContextMenuState["target"]) => void;
   onAddChild: (target: ContextMenuState["target"]) => void;
@@ -186,6 +194,18 @@ function ContextMenu({
           }}
         >
           {t("move")}
+        </button>
+      )}
+      {!isFolder && (
+        <button
+          className="context-menu-item"
+          title={t("moveFreshHelp")}
+          onClick={() => {
+            onMoveFresh(menu.target);
+            onClose();
+          }}
+        >
+          {t("moveFresh")}
         </button>
       )}
       <button
@@ -511,18 +531,29 @@ export function Sidebar({
   // -------------------------------------------------------------------------
 
   const startMove = useCallback(
-    (target: ContextMenuState["target"]) => {
+    (
+      target: ContextMenuState["target"],
+      opts?: { useReconciliation?: boolean },
+    ) => {
       if (target.kind !== "page") return;
       const currentPage = pageList.find((p) => p.id === target.id);
       setMoving({
         pageId: target.id,
         currentTitle: target.label,
         parentPageId: currentPage?.parentPageId ?? null,
+        useReconciliation: opts?.useReconciliation ?? true,
       });
       setMoveTargetId(currentPage?.parentPageId ?? ROOT_PAGE_VALUE);
       setMoveError(null);
     },
     [pageList],
+  );
+
+  const startMoveFresh = useCallback(
+    (target: ContextMenuState["target"]) => {
+      startMove(target, { useReconciliation: false });
+    },
+    [startMove],
   );
 
   const closeMoveDialog = useCallback(() => {
@@ -552,6 +583,7 @@ export function Sidebar({
       const response = await pagesApi.update(workspace.id, moving.pageId, {
         parentPageId: nextParentPageId,
         parentFolderId: null,
+        useReconciliation: moving.useReconciliation,
       });
       setPageList((prev) =>
         prev.map((p) => (p.id === moving.pageId ? response.page : p)),
@@ -1003,6 +1035,7 @@ export function Sidebar({
         <ContextMenu
           menu={contextMenu}
           onMove={startMove}
+          onMoveFresh={startMoveFresh}
           onRename={startRename}
           onDelete={openDeleteDialog}
           onAddChild={(target) => {
@@ -1023,6 +1056,7 @@ export function Sidebar({
           options={moveOptions}
           errorMessage={moveError}
           pending={movePending}
+          useReconciliation={moving.useReconciliation}
           onChangeTarget={setMoveTargetId}
           onClose={closeMoveDialog}
           onSubmit={submitMove}
@@ -1089,6 +1123,7 @@ function MovePageDialog({
   options,
   errorMessage,
   pending,
+  useReconciliation,
   onChangeTarget,
   onClose,
   onSubmit,
@@ -1098,6 +1133,7 @@ function MovePageDialog({
   options: MoveOption[];
   errorMessage: string | null;
   pending: boolean;
+  useReconciliation: boolean;
   onChangeTarget: (value: string) => void;
   onClose: () => void;
   onSubmit: () => void;
@@ -1144,6 +1180,11 @@ function MovePageDialog({
               </option>
             ))}
           </select>
+          <p className="sidebar-dialog-help">
+            {useReconciliation
+              ? t("moveReconcileBanner")
+              : t("moveFreshBanner")}
+          </p>
           {errorMessage && <p className="form-error">{errorMessage}</p>}
         </div>
         <div className="sidebar-dialog-actions">

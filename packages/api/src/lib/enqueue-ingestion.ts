@@ -66,6 +66,15 @@ export interface EnqueueIngestionInput {
   storageKey?: string | null;
   storageBytes?: number | null;
   storageSha256?: string | null;
+  /**
+   * Optional destination — when set, the route-classifier creates pages under
+   * this folder/page and the triple-extractor reconciles new entities against
+   * the destination's existing vocabulary. Cannot specify both.
+   */
+  targetFolderId?: string | null;
+  targetParentPageId?: string | null;
+  /** Default true. Set false to opt out of post-extraction reconciliation. */
+  useReconciliation?: boolean;
 }
 
 export interface EnqueueIngestionResult {
@@ -89,6 +98,8 @@ export async function enqueueIngestion(
     input.apiTokenId ??
     (await getOrCreateImportTokenId(fastify, input.workspaceId, input.userId));
 
+  // XOR is enforced by the Zod refine on /import schemas and the DB CHECK on
+  // ingestions; no inline guard needed here.
   let row: Ingestion | undefined;
   try {
     [row] = await fastify.db
@@ -105,6 +116,9 @@ export async function enqueueIngestion(
         storageKey: input.storageKey ?? null,
         storageBytes: input.storageBytes ?? null,
         storageSha256: input.storageSha256 ?? null,
+        targetFolderId: input.targetFolderId ?? null,
+        targetParentPageId: input.targetParentPageId ?? null,
+        useReconciliation: input.useReconciliation ?? true,
         status: "pending",
       })
       .returning();

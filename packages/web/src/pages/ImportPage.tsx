@@ -10,6 +10,11 @@ import {
 import { dispatchDecisionCountsUpdated } from "../lib/decision-events.js";
 import { dispatchPagesUpdated } from "../lib/page-events.js";
 import { ApiGuidePanel } from "../components/import/ApiGuidePanel.js";
+import {
+  DestinationPicker,
+  destinationToParams,
+  type DestinationValue,
+} from "../components/import/DestinationPicker.js";
 
 type TabKey = "file" | "url" | "text" | "api";
 
@@ -82,6 +87,13 @@ export function ImportPage() {
     message?: string;
   } | null>(null);
 
+  // Destination + reconciliation are shared across all three tabs — the user
+  // typically picks a folder once and runs through several imports.
+  const [destination, setDestination] = useState<DestinationValue>({
+    kind: "root",
+  });
+  const [useReconciliation, setUseReconciliation] = useState(true);
+
   const workspaceId = current?.id;
   const pollingIngestionIdsRef = useRef<Set<string>>(new Set());
 
@@ -141,9 +153,13 @@ export function ImportPage() {
         prev.map((r) => (r.id === row.id ? { ...r, state: "uploading" } : r)),
       );
       try {
+        const dest = destinationToParams(destination);
         const res = await ingestionsApi.importFile(workspaceId, row.file, {
           titleHint: fileTitleHint || undefined,
           forceRefresh: force || fileForce || undefined,
+          targetFolderId: dest.targetFolderId,
+          targetParentPageId: dest.targetParentPageId,
+          useReconciliation,
         });
         void watchIngestion(res.id);
         setFileRows((prev) =>
@@ -174,7 +190,15 @@ export function ImportPage() {
         );
       }
     },
-    [fileTitleHint, fileForce, t, watchIngestion, workspaceId],
+    [
+      destination,
+      fileTitleHint,
+      fileForce,
+      t,
+      useReconciliation,
+      watchIngestion,
+      workspaceId,
+    ],
   );
 
   const enqueueFiles = useCallback(
@@ -211,11 +235,15 @@ export function ImportPage() {
     setUrlBusy(true);
     setUrlResult(null);
     try {
+      const dest = destinationToParams(destination);
       const res = await ingestionsApi.importUrl(workspaceId, {
         url: url.trim(),
         mode: "readable",
         titleHint: urlTitleHint || undefined,
         forceRefresh: urlForce || undefined,
+        targetFolderId: dest.targetFolderId,
+        targetParentPageId: dest.targetParentPageId,
+        useReconciliation,
       });
       void watchIngestion(res.id);
       setUrlResult({ state: res.replayed ? "replayed" : "queued" });
@@ -240,9 +268,13 @@ export function ImportPage() {
     setTextBusy(true);
     setTextResult(null);
     try {
+      const dest = destinationToParams(destination);
       const res = await ingestionsApi.importText(workspaceId, {
         content: text,
         titleHint: textTitleHint || undefined,
+        targetFolderId: dest.targetFolderId,
+        targetParentPageId: dest.targetParentPageId,
+        useReconciliation,
       });
       void watchIngestion(res.id);
       setTextResult({ state: res.replayed ? "replayed" : "queued" });
@@ -302,6 +334,51 @@ export function ImportPage() {
           </button>
         ))}
       </div>
+
+      {activeTab !== "api" && workspaceId && (
+        <div className="import-destination">
+          <div className="import-destination-header">
+            <h2 className="import-destination-title">
+              {t("destinationTitle", "Destination")}
+            </h2>
+            <p className="import-destination-help">
+              {t(
+                "destinationHelp",
+                "Where the new page should land. Imports to a folder reuse that folder's existing entities (e.g. \"주식회사 벨루가\" merges with \"벨루가\") so the knowledge graph stays connected.",
+              )}
+            </p>
+          </div>
+          <DestinationPicker
+            workspaceId={workspaceId}
+            value={destination}
+            onChange={setDestination}
+          />
+          <label className="import-checkbox import-destination-toggle">
+            <input
+              type="checkbox"
+              checked={useReconciliation}
+              onChange={(e) => setUseReconciliation(e.target.checked)}
+            />
+            <span>
+              {t(
+                "useReconciliation",
+                "Reconcile with destination's existing entities",
+              )}
+            </span>
+          </label>
+          <p className="import-destination-toggle-help">
+            {useReconciliation
+              ? t(
+                  "useReconciliationOn",
+                  "Recommended. Similar entities in the chosen folder/page will be reused (alias logged).",
+                )
+              : t(
+                  "useReconciliationOff",
+                  "Fresh extraction — every entity name found in this import becomes a new entity.",
+                )}
+          </p>
+        </div>
+      )}
 
       <div className="import-body">
         {activeTab === "file" && (

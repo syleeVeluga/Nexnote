@@ -65,6 +65,9 @@ export async function approveDecision(
       titleHint: ingestions.titleHint,
       normalizedText: ingestions.normalizedText,
       rawPayload: ingestions.rawPayload,
+      targetFolderId: ingestions.targetFolderId,
+      targetParentPageId: ingestions.targetParentPageId,
+      useReconciliation: ingestions.useReconciliation,
     })
     .from(ingestions)
     .where(
@@ -105,6 +108,8 @@ export async function approveDecision(
       workspaceId,
       title,
       baseSlug: slugify(title),
+      parentFolderId: ingestion.targetFolderId ?? null,
+      parentPageId: ingestion.targetParentPageId ?? null,
     });
 
     const [revision] = await db
@@ -167,6 +172,7 @@ export async function approveDecision(
       pageId: page.id,
       revisionId: revision.id,
       workspaceId,
+      useReconciliation: ingestion.useReconciliation,
     };
     await extractionQueue.add(
       JOB_NAMES.TRIPLE_EXTRACTOR,
