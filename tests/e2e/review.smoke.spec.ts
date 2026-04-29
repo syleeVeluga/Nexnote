@@ -25,6 +25,6 @@ test("imports suggested content and approves it from the review queue", { tag: "
   await page.getByRole("button", { name: "Approve" }).click();
   await expect(page.getByText("No items in this tab")).toBeVisible({ timeout: 15_000 });
 
-  await page.goto("/");
+  await page.goto("/wiki");
   await expect(page.locator(".page-title-link", { hasText: "E2E Suggested Page" })).toBeVisible();
 });
