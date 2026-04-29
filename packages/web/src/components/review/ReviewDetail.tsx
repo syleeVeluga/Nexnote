@@ -6,17 +6,22 @@ import {
   Check,
   ExternalLink,
   FileText,
+  RotateCcw,
   Sparkles,
   X,
 } from "lucide-react";
 import type { DecisionDetail } from "../../lib/api-client.js";
 import { classifyLine } from "../revisions/DiffViewer.js";
 import { Badge, type BadgeTone } from "../ui/Badge.js";
+import { DecisionOverrideForm } from "./DecisionOverrideForm.js";
 
 interface ReviewDetailProps {
+  workspaceId: string;
   decision: DecisionDetail;
   onApprove: () => void | Promise<void>;
   onReject: (reason?: string) => void | Promise<void>;
+  onUndo: () => void | Promise<void>;
+  onDecisionChanged: () => void | Promise<void>;
 }
 
 function detailStatusTone(status: DecisionDetail["status"]): BadgeTone {
@@ -30,6 +35,8 @@ function detailStatusTone(status: DecisionDetail["status"]): BadgeTone {
     case "auto_applied":
     case "approved":
       return "green";
+    case "undone":
+      return "blue";
     case "rejected":
       return "warm";
     default:
@@ -38,14 +45,17 @@ function detailStatusTone(status: DecisionDetail["status"]): BadgeTone {
 }
 
 export function ReviewDetail({
+  workspaceId,
   decision,
   onApprove,
   onReject,
+  onUndo,
+  onDecisionChanged,
 }: ReviewDetailProps) {
   const { t } = useTranslation(["review", "common"]);
-  const [submitting, setSubmitting] = useState<"approve" | "reject" | null>(
-    null,
-  );
+  const [submitting, setSubmitting] = useState<
+    "approve" | "reject" | "undo" | null
+  >(null);
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
 
@@ -53,7 +63,14 @@ export function ReviewDetail({
     decision.status === "approved" ||
     decision.status === "rejected" ||
     decision.status === "auto_applied" ||
+    decision.status === "undone" ||
     decision.status === "noop";
+  const canUndo =
+    decision.status === "auto_applied" &&
+    Boolean(decision.targetPageId && decision.proposedRevisionId) &&
+    (decision.action === "create" ||
+      decision.action === "update" ||
+      decision.action === "append");
 
   const doApprove = async () => {
     setSubmitting("approve");
@@ -70,6 +87,15 @@ export function ReviewDetail({
       await onReject(rejectReason.trim() || undefined);
       setRejectMode(false);
       setRejectReason("");
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  const doUndo = async () => {
+    setSubmitting("undo");
+    try {
+      await onUndo();
     } finally {
       setSubmitting(null);
     }
@@ -169,6 +195,14 @@ export function ReviewDetail({
           </div>
           <div className="review-detail-reason">{decision.reason}</div>
         </div>
+      )}
+
+      {!resolved && (
+        <DecisionOverrideForm
+          workspaceId={workspaceId}
+          decision={decision}
+          onSaved={onDecisionChanged}
+        />
       )}
 
       {decision.proposedRevision?.diffMd ? (
@@ -275,6 +309,21 @@ export function ReviewDetail({
               </button>
             </>
           )}
+        </div>
+      )}
+
+      {canUndo && (
+        <div className="review-detail-actions">
+          <button
+            className="btn btn-secondary"
+            onClick={doUndo}
+            disabled={submitting !== null}
+          >
+            <RotateCcw size={13} aria-hidden="true" />
+            {submitting === "undo"
+              ? t("undoing", { defaultValue: "Undoing..." })
+              : t("undo", { defaultValue: "Undo" })}
+          </button>
         </div>
       )}
     </div>

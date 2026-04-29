@@ -44,15 +44,19 @@ export type IngestionAction = (typeof INGESTION_ACTIONS)[number];
 // Set by the route-classifier at decision-creation time and mutated by the
 // approve/reject APIs. See CONFIDENCE below for the thresholds.
 export const DECISION_STATUSES = [
-  "auto_applied",  // confidence >= AUTO_APPLY, already applied
-  "suggested",     // SUGGESTION_MIN <= confidence < AUTO_APPLY, awaiting human
-  "needs_review",  // confidence < SUGGESTION_MIN, low-trust
-  "approved",      // human approved a suggested decision
-  "rejected",      // human rejected the decision
-  "noop",          // AI decided no action was needed
-  "failed",        // patch-generator failed to produce a revision
+  "auto_applied", // confidence >= AUTO_APPLY, already applied
+  "suggested", // SUGGESTION_MIN <= confidence < AUTO_APPLY, awaiting human
+  "needs_review", // confidence < SUGGESTION_MIN, low-trust
+  "approved", // human approved a suggested decision
+  "rejected", // human rejected the decision
+  "undone", // human reverted an auto-applied decision
+  "noop", // AI decided no action was needed
+  "failed", // patch-generator failed to produce a revision
 ] as const;
 export type DecisionStatus = (typeof DECISION_STATUSES)[number];
+
+export const API_TOKEN_SCOPES = ["ingestions:write"] as const;
+export type ApiTokenScope = (typeof API_TOKEN_SCOPES)[number];
 
 export const WORKSPACE_ROLES = ["owner", "admin", "editor", "viewer"] as const;
 export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
@@ -126,8 +130,14 @@ export const MODEL_CONTEXT_BUDGETS: Record<string, ModelContextBudget> = {
   "openai:gpt-5.4": { inputTokenBudget: 180_000, safetyMarginRatio: 0.9 },
   "openai:gpt-5.4-pro": { inputTokenBudget: 400_000, safetyMarginRatio: 0.9 },
   "openai:gpt-5.4-mini": { inputTokenBudget: 120_000, safetyMarginRatio: 0.9 },
-  "gemini:gemini-3.1-pro": { inputTokenBudget: 800_000, safetyMarginRatio: 0.9 },
-  "gemini:gemini-3.1-flash-lite": { inputTokenBudget: 500_000, safetyMarginRatio: 0.9 },
+  "gemini:gemini-3.1-pro": {
+    inputTokenBudget: 800_000,
+    safetyMarginRatio: 0.9,
+  },
+  "gemini:gemini-3.1-flash-lite": {
+    inputTokenBudget: 500_000,
+    safetyMarginRatio: 0.9,
+  },
 };
 
 // Conservative fallback for unregistered provider/model pairs. Chosen small
@@ -157,7 +167,8 @@ export function getModelContextBudget(
   model: string,
 ): ModelContextBudget {
   return (
-    MODEL_CONTEXT_BUDGETS[`${provider}:${model}`] ?? DEFAULT_MODEL_CONTEXT_BUDGET
+    MODEL_CONTEXT_BUDGETS[`${provider}:${model}`] ??
+    DEFAULT_MODEL_CONTEXT_BUDGET
   );
 }
 
@@ -236,4 +247,7 @@ export const ERROR_CODES = {
   INGESTION_ORIGINAL_NOT_FOUND: "INGESTION_ORIGINAL_NOT_FOUND",
   PAGE_NOT_TRASHED: "PAGE_NOT_TRASHED",
   PUBLISHED_BLOCK: "PUBLISHED_BLOCK",
+  DECISION_UNDO_CONFLICT: "DECISION_UNDO_CONFLICT",
+  DECISION_UNDO_UNSUPPORTED: "DECISION_UNDO_UNSUPPORTED",
+  API_TOKEN_NOT_FOUND: "API_TOKEN_NOT_FOUND",
 } as const;

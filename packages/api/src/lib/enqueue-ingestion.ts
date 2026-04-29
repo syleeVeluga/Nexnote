@@ -33,6 +33,7 @@ async function getOrCreateImportTokenId(
       and(
         eq(apiTokens.workspaceId, workspaceId),
         eq(apiTokens.createdByUserId, userId),
+        eq(apiTokens.name, BROWSER_IMPORT_TOKEN_NAME),
         sql`${apiTokens.revokedAt} IS NULL`,
       ),
     )

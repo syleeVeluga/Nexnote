@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import type { Queue } from "bullmq";
 import {
   eq,
   and,
@@ -18,6 +19,9 @@ import {
   DECISION_STATUSES,
   INGESTION_ACTIONS,
   ERROR_CODES,
+  computeDiff,
+  JOB_NAMES,
+  DEFAULT_JOB_OPTIONS,
 } from "@wekiflow/shared";
 import {
   ingestions,
@@ -37,6 +41,11 @@ import {
 } from "../../lib/workspace-auth.js";
 import { sendValidationError } from "../../lib/reply-helpers.js";
 import { approveDecision, rejectDecision } from "../../lib/apply-decision.js";
+import {
+  PageDeletionError,
+  collectDescendantPageIds,
+  softDeleteSubtree,
+} from "../../lib/page-deletion.js";
 import {
   mapDecisionListItem,
   type DecisionListRow,
@@ -69,6 +78,7 @@ const RESOLVED_STATUSES: readonly string[] = [
   "approved",
   "rejected",
   "auto_applied",
+  "undone",
   "noop",
 ];
 
@@ -130,6 +140,7 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
             isNull(ingestionDecisions.targetPageId),
             notInArray(ingestionDecisions.status, ["auto_applied", "approved"]),
           ),
+          eq(ingestionDecisions.status, "undone"),
         )!,
       );
       const where = and(...conditions);
@@ -225,6 +236,7 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
                   "approved",
                 ]),
               ),
+              eq(ingestionDecisions.status, "undone"),
             ),
           ),
         )
@@ -497,6 +509,97 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  // POST /:decisionId/undo - revert an auto-applied decision without overwriting history
+  fastify.post(
+    "/:decisionId/undo",
+    { onRequest: [fastify.authenticate] },
+    async (request, reply) => {
+      const params = decisionParamsSchema.safeParse(request.params);
+      if (!params.success)
+        return sendValidationError(reply, params.error.issues);
+
+      const { workspaceId, decisionId } = params.data;
+      const userId = request.user.sub;
+
+      const role = await getMemberRole(fastify.db, workspaceId, userId);
+      if (!role) return forbidden(reply);
+      if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
+
+      const decision = await loadDecision(fastify.db, workspaceId, decisionId);
+      if (!decision) {
+        return reply.code(404).send({
+          error: "Not found",
+          code: ERROR_CODES.NOT_FOUND,
+          details: "Decision not found",
+        });
+      }
+
+      if (decision.status !== "auto_applied") {
+        return reply.code(409).send({
+          error: "Undo unsupported",
+          code: ERROR_CODES.DECISION_UNDO_UNSUPPORTED,
+          details: `Only auto_applied decisions can be undone. Decision is ${decision.status}.`,
+        });
+      }
+
+      if (
+        decision.action !== "create" &&
+        decision.action !== "update" &&
+        decision.action !== "append"
+      ) {
+        return reply.code(409).send({
+          error: "Undo unsupported",
+          code: ERROR_CODES.DECISION_UNDO_UNSUPPORTED,
+          details: `Decision action ${decision.action} has no page change to undo.`,
+        });
+      }
+
+      if (!decision.targetPageId || !decision.proposedRevisionId) {
+        return reply.code(409).send({
+          error: "Undo unsupported",
+          code: ERROR_CODES.DECISION_UNDO_UNSUPPORTED,
+          details: "Decision is missing the applied page or revision.",
+        });
+      }
+
+      if (decision.action === "create") {
+        const response = await undoCreateDecision({
+          db: fastify.db,
+          workspaceId,
+          decision,
+          userId,
+        });
+        if ("error" in response) {
+          return reply.code(response.statusCode).send({
+            error: response.error,
+            code: response.code,
+            details: response.details,
+            ...(response.extra ?? {}),
+          });
+        }
+        return reply.send(response);
+      }
+
+      const response = await undoRevisionDecision({
+        db: fastify.db,
+        extractionQueue: fastify.queues.extraction,
+        searchQueue: fastify.queues.search,
+        workspaceId,
+        decision,
+        userId,
+      });
+      if ("error" in response) {
+        return reply.code(response.statusCode).send({
+          error: response.error,
+          code: response.code,
+          details: response.details,
+          ...(response.extra ?? {}),
+        });
+      }
+      return reply.send(response);
+    },
+  );
+
   // PATCH /:decisionId — edit action/targetPageId/proposedPageTitle before approving
   fastify.patch(
     "/:decisionId",
@@ -575,7 +678,12 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const updates: Partial<IngestionDecision> = {};
-      if (body.data.action !== undefined) updates.action = body.data.action;
+      if (body.data.action !== undefined) {
+        updates.action = body.data.action;
+        if (body.data.action !== decision.action) {
+          updates.proposedRevisionId = null;
+        }
+      }
       if (body.data.targetPageId !== undefined) {
         updates.targetPageId = body.data.targetPageId;
         // Changing the target invalidates any AI-proposed revision.
@@ -651,6 +759,418 @@ async function loadDecision(
     )
     .limit(1);
   return (row as IngestionDecision) ?? null;
+}
+
+type UndoDecisionResponse =
+  | {
+      status: "undone";
+      action: "create";
+      ingestionId: string;
+      pageId: string;
+      deletedPageIds: string[];
+    }
+  | {
+      status: "undone";
+      action: "update" | "append";
+      ingestionId: string;
+      pageId: string;
+      revisionId: string;
+    };
+
+type UndoDecisionErrorResponse = {
+  error: string;
+  code: string;
+  details: string;
+  statusCode: number;
+  extra?: Record<string, unknown>;
+};
+
+class DecisionUndoRouteError extends Error {
+  constructor(
+    public code: string,
+    public extra?: Record<string, unknown>,
+  ) {
+    super(code);
+  }
+}
+
+async function undoCreateDecision(input: {
+  db: Database;
+  workspaceId: string;
+  decision: IngestionDecision;
+  userId: string;
+}): Promise<UndoDecisionResponse | UndoDecisionErrorResponse> {
+  const { db, workspaceId, decision, userId } = input;
+
+  const [page] = await db
+    .select({
+      id: pages.id,
+      currentRevisionId: pages.currentRevisionId,
+      deletedAt: pages.deletedAt,
+    })
+    .from(pages)
+    .where(
+      and(
+        eq(pages.id, decision.targetPageId!),
+        eq(pages.workspaceId, workspaceId),
+      ),
+    )
+    .limit(1);
+
+  if (!page) {
+    return {
+      error: "Not found",
+      code: ERROR_CODES.PAGE_NOT_FOUND,
+      details: "Target page not found",
+      statusCode: 404,
+    };
+  }
+
+  if (page.deletedAt) {
+    await markDecisionUndone(db, workspaceId, decision, userId, {
+      type: "create_already_deleted",
+      pageId: page.id,
+    });
+    return {
+      status: "undone",
+      action: "create",
+      ingestionId: decision.ingestionId,
+      pageId: page.id,
+      deletedPageIds: [],
+    };
+  }
+
+  if (page.currentRevisionId !== decision.proposedRevisionId) {
+    return {
+      error: "Undo conflict",
+      code: ERROR_CODES.DECISION_UNDO_CONFLICT,
+      details:
+        "The target page has been edited since this decision was applied.",
+      statusCode: 409,
+      extra: {
+        currentRevisionId: page.currentRevisionId,
+        appliedRevisionId: decision.proposedRevisionId,
+      },
+    };
+  }
+
+  const descendantIds = await collectDescendantPageIds(db, workspaceId, page.id);
+  const activeDescendantIds = descendantIds.filter((id) => id !== page.id);
+  if (activeDescendantIds.length > 0) {
+    return {
+      error: "Undo conflict",
+      code: ERROR_CODES.DECISION_UNDO_CONFLICT,
+      details:
+        "The created page has active child pages. Move or delete them before undoing this create decision.",
+      statusCode: 409,
+      extra: { descendantPageIds: activeDescendantIds },
+    };
+  }
+
+  try {
+    const result = await softDeleteSubtree(db, {
+      workspaceId,
+      rootPageId: page.id,
+      userId,
+    });
+    await markDecisionUndone(db, workspaceId, decision, userId, {
+      type: "soft_delete_created_page",
+      pageId: page.id,
+      deletedPageIds: result.deletedPageIds,
+    });
+    return {
+      status: "undone",
+      action: "create",
+      ingestionId: decision.ingestionId,
+      pageId: page.id,
+      deletedPageIds: result.deletedPageIds,
+    };
+  } catch (err) {
+    if (err instanceof PageDeletionError) {
+      if (err.code === ERROR_CODES.PAGE_NOT_FOUND) {
+        return {
+          error: "Not found",
+          code: ERROR_CODES.PAGE_NOT_FOUND,
+          details: "Target page not found",
+          statusCode: 404,
+        };
+      }
+      if (err.code === ERROR_CODES.PUBLISHED_BLOCK) {
+        return {
+          error:
+            "Page has a live published snapshot. Unpublish it before undoing this create decision.",
+          code: ERROR_CODES.PUBLISHED_BLOCK,
+          details: "The created page is currently published.",
+          statusCode: 409,
+          extra: { publishConflict: err.details },
+        };
+      }
+    }
+    throw err;
+  }
+}
+
+async function undoRevisionDecision(input: {
+  db: Database;
+  extractionQueue: Queue;
+  searchQueue: Queue;
+  workspaceId: string;
+  decision: IngestionDecision;
+  userId: string;
+}): Promise<UndoDecisionResponse | UndoDecisionErrorResponse> {
+  const { db, extractionQueue, searchQueue, workspaceId, decision, userId } =
+    input;
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [page] = await tx
+        .select({
+          id: pages.id,
+          currentRevisionId: pages.currentRevisionId,
+        })
+        .from(pages)
+        .where(
+          and(
+            eq(pages.id, decision.targetPageId!),
+            eq(pages.workspaceId, workspaceId),
+            isNull(pages.deletedAt),
+          ),
+        )
+        .limit(1);
+
+      if (!page) {
+        throw new DecisionUndoRouteError(ERROR_CODES.PAGE_NOT_FOUND);
+      }
+      if (page.currentRevisionId !== decision.proposedRevisionId) {
+        throw new DecisionUndoRouteError(ERROR_CODES.DECISION_UNDO_CONFLICT, {
+          currentRevisionId: page.currentRevisionId,
+          appliedRevisionId: decision.proposedRevisionId,
+        });
+      }
+
+      const [appliedRevision] = await tx
+        .select({
+          id: pageRevisions.id,
+          baseRevisionId: pageRevisions.baseRevisionId,
+          contentMd: pageRevisions.contentMd,
+        })
+        .from(pageRevisions)
+        .where(eq(pageRevisions.id, decision.proposedRevisionId!))
+        .limit(1);
+
+      const baseRevisionId =
+        appliedRevision?.baseRevisionId ??
+        readDecisionBaseRevisionId(decision.rationaleJson);
+      if (!appliedRevision || !baseRevisionId) {
+        throw new DecisionUndoRouteError(ERROR_CODES.DECISION_UNDO_UNSUPPORTED);
+      }
+
+      const [baseRevision] = await tx
+        .select({
+          id: pageRevisions.id,
+          contentMd: pageRevisions.contentMd,
+          contentJson: pageRevisions.contentJson,
+        })
+        .from(pageRevisions)
+        .where(
+          and(
+            eq(pageRevisions.id, baseRevisionId),
+            eq(pageRevisions.pageId, page.id),
+          ),
+        )
+        .limit(1);
+      if (!baseRevision) {
+        throw new DecisionUndoRouteError(ERROR_CODES.DECISION_UNDO_UNSUPPORTED);
+      }
+
+      const [rollbackRevision] = await tx
+        .insert(pageRevisions)
+        .values({
+          pageId: page.id,
+          baseRevisionId: page.currentRevisionId,
+          actorUserId: userId,
+          actorType: "user",
+          source: "rollback",
+          sourceIngestionId: decision.ingestionId,
+          sourceDecisionId: decision.id,
+          contentMd: baseRevision.contentMd,
+          contentJson: baseRevision.contentJson,
+          revisionNote: `Undo auto-${decision.action} decision ${decision.id}`,
+        })
+        .returning();
+
+      const diff = computeDiff(
+        appliedRevision.contentMd,
+        baseRevision.contentMd,
+        null,
+        null,
+      );
+      await tx.insert(revisionDiffs).values({
+        revisionId: rollbackRevision.id,
+        diffMd: diff.diffMd,
+        diffOpsJson: diff.diffOpsJson,
+        changedBlocks: diff.changedBlocks,
+      });
+
+      await tx
+        .update(pages)
+        .set({
+          currentRevisionId: rollbackRevision.id,
+          updatedAt: sql`now()`,
+          lastHumanEditedAt: sql`now()`,
+        })
+        .where(eq(pages.id, page.id));
+
+      await tx
+        .update(ingestionDecisions)
+        .set({
+          status: "undone",
+          rationaleJson: withUndoRationale(decision.rationaleJson, {
+            type: "rollback_revision",
+            pageId: page.id,
+            appliedRevisionId: appliedRevision.id,
+            rollbackRevisionId: rollbackRevision.id,
+            restoredRevisionId: baseRevision.id,
+            undoneByUserId: userId,
+            undoneAt: new Date().toISOString(),
+          }),
+        })
+        .where(eq(ingestionDecisions.id, decision.id));
+
+      await tx.insert(auditLogs).values({
+        workspaceId,
+        userId,
+        entityType: "page_revision",
+        entityId: rollbackRevision.id,
+        action: "undo_decision",
+        beforeJson: {
+          decisionId: decision.id,
+          pageId: page.id,
+          appliedRevisionId: appliedRevision.id,
+        },
+        afterJson: {
+          rollbackRevisionId: rollbackRevision.id,
+          restoredRevisionId: baseRevision.id,
+        },
+      });
+
+      return {
+        pageId: page.id,
+        revisionId: rollbackRevision.id,
+      };
+    });
+
+    await Promise.all([
+      extractionQueue.add(
+        JOB_NAMES.TRIPLE_EXTRACTOR,
+        {
+          pageId: result.pageId,
+          revisionId: result.revisionId,
+          workspaceId,
+        },
+        DEFAULT_JOB_OPTIONS,
+      ),
+      searchQueue.add(
+        JOB_NAMES.SEARCH_INDEX_UPDATER,
+        {
+          pageId: result.pageId,
+          revisionId: result.revisionId,
+          workspaceId,
+        },
+        DEFAULT_JOB_OPTIONS,
+      ),
+    ]);
+
+    return {
+      status: "undone",
+      action: decision.action as "update" | "append",
+      ingestionId: decision.ingestionId,
+      pageId: result.pageId,
+      revisionId: result.revisionId,
+    };
+  } catch (err) {
+    if (err instanceof DecisionUndoRouteError) {
+      if (err.code === ERROR_CODES.PAGE_NOT_FOUND) {
+        return {
+          error: "Not found",
+          code: ERROR_CODES.PAGE_NOT_FOUND,
+          details: "Target page not found",
+          statusCode: 404,
+        };
+      }
+      if (err.code === ERROR_CODES.DECISION_UNDO_CONFLICT) {
+        return {
+          error: "Undo conflict",
+          code: ERROR_CODES.DECISION_UNDO_CONFLICT,
+          details:
+            "The target page has been edited since this decision was applied.",
+          statusCode: 409,
+          extra: err.extra,
+        };
+      }
+      return {
+        error: "Undo unsupported",
+        code: ERROR_CODES.DECISION_UNDO_UNSUPPORTED,
+        details: "The base revision needed to undo this decision is missing.",
+        statusCode: 409,
+      };
+    }
+    throw err;
+  }
+}
+
+async function markDecisionUndone(
+  db: Database,
+  workspaceId: string,
+  decision: IngestionDecision,
+  userId: string,
+  undo: Record<string, unknown>,
+): Promise<void> {
+  const undoRecord = {
+    ...undo,
+    undoneByUserId: userId,
+    undoneAt: new Date().toISOString(),
+  };
+  await Promise.all([
+    db
+      .update(ingestionDecisions)
+      .set({
+        status: "undone",
+        rationaleJson: withUndoRationale(decision.rationaleJson, undoRecord),
+      })
+      .where(eq(ingestionDecisions.id, decision.id)),
+    db.insert(auditLogs).values({
+      workspaceId,
+      userId,
+      entityType: "ingestion",
+      entityId: decision.ingestionId,
+      action: "undo_decision",
+      beforeJson: {
+        decisionId: decision.id,
+        action: decision.action,
+        status: decision.status,
+      },
+      afterJson: undoRecord,
+    }),
+  ]);
+}
+
+function readDecisionBaseRevisionId(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = (value as { baseRevisionId?: unknown }).baseRevisionId;
+  return typeof candidate === "string" ? candidate : null;
+}
+
+function withUndoRationale(
+  value: unknown,
+  undo: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    ...(value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {}),
+    undo,
+  };
 }
 
 export default decisionRoutes;

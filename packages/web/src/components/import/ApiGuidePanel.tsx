@@ -18,21 +18,14 @@ export function ApiGuidePanel({ workspaceId }: Props) {
 
   const codeExamples: Record<LangKey, string> = {
     js: `const BASE = '${origin}/api/v1';
+const API_TOKEN = 'wf_...'; // Create this in System > API Tokens
 
-// Step 1: Login and get a JWT
-const { token } = await fetch(\`\${BASE}/auth/login\`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ email: 'you@example.com', password: 'yourpassword' }),
-}).then(r => r.json());
-
-// Step 2: Send knowledge to WekiFlow
 const { id, replayed } = await fetch(
   \`\${BASE}/workspaces/${workspaceId}/ingestions\`,
   {
     method: 'POST',
     headers: {
-      'Authorization': \`Bearer \${token}\`,
+      'Authorization': \`Bearer \${API_TOKEN}\`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -46,13 +39,9 @@ const { id, replayed } = await fetch(
 ).then(r => r.json());
 // replayed: true → already queued (idempotent — safe to ignore)`,
 
-    curl: `# Step 1: Login and capture the JWT
-TOKEN=$(curl -s -X POST '${origin}/api/v1/auth/login' \\
-  -H 'Content-Type: application/json' \\
-  -d '{"email":"you@example.com","password":"yourpassword"}' \\
-  | jq -r '.token')
+    curl: `# Create this in System > API Tokens
+TOKEN='wf_...'
 
-# Step 2: Send knowledge to WekiFlow
 curl -s -X POST '${origin}/api/v1/workspaces/${workspaceId}/ingestions' \\
   -H "Authorization: Bearer $TOKEN" \\
   -H 'Content-Type: application/json' \\
@@ -67,17 +56,11 @@ curl -s -X POST '${origin}/api/v1/workspaces/${workspaceId}/ingestions' \\
     python: `import requests
 
 BASE = '${origin}/api/v1'
+API_TOKEN = 'wf_...'  # Create this in System > API Tokens
 
-# Step 1: Login and get a JWT
-token = requests.post(f'{BASE}/auth/login', json={
-    'email': 'you@example.com',
-    'password': 'yourpassword',
-}).json()['token']
-
-# Step 2: Send knowledge to WekiFlow
 res = requests.post(
     f'{BASE}/workspaces/${workspaceId}/ingestions',
-    headers={'Authorization': f'Bearer {token}'},
+    headers={'Authorization': f'Bearer {API_TOKEN}'},
     json={
         'sourceName': 'my-agent',
         'idempotencyKey': 'unique-key-for-this-doc',
@@ -130,6 +113,14 @@ data = res.json()
           <p className="api-guide-section-desc">{t(descKey)}</p>
         </div>
       ))}
+
+      <button
+        type="button"
+        className="import-link-btn"
+        onClick={() => navigate("/system/tokens")}
+      >
+        Manage API tokens
+      </button>
 
       <div className="api-guide-code-container">
         <div className="api-guide-langs">

@@ -25,10 +25,7 @@ function extractRouteId(pathname: string, prefix: string): string | null {
 }
 
 function requiresTree(pathname: string): boolean {
-  return (
-    pathname.startsWith("/pages/") ||
-    pathname.startsWith("/folders/")
-  );
+  return pathname.startsWith("/pages/") || pathname.startsWith("/folders/");
 }
 
 function byId<T extends { id: string }>(items: T[]): Map<string, T> {
@@ -57,10 +54,7 @@ function folderChain(
   }));
 }
 
-function pageChain(
-  pageId: string,
-  pagesById: Map<string, Page>,
-): Page[] {
+function pageChain(pageId: string, pagesById: Map<string, Page>): Page[] {
   const chain: Page[] = [];
   const seen = new Set<string>();
   let current = pagesById.get(pageId) ?? null;
@@ -69,7 +63,7 @@ function pageChain(
     seen.add(current.id);
     chain.unshift(current);
     current = current.parentPageId
-      ? pagesById.get(current.parentPageId) ?? null
+      ? (pagesById.get(current.parentPageId) ?? null)
       : null;
   }
 
@@ -145,6 +139,17 @@ export function useWorkspaceBreadcrumbs(
       return [...root, { label: t("activity") }];
     }
 
+    if (path.startsWith("/system/tokens")) {
+      return [
+        ...root,
+        {
+          label: t("systemStatus", { defaultValue: "System Status" }),
+          to: "/system",
+        },
+        { label: t("apiTokens", { defaultValue: "API Tokens" }) },
+      ];
+    }
+
     if (path.startsWith("/admin/queues") || path.startsWith("/system")) {
       return [
         ...root,
@@ -190,11 +195,7 @@ export function useWorkspaceBreadcrumbs(
 
     const folderId = extractRouteId(path, "folders");
     if (folderId) {
-      return [
-        ...root,
-        wiki,
-        ...folderChain(folderId, foldersById),
-      ];
+      return [...root, wiki, ...folderChain(folderId, foldersById)];
     }
 
     return root;

@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -25,6 +25,11 @@ export const apiTokens = pgTable("api_tokens", {
     .notNull()
     .references(() => users.id, { onDelete: "restrict" }),
   name: text("name").notNull(),
+  sourceNameHint: text("source_name_hint"),
+  scopes: text("scopes")
+    .array()
+    .notNull()
+    .default(sql`ARRAY['ingestions:write']::text[]`),
   tokenHash: text("token_hash").notNull(),
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
@@ -107,10 +112,7 @@ export const ingestionDecisions = pgTable(
       .defaultNow(),
   },
   (t) => [
-    index("ingestion_decisions_ingestion_idx").on(
-      t.ingestionId,
-      t.createdAt,
-    ),
+    index("ingestion_decisions_ingestion_idx").on(t.ingestionId, t.createdAt),
     index("ingestion_decisions_status_idx").on(t.status, t.createdAt),
     index("ingestion_decisions_target_page_idx").on(t.targetPageId),
   ],

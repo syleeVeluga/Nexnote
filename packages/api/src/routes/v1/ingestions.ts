@@ -156,13 +156,10 @@ async function resolveIngestionDestination(
     targetFolderId?: string | null;
     targetParentPageId?: string | null;
   },
-): Promise<
-  | {
-      targetFolderId: string | null;
-      targetParentPageId: string | null;
-    }
-  | null
-> {
+): Promise<{
+  targetFolderId: string | null;
+  targetParentPageId: string | null;
+} | null> {
   const targetFolderId = raw.targetFolderId ?? null;
   const targetParentPageId = raw.targetParentPageId ?? null;
 
@@ -207,7 +204,7 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/",
     {
-      onRequest: [fastify.authenticate],
+      onRequest: [fastify.authenticateJwtOrApiToken],
       bodyLimit: INGESTION_BODY_LIMIT_BYTES,
     },
     async (request, reply) => {
@@ -220,26 +217,35 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
 
       const { workspaceId } = params.data;
       const userId = request.user.sub;
+      const apiTokenAuth = request.apiToken;
 
-      const [role, [token]] = await Promise.all([
-        getMemberRole(fastify.db, workspaceId, userId),
-        fastify.db
-          .select({ id: apiTokens.id })
-          .from(apiTokens)
-          .where(
-            and(
-              eq(apiTokens.workspaceId, workspaceId),
-              eq(apiTokens.createdByUserId, userId),
-              sql`${apiTokens.revokedAt} IS NULL`,
-            ),
-          )
-          .limit(1),
-      ]);
+      const role = await getMemberRole(fastify.db, workspaceId, userId);
 
       if (!role) return forbidden(reply);
       if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
 
-      if (!token) {
+      if (apiTokenAuth && apiTokenAuth.workspaceId !== workspaceId) {
+        return forbidden(reply);
+      }
+      if (apiTokenAuth && !apiTokenAuth.scopes.includes("ingestions:write")) {
+        return insufficientRole(reply);
+      }
+
+      const [jwtToken] = apiTokenAuth
+        ? [{ id: apiTokenAuth.id }]
+        : await fastify.db
+            .select({ id: apiTokens.id })
+            .from(apiTokens)
+            .where(
+              and(
+                eq(apiTokens.workspaceId, workspaceId),
+                eq(apiTokens.createdByUserId, userId),
+                sql`${apiTokens.revokedAt} IS NULL`,
+              ),
+            )
+            .limit(1);
+
+      if (!jwtToken) {
         return reply.code(400).send({
           error: "No API token",
           code: ERROR_CODES.NO_API_TOKEN,
@@ -272,12 +278,12 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
       );
       if (!destination) return;
 
-      // Key per authenticated user, not per API token. The route is JWT-auth;
-      // `token.id` above is arbitrarily selected with `.limit(1)` and no
-      // deterministic ordering, so keying on it would let a user with multiple
-      // active tokens dilute their own bucket across requests.
+      // JWT requests are keyed per authenticated user. External API-token
+      // requests are keyed per token because that token is the credential.
       const userRate = await consumeRateLimit(fastify.redis, {
-        key: `ingest:api:${userId}`,
+        key: apiTokenAuth
+          ? `ingest:token:${apiTokenAuth.id}`
+          : `ingest:api:${userId}`,
         limit: INGESTION_RATE_PER_MIN,
         windowSec: 60,
       });
@@ -309,7 +315,7 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
         {
           workspaceId,
           userId,
-          apiTokenId: token.id,
+          apiTokenId: jwtToken.id,
           sourceName: body.data.sourceName,
           externalRef: body.data.externalRef,
           idempotencyKey: body.data.idempotencyKey,

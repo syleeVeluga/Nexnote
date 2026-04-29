@@ -23,6 +23,7 @@ import {
   GraduationCap,
   GripVertical,
   Home,
+  KeyRound,
   LogOut,
   Plus,
   Settings2,
@@ -1062,11 +1063,18 @@ export function Sidebar({
           label={t("activity")}
         />
         {(workspace.role === "owner" || workspace.role === "admin") && (
-          <SidebarNavLink
-            to="/system"
-            icon={<Settings2 size={15} />}
-            label={t("systemStatus", { defaultValue: t("queueHealth") })}
-          />
+          <>
+            <SidebarNavLink
+              to="/system"
+              icon={<Settings2 size={15} />}
+              label={t("systemStatus", { defaultValue: t("queueHealth") })}
+            />
+            <SidebarNavLink
+              to="/system/tokens"
+              icon={<KeyRound size={15} />}
+              label={t("apiTokens", { defaultValue: "API Tokens" })}
+            />
+          </>
         )}
       </div>
 

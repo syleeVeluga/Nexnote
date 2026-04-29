@@ -99,6 +99,13 @@
       "when": 1777485600000,
       "tag": "0013_entity_reconciliation_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1777572000000,
+      "tag": "0014_api_token_management",
+      "breakpoints": true
     }
   ]
 }
