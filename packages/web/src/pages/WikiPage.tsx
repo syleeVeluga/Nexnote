@@ -1,16 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import {
-  Bot,
-  FileText,
-  Folder as FolderIcon,
-  Globe2,
-  Plus,
-  UploadCloud,
-} from "lucide-react";
+import { FileText, Folder as FolderIcon, Plus } from "lucide-react";
 import { useWorkspace } from "../hooks/use-workspace.js";
-import { useTimeAgo } from "../hooks/use-time-ago.js";
 import {
   folders as foldersApi,
   pages as pagesApi,
@@ -19,6 +11,7 @@ import {
 } from "../lib/api-client.js";
 import { PageShell } from "../components/ui/PageShell.js";
 import { IconButton } from "../components/ui/IconButton.js";
+import { Badge } from "../components/ui/Badge.js";
 import { WikiDocumentTable } from "../components/wiki/WikiDocumentTable.js";
 
 const FETCH_LIMIT = 200;
@@ -34,8 +27,6 @@ interface FolderGroup {
   folder: Folder;
   path: string;
   pages: Page[];
-  childFolderCount: number;
-  latestUpdatedAt: string;
 }
 
 function byId<T extends { id: string }>(items: T[]): Map<string, T> {
@@ -58,15 +49,14 @@ function folderPath(folder: Folder, folderById: Map<string, Folder>): string {
   return chain.join(" / ");
 }
 
-function latestDate(values: string[], fallback: string): string {
-  return values.length > 0 ? values.sort().at(-1)! : fallback;
+function byRecentUpdate(a: Page, b: Page) {
+  return b.updatedAt.localeCompare(a.updatedAt);
 }
 
 export function WikiPage() {
   const { t } = useTranslation(["pages", "common"]);
   const { current } = useWorkspace();
   const navigate = useNavigate();
-  const timeAgo = useTimeAgo();
   const [data, setData] = useState<WikiData>({
     folders: [],
     pages: [],
@@ -99,7 +89,7 @@ export function WikiPage() {
         if (cancelled) return;
         setError(
           t("wiki.loadFailed", {
-            defaultValue: "Could not load the wiki index.",
+            defaultValue: "Could not load the document list.",
           }),
         );
       })
@@ -122,102 +112,51 @@ export function WikiPage() {
     () =>
       data.pages
         .filter((page) => !page.parentFolderId && !page.parentPageId)
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+        .sort(byRecentUpdate),
     [data.pages],
   );
 
   const folderGroups = useMemo<FolderGroup[]>(() => {
     return data.folders
-      .map((folder) => {
-        const directPages = data.pages
+      .map((folder) => ({
+        folder,
+        path: folderPath(folder, folderById),
+        pages: data.pages
           .filter((page) => page.parentFolderId === folder.id)
-          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-        const childFolderCount = data.folders.filter(
-          (child) => child.parentFolderId === folder.id,
-        ).length;
-        const latestUpdatedAt = latestDate(
-          [
-            folder.updatedAt,
-            ...directPages.map((page) => page.updatedAt),
-          ],
-          folder.updatedAt,
-        );
-        return {
-          folder,
-          path: folderPath(folder, folderById),
-          pages: directPages,
-          childFolderCount,
-          latestUpdatedAt,
-        };
-      })
+          .sort(byRecentUpdate),
+      }))
       .sort((a, b) => a.path.localeCompare(b.path));
   }, [data.folders, data.pages, folderById]);
 
-  const stats = useMemo(() => {
-    return {
-      published: data.pages.filter((page) => page.status === "published")
-        .length,
-      aiTouched: data.pages.filter((page) => page.lastAiUpdatedAt).length,
-    };
-  }, [data.pages]);
+  const visibleFolderGroups = useMemo(() => {
+    if (data.pages.length === 0) return folderGroups;
+    return folderGroups.filter((group) => group.pages.length > 0);
+  }, [data.pages.length, folderGroups]);
 
   const truncated =
     data.folderTotal > data.folders.length ||
     data.pageTotal > data.pages.length;
+  const empty = data.pages.length === 0 && data.folders.length === 0;
 
   if (!current) return null;
 
   return (
     <PageShell
-      className="wiki-page"
-      eyebrow={t("wiki.eyebrow", { defaultValue: "Company Wiki" })}
-      title={t("wiki.title", { defaultValue: "Company Wiki" })}
+      className="wiki-page wiki-list-page"
+      title={t("wiki.title", { defaultValue: "Document List" })}
       description={t("wiki.description", {
-        defaultValue:
-          "Browse folders, check publication status, and open documents from one workspace-wide table.",
+        defaultValue: "All documents used by the assistant for answers.",
       })}
       actions={
-        <>
-          <IconButton
-            icon={<UploadCloud size={15} />}
-            label={t("common:import")}
-            showLabel
-            tone="quiet"
-            onClick={() => navigate("/import")}
-          />
-          <IconButton
-            icon={<Plus size={15} />}
-            label={t("common:newPage")}
-            showLabel
-            tone="primary"
-            onClick={() => navigate("/pages/new")}
-          />
-        </>
+        <IconButton
+          icon={<Plus size={15} />}
+          label={t("wiki.newDocument", { defaultValue: "New document" })}
+          showLabel
+          tone="primary"
+          onClick={() => navigate("/pages/new")}
+        />
       }
     >
-      <div className="wiki-stat-grid" aria-busy={loading}>
-        <WikiStat
-          icon={<FileText size={17} />}
-          label={t("wiki.stats.documents", { defaultValue: "Documents" })}
-          value={data.pageTotal}
-        />
-        <WikiStat
-          icon={<FolderIcon size={17} />}
-          label={t("wiki.stats.folders", { defaultValue: "Folders" })}
-          value={data.folderTotal}
-        />
-        <WikiStat
-          icon={<Globe2 size={17} />}
-          label={t("wiki.stats.published", { defaultValue: "Published" })}
-          value={stats.published}
-        />
-        <WikiStat
-          icon={<Bot size={17} />}
-          label={t("wiki.stats.aiTouched", { defaultValue: "AI updated" })}
-          value={stats.aiTouched}
-        />
-      </div>
-
       {error && <div className="form-error">{error}</div>}
       {!loading && truncated && (
         <p className="wiki-truncation-note">
@@ -230,177 +169,87 @@ export function WikiPage() {
       )}
       {loading ? (
         <p className="loading">{t("common:loading")}</p>
+      ) : empty ? (
+        <div className="wiki-empty-table">
+          {t("wiki.emptyList", {
+            defaultValue: "No documents yet. Create your first document.",
+          })}
+        </div>
       ) : (
-        <>
-          <section className="wiki-section">
-            <header className="wiki-section-header">
-              <div>
-                <h2>
-                  {t("wiki.folderSection", { defaultValue: "Folders" })}
-                </h2>
-                <p>
-                  {t("wiki.folderSectionDescription", {
-                    defaultValue:
-                      "Open a folder to see its direct child folders and documents.",
-                  })}
-                </p>
-              </div>
-            </header>
-            {folderGroups.length === 0 ? (
-              <div className="wiki-empty-table">
-                {t("wiki.noFolders", {
-                  defaultValue: "No folders yet.",
-                })}
-              </div>
-            ) : (
-              <div className="wiki-folder-grid">
-                {folderGroups.map((group) => (
-                  <Link
-                    key={group.folder.id}
-                    to={`/folders/${group.folder.id}`}
-                    className="wiki-folder-card"
-                  >
-                    <span className="wiki-folder-card-icon" aria-hidden="true">
-                      <FolderIcon size={17} />
-                    </span>
-                    <span className="wiki-folder-card-body">
-                      <strong>{group.path}</strong>
-                      <small>
-                        {t("wiki.folderCardMeta", {
-                          defaultValue:
-                            "{{pages}} docs, {{folders}} folders, {{updated}}",
-                          pages: group.pages.length,
-                          folders: group.childFolderCount,
-                          updated: timeAgo(group.latestUpdatedAt),
-                        })}
-                      </small>
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="wiki-section">
-            <header className="wiki-section-header">
-              <div>
-                <h2>
-                  {t("wiki.documentsByFolder", {
-                    defaultValue: "Documents by folder",
-                  })}
-                </h2>
-                <p>
-                  {t("wiki.documentsByFolderDescription", {
-                    defaultValue:
-                      "Status uses the live snapshot and registration source from the latest revision.",
-                  })}
-                </p>
-              </div>
-            </header>
-
-            {rootPages.length === 0 && folderGroups.length === 0 ? (
-              <div className="wiki-empty-table">
-                {t("emptyState", {
-                  defaultValue:
-                    "No pages yet. Create your first page to get started.",
-                })}
-              </div>
-            ) : (
-              <div className="wiki-group-stack">
-                <DocumentGroup
-                  title={t("wiki.rootFolder", { defaultValue: "Top level" })}
-                  subtitle={t("wiki.groupMeta", {
-                    defaultValue: "{{count}} documents",
-                    count: rootPages.length,
-                  })}
-                  pages={rootPages}
-                  emptyMessage={t("wiki.noRootPages", {
-                    defaultValue: "No top-level documents.",
-                  })}
-                  folderNames={folderNames}
-                  showFolder={false}
-                />
-                {folderGroups.map((group) => (
-                  <DocumentGroup
-                    key={group.folder.id}
-                    title={group.path}
-                    subtitle={t("wiki.folderGroupMeta", {
-                      defaultValue: "{{count}} documents, updated {{updated}}",
-                      count: group.pages.length,
-                      updated: timeAgo(group.latestUpdatedAt),
-                    })}
-                    pages={group.pages}
-                    emptyMessage={t("wiki.noFolderPages", {
-                      defaultValue: "No direct documents in this folder.",
-                    })}
-                    folderNames={folderNames}
-                    showFolder={false}
-                    action={
-                      <Link
-                        to={`/folders/${group.folder.id}`}
-                        className="wiki-section-link"
-                      >
-                        {t("wiki.openFolder", {
-                          defaultValue: "Open folder",
-                        })}
-                      </Link>
-                    }
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-        </>
+        <div className="wiki-list-stack">
+          {rootPages.length > 0 && (
+            <DocumentGroup
+              icon={<FileText size={15} />}
+              title={t("wiki.rootFolder", { defaultValue: "Top level" })}
+              count={rootPages.length}
+              pages={rootPages}
+              emptyMessage={t("wiki.noRootPages", {
+                defaultValue: "No top-level documents.",
+              })}
+              folderNames={folderNames}
+              showFolder={false}
+            />
+          )}
+          {visibleFolderGroups.map((group) => (
+            <DocumentGroup
+              key={group.folder.id}
+              icon={<FolderIcon size={15} />}
+              title={group.path}
+              to={`/folders/${group.folder.id}`}
+              count={group.pages.length}
+              pages={group.pages}
+              emptyMessage={t("wiki.noFolderPages", {
+                defaultValue: "No direct documents in this folder.",
+              })}
+              folderNames={folderNames}
+              showFolder={false}
+            />
+          ))}
+        </div>
       )}
     </PageShell>
   );
 }
 
-function WikiStat({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: number;
-}) {
-  return (
-    <article className="wiki-stat">
-      <span className="wiki-stat-icon" aria-hidden="true">
-        {icon}
-      </span>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </article>
-  );
-}
-
 function DocumentGroup({
+  icon,
   title,
-  subtitle,
+  to,
+  count,
   pages,
   emptyMessage,
   folderNames,
   showFolder,
-  action,
 }: {
+  icon: ReactNode;
   title: string;
-  subtitle: string;
+  to?: string;
+  count: number;
   pages: Page[];
   emptyMessage: string;
   folderNames: Map<string, string>;
   showFolder: boolean;
-  action?: ReactNode;
 }) {
   return (
     <section className="wiki-document-group">
       <header className="wiki-document-group-header">
-        <div>
-          <h3>{title}</h3>
-          <p>{subtitle}</p>
+        <div className="wiki-document-group-title">
+          <span className="wiki-document-group-icon" aria-hidden="true">
+            {icon}
+          </span>
+          <h2>
+            {to ? (
+              <Link to={to} className="wiki-document-group-link">
+                {title}
+              </Link>
+            ) : (
+              title
+            )}
+          </h2>
+          <Badge className="wiki-document-count" tone="warm" size="sm">
+            {count}
+          </Badge>
         </div>
-        {action}
       </header>
       <WikiDocumentTable
         pages={pages}

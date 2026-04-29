@@ -13,5 +13,34 @@
   "creating": "생성 중...",
   "createPage": "페이지 만들기",
   "createFailed": "페이지 생성에 실패했습니다",
-  "subPageOf": "{{parent}}의 하위 페이지"
+  "subPageOf": "{{parent}}의 하위 페이지",
+  "wiki": {
+    "title": "문서 목록",
+    "description": "챗봇이 답변에 활용하는 모든 문서예요.",
+    "newDocument": "새 문서 만들기",
+    "loadFailed": "문서 목록을 불러오지 못했습니다.",
+    "truncationNote": "각 섹션에서 처음 {{limit}}개 항목을 표시합니다. 나머지는 폴더를 열어 확인하세요.",
+    "rootFolder": "최상위 문서",
+    "emptyList": "아직 문서가 없습니다. 새 문서를 만들어 시작하세요.",
+    "noRootPages": "최상위 문서가 없습니다.",
+    "noFolderPages": "이 폴더에 바로 들어있는 문서가 없습니다.",
+    "status": {
+      "reflected": "반영됨",
+      "archived": "보관됨",
+      "draft": "작성 중"
+    },
+    "method": {
+      "ai": "AI 자동",
+      "human": "직접 작성",
+      "system": "시스템",
+      "manual": "직접 작성"
+    },
+    "columns": {
+      "title": "제목",
+      "reflection": "챗봇 반영",
+      "method": "등록 방법",
+      "folder": "폴더",
+      "updated": "최근 변경"
+    }
+  }
 }

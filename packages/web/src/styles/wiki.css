@@ -289,6 +289,130 @@
   line-height: 1.55;
 }
 
+.wiki-list-page.page-shell {
+  background: var(--wf-color-bg);
+}
+
+.wiki-list-page .page-shell-header {
+  align-items: flex-end;
+}
+
+.wiki-list-page .page-shell-content {
+  gap: var(--wf-space-8);
+}
+
+.wiki-list-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wf-space-8);
+  max-width: 980px;
+}
+
+.wiki-list-page .wiki-document-group {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.wiki-list-page .wiki-document-group-header {
+  align-items: center;
+  padding: 0 0 var(--wf-space-3);
+  border-bottom: none;
+}
+
+.wiki-document-group-title {
+  display: flex;
+  align-items: center;
+  gap: var(--wf-space-2);
+  min-width: 0;
+}
+
+.wiki-document-group-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--wf-color-ink-subtle);
+}
+
+.wiki-document-group-title h2 {
+  min-width: 0;
+  margin: 0;
+  color: var(--wf-color-ink);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.wiki-document-group-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.wiki-document-group-link:hover {
+  color: var(--wf-color-blue-text);
+  text-decoration: none;
+}
+
+.wiki-document-count.ui-badge {
+  min-width: 24px;
+  justify-content: center;
+  padding-inline: 8px;
+}
+
+.wiki-list-page .wiki-table-wrap {
+  border: 1px solid var(--wf-color-border);
+  border-radius: var(--wf-radius-lg);
+  background: var(--wf-color-surface);
+  box-shadow: var(--wf-shadow-card);
+  overflow-x: auto;
+}
+
+.wiki-list-page .wiki-table {
+  min-width: 680px;
+}
+
+.wiki-list-page .wiki-table th {
+  padding: 11px 18px;
+  background: var(--wf-color-bg-warm);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.wiki-list-page .wiki-table td {
+  padding: 13px 18px;
+}
+
+.wiki-list-page .wiki-table th:nth-child(2),
+.wiki-list-page .wiki-table td:nth-child(2) {
+  width: 130px;
+}
+
+.wiki-list-page .wiki-table th:nth-child(3),
+.wiki-list-page .wiki-table td:nth-child(3) {
+  width: 120px;
+}
+
+.wiki-list-page .wiki-table th:nth-child(4),
+.wiki-list-page .wiki-table td:nth-child(4) {
+  width: 150px;
+}
+
+.wiki-list-page .wiki-title-cell {
+  width: auto;
+}
+
+.wiki-list-page .wiki-title-link {
+  grid-template-columns: 18px minmax(0, 1fr);
+}
+
+.wiki-list-page .wiki-title-link strong {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
 @media (max-width: 1100px) {
   .wiki-stat-grid,
   .wiki-folder-grid {

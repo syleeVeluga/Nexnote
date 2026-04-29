@@ -4,13 +4,14 @@ import { useTranslation } from "react-i18next";
 import {
   Archive,
   Bot,
-  FilePenLine,
+  CheckCircle2,
+  Clock,
   FileText,
-  Globe2,
   UserRound,
 } from "lucide-react";
 import type { Page } from "../../lib/api-client.js";
 import { Badge, type BadgeTone } from "../ui/Badge.js";
+import { useTimeAgo } from "../../hooks/use-time-ago.js";
 
 interface WikiDocumentTableProps {
   pages: Page[];
@@ -25,9 +26,9 @@ function reflectionMeta(
 ): { label: string; tone: BadgeTone; icon: ReactNode } {
   if (page.isLivePublished || page.status === "published") {
     return {
-      label: t("wiki.status.published", { defaultValue: "Published" }),
-      tone: "green",
-      icon: <Globe2 size={12} />,
+      label: t("wiki.status.reflected", { defaultValue: "Reflected" }),
+      tone: "teal",
+      icon: <CheckCircle2 size={12} />,
     };
   }
   if (page.status === "archived") {
@@ -38,9 +39,9 @@ function reflectionMeta(
     };
   }
   return {
-    label: t("wiki.status.draft", { defaultValue: "Draft" }),
+    label: t("wiki.status.draft", { defaultValue: "Drafting" }),
     tone: "orange",
-    icon: <FilePenLine size={12} />,
+    icon: <Clock size={12} />,
   };
 }
 
@@ -50,16 +51,16 @@ function registrationMeta(
 ): { label: string; tone: BadgeTone; icon: ReactNode } {
   if (page.latestRevisionActorType === "ai") {
     return {
-      label: t("wiki.method.ai", { defaultValue: "AI" }),
-      tone: "purple",
+      label: t("wiki.method.ai", { defaultValue: "AI auto" }),
+      tone: "blue",
       icon: <Bot size={12} />,
     };
   }
 
   if (page.latestRevisionActorType === "user") {
     return {
-      label: t("wiki.method.human", { defaultValue: "Human" }),
-      tone: "blue",
+      label: t("wiki.method.human", { defaultValue: "Manual" }),
+      tone: "warm",
       icon: <UserRound size={12} />,
     };
   }
@@ -79,16 +80,6 @@ function registrationMeta(
   };
 }
 
-function formatUpdatedAt(value: string): string {
-  return new Date(value).toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 export function WikiDocumentTable({
   pages,
   emptyMessage,
@@ -97,6 +88,7 @@ export function WikiDocumentTable({
 }: WikiDocumentTableProps) {
   const { t } = useTranslation(["pages", "common"]);
   const navigate = useNavigate();
+  const timeAgo = useTimeAgo();
 
   if (pages.length === 0) {
     return <div className="wiki-empty-table">{emptyMessage}</div>;
@@ -110,12 +102,12 @@ export function WikiDocumentTable({
             <th>{t("wiki.columns.title", { defaultValue: "Title" })}</th>
             <th>
               {t("wiki.columns.reflection", {
-                defaultValue: "Reflection",
+                defaultValue: "Bot status",
               })}
             </th>
             <th>
               {t("wiki.columns.method", {
-                defaultValue: "Registration",
+                defaultValue: "Source",
               })}
             </th>
             {showFolder && (
@@ -158,7 +150,6 @@ export function WikiDocumentTable({
                       <strong>
                         {page.title || t("common:untitled")}
                       </strong>
-                      <small>{page.slug}</small>
                     </span>
                   </Link>
                 </td>
@@ -187,7 +178,7 @@ export function WikiDocumentTable({
                   </td>
                 )}
                 <td className="wiki-muted-cell">
-                  {formatUpdatedAt(page.updatedAt)}
+                  {timeAgo(page.updatedAt)}
                 </td>
               </tr>
             );

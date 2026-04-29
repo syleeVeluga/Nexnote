@@ -227,7 +227,7 @@ v1에서는 sibling decision의 bulk approve 금지 — 각자 독립 검토 (�
 - [packages/worker/src/queues.ts](../packages/worker/src/queues.ts) + [packages/worker/src/workers/index.ts](../packages/worker/src/workers/index.ts) — INGESTION_AGENT 워커 등록
 - [packages/api/src/lib/enqueue-ingestion.ts](../packages/api/src/lib/enqueue-ingestion.ts) — `workspaces.ingestion_mode` 읽어 분기
 - [packages/shared/src/constants/index.ts](../packages/shared/src/constants/index.ts) — JOB_NAMES.INGESTION_AGENT, AGENT_LIMITS, INGESTION_MODES
-- [packages/db/src/schema/workspaces.ts](../packages/db/src/schema/workspaces.ts) — ingestion_mode 컬럼 (Drizzle)
+- [packages/db/src/schema/users.ts](../packages/db/src/schema/users.ts) — workspaces.ingestion_mode 컬럼 (Drizzle)
 - [packages/db/src/schema/ingestions.ts](../packages/db/src/schema/ingestions.ts) + `packages/db/src/schema/model-runs.ts` — agent_run_id FK
 - [packages/web/src/pages/IngestionDetailPage.tsx](../packages/web/src/pages/IngestionDetailPage.tsx)
 - [packages/web/src/pages/ReviewQueuePage.tsx](../packages/web/src/pages/ReviewQueuePage.tsx)

@@ -13,5 +13,34 @@
   "creating": "Creating...",
   "createPage": "Create page",
   "createFailed": "Failed to create page",
-  "subPageOf": "Sub-page of {{parent}}"
+  "subPageOf": "Sub-page of {{parent}}",
+  "wiki": {
+    "title": "Document List",
+    "description": "All documents used by the assistant for answers.",
+    "newDocument": "New document",
+    "loadFailed": "Could not load the document list.",
+    "truncationNote": "Showing the first {{limit}} items per section. Open child folders to see the rest.",
+    "rootFolder": "Top level",
+    "emptyList": "No documents yet. Create your first document.",
+    "noRootPages": "No top-level documents.",
+    "noFolderPages": "No direct documents in this folder.",
+    "status": {
+      "reflected": "Reflected",
+      "archived": "Archived",
+      "draft": "Drafting"
+    },
+    "method": {
+      "ai": "AI auto",
+      "human": "Manual",
+      "system": "System",
+      "manual": "Manual"
+    },
+    "columns": {
+      "title": "Title",
+      "reflection": "Bot status",
+      "method": "Source",
+      "folder": "Folder",
+      "updated": "Recent change"
+    }
+  }
 }

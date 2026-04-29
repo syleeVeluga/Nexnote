@@ -29,7 +29,7 @@ export async function registerUser(page: Page, prefix: string): Promise<{
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page.getByRole("heading", { name: /Good to see you/ })).toBeVisible();
   await page.goto("/wiki");
-  await expect(page.getByRole("heading", { name: "Company Wiki", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Document List", level: 1 })).toBeVisible();
 
   return { email, password };
 }

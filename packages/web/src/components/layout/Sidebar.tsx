@@ -15,7 +15,6 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronsLeft,
-  FilePlus2,
   FileText,
   Folder as FolderIcon,
   FolderOpen,
@@ -1014,28 +1013,6 @@ export function Sidebar({
             </button>
           </div>
         )}
-        {wsRename === null && (
-          <div className="sidebar-quick-actions">
-            <IconButton
-              className="sidebar-action-button"
-              icon={<FilePlus2 size={14} />}
-              label={t("newPageFromSidebar")}
-              showLabel
-              onClick={onNewPage}
-            >
-              {t("newPage")}
-            </IconButton>
-            <IconButton
-              className="sidebar-action-button"
-              icon={<FolderPlus size={14} />}
-              label={t("newFolderFromSidebar")}
-              showLabel
-              onClick={() => void createFolder(null)}
-            >
-              {t("newFolder")}
-            </IconButton>
-          </div>
-        )}
       </div>
 
       <div className="sidebar-nav-top">
@@ -1051,6 +1028,11 @@ export function Sidebar({
           icon={<GraduationCap size={15} />}
           label={t("review")}
           badge={pendingCount}
+        />
+        <SidebarNavLink
+          to="/wiki"
+          icon={<BookOpen size={15} />}
+          label={t("wiki")}
         />
         <SidebarNavLink
           to="/import"
@@ -1082,7 +1064,7 @@ export function Sidebar({
 
       <div className="sidebar-section-title">
         <h2 className="sidebar-section-header">
-          <BookOpen size={13} aria-hidden="true" /> {t("wiki")}
+          <BookOpen size={13} aria-hidden="true" /> {t("documentList")}
         </h2>
         <div className="sidebar-section-actions">
           <IconButton
