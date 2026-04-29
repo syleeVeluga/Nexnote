@@ -16,7 +16,7 @@ import {
   type AgentDiagnostics,
 } from "../lib/api-client.js";
 import { PageShell } from "../components/ui/PageShell.js";
-import { Badge } from "../components/ui/Badge.js";
+import { Badge, type BadgeTone } from "../components/ui/Badge.js";
 import { IconButton } from "../components/ui/IconButton.js";
 
 const INGESTION_MODES: IngestionMode[] = ["classic", "shadow", "agent"];
@@ -32,6 +32,20 @@ function modeLabel(mode: IngestionMode): string {
   return "Agent";
 }
 
+function gateLabel(status: AgentDiagnostics["gate"]["status"]): string {
+  if (status === "passed") return "Gate passed";
+  if (status === "blocked") return "Below threshold";
+  if (status === "collecting") return "Collecting";
+  return "Not started";
+}
+
+function gateTone(status: AgentDiagnostics["gate"]["status"]): BadgeTone {
+  if (status === "passed") return "green";
+  if (status === "blocked") return "red";
+  if (status === "collecting") return "orange";
+  return "warm";
+}
+
 export function AISettingsPage() {
   const { current, refresh } = useWorkspace();
   const [mode, setMode] = useState<IngestionMode>("classic");
@@ -44,6 +58,7 @@ export function AISettingsPage() {
 
   const workspaceId = current?.id;
   const canManage = current?.role === "owner" || current?.role === "admin";
+  const gate = diagnostics?.gate ?? null;
 
   useEffect(() => {
     if (!current) return;
@@ -86,6 +101,14 @@ export function AISettingsPage() {
 
   async function save() {
     if (!workspaceId || !canManage) return;
+    if (
+      mode === "agent" &&
+      current?.ingestionMode !== "agent" &&
+      !gate?.canPromote
+    ) {
+      setError(gate?.reason ?? "Shadow parity has not passed yet.");
+      return;
+    }
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -164,16 +187,24 @@ export function AISettingsPage() {
             </div>
           </header>
           <div className="ai-mode-control">
-            {INGESTION_MODES.map((item) => (
-              <button
-                key={item}
-                type="button"
-                className={mode === item ? "active" : ""}
-                onClick={() => setMode(item)}
-              >
-                {modeLabel(item)}
-              </button>
-            ))}
+            {INGESTION_MODES.map((item) => {
+              const disabled =
+                item === "agent" &&
+                current.ingestionMode !== "agent" &&
+                !gate?.canPromote;
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  className={mode === item ? "active" : ""}
+                  onClick={() => setMode(item)}
+                  disabled={disabled}
+                  title={disabled ? gate?.reason : undefined}
+                >
+                  {modeLabel(item)}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -259,6 +290,38 @@ Slack #incidents sources update existing incident pages; do not create new ones.
             value={percent(diagnostics?.agreement.fullAgreementRate ?? null)}
           />
         </div>
+
+        {gate && (
+          <div className={`ai-gate-status ai-gate-status-${gate.status}`}>
+            <div>
+              <Badge tone={gateTone(gate.status)} size="sm">
+                {gateLabel(gate.status)}
+              </Badge>
+              <strong>{gate.reason}</strong>
+            </div>
+            <span>
+              {gate.observedDays}/{gate.criteria.minObservedDays} days,{" "}
+              {gate.comparableCount}/{gate.criteria.minComparableCount}{" "}
+              comparable ingestions, action {percent(gate.actionAgreementRate)}{" "}
+              target {percent(gate.targetPageAgreementRate)}
+            </span>
+          </div>
+        )}
+
+        {diagnostics?.dailyAgreement.length ? (
+          <div className="ai-daily-parity-table">
+            {diagnostics.dailyAgreement.map((item) => (
+              <div key={item.day} className="ai-daily-parity-row">
+                <strong>{item.day}</strong>
+                <span>{item.comparableCount} comparable</span>
+                <code>
+                  action {percent(item.actionAgreementRate)} / target{" "}
+                  {percent(item.targetPageAgreementRate)}
+                </code>
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         {diagnostics?.recentMismatches.length ? (
           <div className="ai-mismatch-table">

@@ -12,11 +12,13 @@ import {
   paginationSchema,
   uuidSchema,
   WORKSPACE_ROLES,
+  ERROR_CODES,
 } from "@wekiflow/shared";
 import {
   sendValidationError,
   isUniqueViolation,
 } from "../../lib/reply-helpers.js";
+import { readAgentParityGateStatus } from "../../lib/agent-parity-gate.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -262,6 +264,30 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
       };
 
       await requireMembership(fastify, workspaceId, userId, ["owner", "admin"]);
+
+      const [currentWorkspace] = await fastify.db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, workspaceId))
+        .limit(1);
+
+      if (!currentWorkspace) {
+        throw fastify.httpErrors.notFound("Workspace not found");
+      }
+
+      if (
+        body.ingestionMode === "agent" &&
+        currentWorkspace.ingestionMode !== "agent"
+      ) {
+        const gate = await readAgentParityGateStatus(fastify.db, workspaceId);
+        if (!gate.canPromote) {
+          return reply.code(409).send({
+            error: "Agent mode is blocked until shadow parity passes",
+            code: ERROR_CODES.AGENT_PARITY_GATE_NOT_PASSED,
+            gate,
+          });
+        }
+      }
 
       try {
         const updated = await fastify.db.transaction(async (tx) => {

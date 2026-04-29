@@ -1073,6 +1073,35 @@ export interface AgentDiagnostics {
     fullAgreementRate: number | null;
     totalAgentTokens: number;
   };
+  dailyAgreement: Array<{
+    day: string;
+    agentRunCount: number;
+    comparableCount: number;
+    actionMatchCount: number;
+    targetPageMatchCount: number;
+    fullMatchCount: number;
+    actionAgreementRate: number | null;
+    targetPageAgreementRate: number | null;
+    fullAgreementRate: number | null;
+    totalAgentTokens: number;
+  }>;
+  gate: {
+    status: "not_started" | "collecting" | "blocked" | "passed";
+    canPromote: boolean;
+    reason: string;
+    observedDays: number;
+    comparableCount: number;
+    actionAgreementRate: number | null;
+    targetPageAgreementRate: number | null;
+    fullAgreementRate: number | null;
+    criteria: {
+      minObservedDays: number;
+      minComparableCount: number;
+      minActionAgreementRate: number;
+      minTargetPageAgreementRate: number;
+    };
+    failedChecks: string[];
+  };
   dailyTokenUsage: {
     used: number;
     cap: number;
