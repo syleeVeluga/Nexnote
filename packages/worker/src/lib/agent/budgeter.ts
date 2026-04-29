@@ -69,6 +69,17 @@ function positiveIntEnv(
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function positiveFloatEnv(
+  env: NodeJS.ProcessEnv,
+  key: string,
+  fallback: number,
+): number {
+  const raw = env[key];
+  if (!raw) return fallback;
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export function readAgentRuntimeLimits(
   env: NodeJS.ProcessEnv = process.env,
 ): AgentRuntimeLimits {
@@ -139,12 +150,11 @@ export function selectAgentModel(
   const env = input.env ?? process.env;
   const estimatedInputTokens = input.estimatedInputTokens ?? 0;
   const providerOverride = providerFromEnv(env["AGENT_PROVIDER"]);
-  const provider =
-    providerOverride ?? input.baseProvider ?? "openai";
+  const provider = providerOverride ?? input.baseProvider ?? "openai";
   const baseModel =
     providerOverride && providerOverride !== input.baseProvider
       ? defaultModelForProvider(provider, env)
-      : input.baseModel ?? defaultModelForProvider(provider, env);
+      : (input.baseModel ?? defaultModelForProvider(provider, env));
   const fastThresholdTokens = positiveIntEnv(
     env,
     "AGENT_FAST_THRESHOLD_TOKENS",
@@ -208,6 +218,59 @@ function agentInputCapacity(input: {
         modelBudget.safetyMarginRatio,
     ),
   );
+}
+
+export interface ReadPageMarkdownFallbackBudget {
+  shouldFallback: boolean;
+  estimatedTokens: number;
+  thresholdTokens: number;
+  capacityTokens: number;
+  thresholdRatio: number;
+  tokenLimit: number;
+  provider: AIProvider;
+  model: string;
+}
+
+export function readPageMarkdownFallbackBudget(input: {
+  contentMd: string;
+  provider?: AIProvider;
+  model?: string;
+  env?: NodeJS.ProcessEnv;
+  thresholdRatio?: number;
+  tokenLimit?: number;
+}): ReadPageMarkdownFallbackBudget {
+  const env = input.env ?? process.env;
+  const provider =
+    input.provider ?? providerFromEnv(env["AGENT_PROVIDER"]) ?? "openai";
+  const model = input.model ?? defaultModelForProvider(provider, env);
+  const thresholdRatio = Math.max(
+    0.01,
+    Math.min(
+      1,
+      input.thresholdRatio ??
+        positiveFloatEnv(env, "AGENT_READ_PAGE_MARKDOWN_FALLBACK_RATIO", 0.2),
+    ),
+  );
+  const tokenLimit =
+    input.tokenLimit ??
+    positiveIntEnv(env, "AGENT_READ_PAGE_MARKDOWN_TOKEN_LIMIT", 30_000);
+  const capacityTokens = agentInputCapacity({ provider, model, env });
+  const thresholdTokens = Math.max(
+    1,
+    Math.min(tokenLimit, Math.floor(capacityTokens * thresholdRatio)),
+  );
+  const estimatedTokens = estimateTokens(input.contentMd);
+
+  return {
+    shouldFallback: estimatedTokens > thresholdTokens,
+    estimatedTokens,
+    thresholdTokens,
+    capacityTokens,
+    thresholdRatio,
+    tokenLimit,
+    provider,
+    model,
+  };
 }
 
 function compactExcerpt(text: string, maxChars: number): string {
@@ -310,8 +373,7 @@ export function compactAgentMessages(input: {
   estimatedInputTokens: number;
   thresholdTokens: number;
 } {
-  const thresholdRatio =
-    input.thresholdRatio ?? COMPACTION_THRESHOLD_RATIO;
+  const thresholdRatio = input.thresholdRatio ?? COMPACTION_THRESHOLD_RATIO;
   const capacity = agentInputCapacity({
     provider: input.provider,
     model: input.model,
@@ -344,8 +406,7 @@ export function compactAgentMessages(input: {
     const compactedContent = compactToolContent(message);
     const compactedEstimatedTokens = estimateTokens(compactedContent);
     messages[i] = { ...message, content: compactedContent };
-    estimatedInputTokens +=
-      compactedEstimatedTokens - originalEstimatedTokens;
+    estimatedInputTokens += compactedEstimatedTokens - originalEstimatedTokens;
     notices.push({
       key: message.toolCallId ?? `message_${i}`,
       label: message.toolName ?? `tool#${i}`,
@@ -373,9 +434,10 @@ export function compactAgentMessages(input: {
   };
 }
 
-function compactContextBlock(
-  block: AgentContextBlock,
-): { block: AgentContextBlock; notice: AgentContextCompactionNotice } {
+function compactContextBlock(block: AgentContextBlock): {
+  block: AgentContextBlock;
+  notice: AgentContextCompactionNotice;
+} {
   const originalEstimatedTokens = estimateTokens(block.text);
   const compactedPayload = {
     compacted: true,

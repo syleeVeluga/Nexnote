@@ -83,6 +83,47 @@
           }
         ]
       }
+    },
+    "[E2E_AGENT_CREATE]": {
+      "agent_plan": {
+        "summary": "Create an agent-owned page for the ingestion.",
+        "proposedPlan": [
+          {
+            "action": "create",
+            "targetPageId": null,
+            "confidence": 0.95,
+            "reason": "The ingestion is a standalone agent-mode smoke fixture.",
+            "tool": "create_page",
+            "args": {
+              "title": "E2E Agent Page",
+              "contentMd": "# E2E Agent Page\n\n[E2E_AGENT_CREATE] verifies the ingestion agent execute path.",
+              "confidence": 0.95,
+              "reason": "The ingestion is a standalone agent-mode smoke fixture."
+            },
+            "proposedTitle": "E2E Agent Page",
+            "evidence": []
+          }
+        ],
+        "openQuestions": []
+      },
+      "triple_extraction": {
+        "triples": [
+          {
+            "subject": "E2E Agent Entity",
+            "predicate": "verifies",
+            "object": "Agent execute path",
+            "objectType": "literal",
+            "confidence": 0.91,
+            "spans": [
+              {
+                "start": 0,
+                "end": 64,
+                "excerpt": "[E2E_AGENT_CREATE] verifies the ingestion agent execute path."
+              }
+            ]
+          }
+        ]
+      }
     }
   }
 }

@@ -1134,6 +1134,20 @@ export interface AgentDiagnostics {
       dailyTokenCap: number;
     };
   };
+  currentModels: {
+    provider: AIProvider | null;
+    providerSource: "workspace" | "env" | "mock" | "default" | "unconfigured";
+    baseModel: string | null;
+    baseModelSource: "env" | "mock" | "default" | "unconfigured";
+    fastModel: string | null;
+    fastModelSource: "workspace" | "env" | "unset";
+    largeContextModel: string | null;
+    largeContextModelSource: "workspace" | "env" | "unset";
+    fastThresholdTokens: number;
+    fastThresholdSource: "workspace" | "env" | "default";
+    dailyTokenCap: number;
+    dailyTokenCapSource: "workspace" | "env" | "default";
+  };
   recentMismatches: Array<{
     agentRunId: string;
     ingestionId: string;

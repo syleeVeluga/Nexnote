@@ -4,8 +4,11 @@ import { z } from "zod";
 import { agentRuns, modelRuns, workspaces } from "@wekiflow/db";
 import {
   AGENT_LIMITS,
+  AI_MODELS,
   agentTraceChannel,
   agentRunTraceEventSchema,
+  getAgentModelProvider,
+  type AIProvider,
   type AgentRunDto,
   type AgentRunTraceStep,
   type WorkspaceRole,
@@ -41,6 +44,67 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseAgentProvider(
+  value: string | null | undefined,
+): AIProvider | null {
+  return value === "openai" || value === "gemini" ? value : null;
+}
+
+function defaultProviderFromEnv(env: NodeJS.ProcessEnv): AIProvider | null {
+  if (env["AI_TEST_MODE"] === "mock") return "openai";
+  if (env["OPENAI_API_KEY"]) return "openai";
+  if (env["GEMINI_API_KEY"]) return "gemini";
+  return null;
+}
+
+function defaultModelForProvider(
+  provider: AIProvider,
+  env: NodeJS.ProcessEnv,
+): { model: string; source: "env" | "mock" | "default" } {
+  if (env["AI_TEST_MODE"] === "mock") {
+    return { model: "mock-e2e", source: "mock" };
+  }
+  if (provider === "gemini") {
+    return {
+      model: env["GEMINI_MODEL"] ?? AI_MODELS.GEMINI_DEFAULT,
+      source: env["GEMINI_MODEL"] ? "env" : "default",
+    };
+  }
+  return {
+    model: env["OPENAI_MODEL"] ?? AI_MODELS.OPENAI_DEFAULT,
+    source: env["OPENAI_MODEL"] ? "env" : "default",
+  };
+}
+
+function agentModelOverrideForProvider(
+  model: string | null | undefined,
+  provider: AIProvider | null,
+): string | null {
+  if (!model || !provider) return null;
+  const modelProvider = getAgentModelProvider(model);
+  if (modelProvider && modelProvider !== provider) return null;
+  return model;
+}
+
+function effectiveAgentModelOverride(input: {
+  workspaceModel: string | null | undefined;
+  envModel: string | undefined;
+  provider: AIProvider | null;
+}): { model: string | null; source: "workspace" | "env" | "unset" } {
+  if (input.workspaceModel) {
+    const model = agentModelOverrideForProvider(
+      input.workspaceModel,
+      input.provider,
+    );
+    return model
+      ? { model, source: "workspace" }
+      : { model: null, source: "unset" };
+  }
+
+  const model = agentModelOverrideForProvider(input.envModel, input.provider);
+  return model ? { model, source: "env" } : { model: null, source: "unset" };
 }
 
 function startOfUtcDay(now = new Date()): Date {
@@ -342,6 +406,25 @@ const agentRunRoutes: FastifyPluginAsync = async (fastify) => {
       const effectiveFastThreshold =
         workspaceSettings?.agentFastThresholdTokens ??
         parsePositiveInt(process.env["AGENT_FAST_THRESHOLD_TOKENS"], 50_000);
+      const envProvider = parseAgentProvider(process.env["AGENT_PROVIDER"]);
+      const baseProvider = defaultProviderFromEnv(process.env);
+      const effectiveProvider =
+        parseAgentProvider(workspaceSettings?.agentProvider) ??
+        envProvider ??
+        baseProvider;
+      const defaultModel = effectiveProvider
+        ? defaultModelForProvider(effectiveProvider, process.env)
+        : null;
+      const effectiveFastModel = effectiveAgentModelOverride({
+        workspaceModel: workspaceSettings?.agentModelFast,
+        envModel: process.env["AGENT_MODEL_FAST"],
+        provider: effectiveProvider,
+      });
+      const effectiveLargeContextModel = effectiveAgentModelOverride({
+        workspaceModel: workspaceSettings?.agentModelLargeContext,
+        envModel: process.env["AGENT_MODEL_LARGE_CONTEXT"],
+        provider: effectiveProvider,
+      });
       const gateCriteria = readAgentParityGateCriteria();
       const dailyAgreement = await listAgentParityDailyRows(
         fastify.db,
@@ -389,27 +472,47 @@ const agentRunRoutes: FastifyPluginAsync = async (fastify) => {
         agentSettings: {
           provider: workspaceSettings?.agentProvider ?? null,
           modelFast: workspaceSettings?.agentModelFast ?? null,
-          modelLargeContext:
-            workspaceSettings?.agentModelLargeContext ?? null,
+          modelLargeContext: workspaceSettings?.agentModelLargeContext ?? null,
           fastThresholdTokens:
             workspaceSettings?.agentFastThresholdTokens ?? null,
           dailyTokenCap: workspaceSettings?.agentDailyTokenCap ?? null,
           effective: {
-            provider:
-              workspaceSettings?.agentProvider ??
-              process.env["AGENT_PROVIDER"] ??
-              null,
-            modelFast:
-              workspaceSettings?.agentModelFast ??
-              process.env["AGENT_MODEL_FAST"] ??
-              null,
-            modelLargeContext:
-              workspaceSettings?.agentModelLargeContext ??
-              process.env["AGENT_MODEL_LARGE_CONTEXT"] ??
-              null,
+            provider: effectiveProvider,
+            modelFast: effectiveFastModel.model,
+            modelLargeContext: effectiveLargeContextModel.model,
             fastThresholdTokens: effectiveFastThreshold,
             dailyTokenCap: effectiveDailyCap,
           },
+        },
+        currentModels: {
+          provider: effectiveProvider,
+          providerSource: workspaceSettings?.agentProvider
+            ? "workspace"
+            : envProvider
+              ? "env"
+              : baseProvider
+                ? process.env["AI_TEST_MODE"] === "mock"
+                  ? "mock"
+                  : "default"
+                : "unconfigured",
+          baseModel: defaultModel?.model ?? null,
+          baseModelSource: defaultModel?.source ?? "unconfigured",
+          fastModel: effectiveFastModel.model,
+          fastModelSource: effectiveFastModel.source,
+          largeContextModel: effectiveLargeContextModel.model,
+          largeContextModelSource: effectiveLargeContextModel.source,
+          fastThresholdTokens: effectiveFastThreshold,
+          fastThresholdSource: workspaceSettings?.agentFastThresholdTokens
+            ? "workspace"
+            : process.env["AGENT_FAST_THRESHOLD_TOKENS"]
+              ? "env"
+              : "default",
+          dailyTokenCap: effectiveDailyCap,
+          dailyTokenCapSource: workspaceSettings?.agentDailyTokenCap
+            ? "workspace"
+            : process.env["AGENT_WORKSPACE_DAILY_TOKEN_CAP"]
+              ? "env"
+              : "default",
         },
         dailyAgreement,
         gate,

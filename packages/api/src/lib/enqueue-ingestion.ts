@@ -23,6 +23,13 @@ function shouldRunShadowAgent(mode: IngestionMode): boolean {
   return mode === "shadow" || mode === "agent";
 }
 
+function ingestionAgentJobId(
+  ingestionId: string,
+  mode: "shadow" | "agent",
+): string {
+  return `${ingestionId}-agent-${mode}`;
+}
+
 async function enqueueProcessingJobs(
   fastify: FastifyInstance,
   input: {
@@ -58,7 +65,7 @@ async function enqueueProcessingJobs(
     JOB_NAMES.INGESTION_AGENT,
     agentJobData,
     {
-      jobId: `${input.ingestionId}:agent-${agentJobData.mode}`,
+      jobId: ingestionAgentJobId(input.ingestionId, agentJobData.mode),
       ...DEFAULT_JOB_OPTIONS,
     },
   );
@@ -216,7 +223,7 @@ export async function enqueueIngestion(
           }
           for (const mode of ["shadow", "agent"] as const) {
             const priorAgent = await fastify.queues["ingestion-agent"].getJob(
-              `${existing.id}:agent-${mode}`,
+              ingestionAgentJobId(existing.id, mode),
             );
             if (priorAgent) {
               await priorAgent.remove().catch(() => undefined);

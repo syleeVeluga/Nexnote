@@ -397,6 +397,23 @@ function executionToContextBlock(
   };
 }
 
+function readPageFallbackNotice(result: unknown): string | null {
+  if (!result || typeof result !== "object") return null;
+  const fallback = (result as Record<string, unknown>)["fallback"];
+  if (!fallback || typeof fallback !== "object") return null;
+  const record = fallback as Record<string, unknown>;
+  if (record["type"] !== "markdown_to_blocks") return null;
+  const page = (result as Record<string, unknown>)["page"];
+  const pageTitle =
+    page && typeof page === "object"
+      ? ((page as Record<string, unknown>)["title"] as string | undefined)
+      : undefined;
+  return (
+    `read_page returned blocks for ${pageTitle ?? "the requested page"} because full markdown exceeded the safe context budget. ` +
+    "Use the returned block IDs and request summary/blocks again if more structure is needed; avoid asking for full markdown unless necessary."
+  );
+}
+
 function normalizeRawPlan(raw: unknown): unknown {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return raw;
@@ -882,6 +899,8 @@ export async function runIngestionAgentShadow(
     db: input.db,
     workspaceId: input.workspaceId,
     tools: input.tools,
+    env: input.env,
+    model: { provider: exploreModel.provider, model: exploreModel.model },
     options: { maxCallsPerTurn: limits.maxCallsPerTurn },
   });
   const toolContextBlocks: AgentContextBlock[] = [];
@@ -1031,6 +1050,15 @@ export async function runIngestionAgentShadow(
         toolName: execution.name,
         content: stringifyToolMessage(execution),
       });
+      if (execution.ok && execution.name === "read_page") {
+        const notice = readPageFallbackNotice(execution.result);
+        if (notice) {
+          messages.push({
+            role: "system",
+            content: notice,
+          });
+        }
+      }
       if (execution.ok && execution.deduped) {
         messages.push({
           role: "system",
