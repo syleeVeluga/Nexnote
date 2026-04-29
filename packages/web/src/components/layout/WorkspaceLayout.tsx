@@ -8,6 +8,9 @@ import { workspaces as wsApi } from "../../lib/api-client.js";
 import { slugify } from "@wekiflow/shared";
 import { Sidebar } from "./Sidebar.js";
 import { IconButton } from "../ui/IconButton.js";
+import { TopBar } from "./TopBar.js";
+import { useWorkspaceBreadcrumbs } from "./Breadcrumbs.js";
+import { GlobalSearchBox } from "../search/GlobalSearchBox.js";
 
 export function WorkspaceLayout() {
   const { t } = useTranslation("common");
@@ -16,6 +19,7 @@ export function WorkspaceLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
+  const breadcrumbs = useWorkspaceBreadcrumbs(current);
 
   const handleCreateWorkspace = useCallback(async () => {
     const name = window.prompt(t("createWorkspacePrompt"), "")?.trim();
@@ -84,7 +88,10 @@ export function WorkspaceLayout() {
             onClick={() => setSidebarOpen(true)}
           />
         )}
-        <Outlet />
+        <TopBar breadcrumbs={breadcrumbs} actions={<GlobalSearchBox />} />
+        <div className="workspace-route-content">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

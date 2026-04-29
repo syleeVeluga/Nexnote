@@ -3,6 +3,7 @@ import { useAuth } from "./hooks/use-auth.js";
 import { WorkspaceLayout } from "./components/layout/WorkspaceLayout.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { RegisterPage } from "./pages/RegisterPage.js";
+import { DashboardPage } from "./pages/DashboardPage.js";
 import { PageListPage } from "./pages/PageListPage.js";
 import { PageEditorPage } from "./pages/PageEditorPage.js";
 import { NewPagePage } from "./pages/NewPagePage.js";
@@ -76,7 +77,8 @@ export function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<PageListPage />} />
+        <Route index element={<DashboardPage />} />
+        <Route path="wiki" element={<PageListPage />} />
         <Route path="pages/new" element={<NewPagePage />} />
         <Route path="pages/:pageId" element={<PageEditorPage />} />
         <Route path="review" element={<ReviewQueuePage />} />

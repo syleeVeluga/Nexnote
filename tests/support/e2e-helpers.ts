@@ -27,6 +27,8 @@ export async function registerUser(page: Page, prefix: string): Promise<{
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page.getByRole("heading", { name: /Good to see you/ })).toBeVisible();
+  await page.goto("/wiki");
   await expect(page.getByRole("heading", { name: "Pages", level: 1 })).toBeVisible();
 
   return { email, password };

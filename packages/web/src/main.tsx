@@ -15,6 +15,7 @@ import "./styles/review.css";
 import "./styles/import.css";
 import "./styles/admin.css";
 import "./styles/activity.css";
+import "./styles/dashboard.css";
 import "./styles/layout.css";
 
 createRoot(document.getElementById("root")!).render(

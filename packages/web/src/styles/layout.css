@@ -476,6 +476,20 @@
 
 .main-content {
   background: var(--wf-color-bg);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.workspace-route-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.main-content.sidebar-toggle-visible .top-bar {
+  padding-left: 66px;
 }
 
 .context-menu {
@@ -550,7 +564,7 @@
   }
 
   .main-content.sidebar-toggle-visible {
-    padding-top: 56px;
+    padding-top: 0;
   }
 
   .sidebar-footer {
