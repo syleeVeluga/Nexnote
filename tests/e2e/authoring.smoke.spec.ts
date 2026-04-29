@@ -4,7 +4,7 @@ import { registerUser, uniqueValue } from "../support/e2e-helpers.ts";
 test("registers, authors, publishes, and reads a page", { tag: "@smoke" }, async ({ page }) => {
   await registerUser(page, "authoring");
 
-  await page.getByRole("button", { name: "New Page" }).click();
+  await page.getByRole("button", { name: "New document" }).click();
   await page.getByLabel("Title").fill("Playwright Publish Page");
   await page.getByLabel("Slug").fill(uniqueValue("playwright-publish"));
   await page.getByRole("button", { name: "Create page" }).click();

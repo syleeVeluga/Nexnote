@@ -34,7 +34,9 @@ test(
 
     await page.goto("/wiki");
     await expect(
-      page.getByRole("link", { name: "E2E Suggested Page", exact: true }),
+      page
+        .getByRole("table")
+        .getByRole("link", { name: "E2E Suggested Page", exact: true }),
     ).toBeVisible({ timeout: 15_000 });
   },
 );
