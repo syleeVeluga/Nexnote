@@ -19,7 +19,10 @@ import {
   type DecisionStatus,
 } from "../lib/api-client.js";
 import { ReviewDetail } from "../components/review/ReviewDetail.js";
-import { dispatchDecisionCountsUpdated } from "../lib/decision-events.js";
+import {
+  dispatchDecisionCountsUpdated,
+  subscribeDecisionCountsUpdated,
+} from "../lib/decision-events.js";
 import { Badge, type BadgeTone } from "../components/ui/Badge.js";
 import { PageShell } from "../components/ui/PageShell.js";
 import { SegmentedTabs } from "../components/ui/SegmentedTabs.js";
@@ -108,38 +111,53 @@ export function ReviewQueuePage() {
   const [detail, setDetail] = useState<DecisionDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [counts, setCounts] = useState<DecisionCounts | null>(null);
+  const refreshSeqRef = useRef(0);
 
   const tabConfig = TABS.find((tab) => tab.key === activeTab) ?? TABS[0];
   const workspaceId = current?.id;
 
-  const refresh = useCallback(async () => {
-    if (!workspaceId) return;
-    setLoading(true);
-    try {
-      const [listRes, countsRes] = await Promise.all([
-        decisionsApi.list(workspaceId, {
-          status: tabConfig.statuses,
-          sinceDays: tabConfig.sinceDays,
-          limit: 50,
-        }),
-        decisionsApi.counts(workspaceId),
-      ]);
-      setItems(listRes.data);
-      setCounts(countsRes.counts);
-      dispatchDecisionCountsUpdated({ workspaceId, counts: countsRes.counts });
-      setSelectedId((prev) => {
-        if (listRes.data.length === 0) return null;
-        return prev && listRes.data.some((i) => i.id === prev)
-          ? prev
-          : listRes.data[0].id;
-      });
-    } catch {
-      setItems([]);
-      setCounts(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [workspaceId, tabConfig]);
+  const refresh = useCallback(
+    async (options?: { broadcastCounts?: boolean }) => {
+      if (!workspaceId) return;
+      const seq = refreshSeqRef.current + 1;
+      refreshSeqRef.current = seq;
+      setLoading(true);
+      try {
+        const [listRes, countsRes] = await Promise.all([
+          decisionsApi.list(workspaceId, {
+            status: tabConfig.statuses,
+            sinceDays: tabConfig.sinceDays,
+            limit: 50,
+          }),
+          decisionsApi.counts(workspaceId),
+        ]);
+        if (seq !== refreshSeqRef.current) return;
+        setItems(listRes.data);
+        setCounts(countsRes.counts);
+        if (options?.broadcastCounts) {
+          dispatchDecisionCountsUpdated({
+            workspaceId,
+            counts: countsRes.counts,
+          });
+        }
+        setSelectedId((prev) => {
+          if (listRes.data.length === 0) return null;
+          return prev && listRes.data.some((i) => i.id === prev)
+            ? prev
+            : listRes.data[0].id;
+        });
+      } catch {
+        if (seq !== refreshSeqRef.current) return;
+        setItems([]);
+        setCounts(null);
+      } finally {
+        if (seq === refreshSeqRef.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [workspaceId, tabConfig],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -153,6 +171,14 @@ export function ReviewQueuePage() {
       cancelled = true;
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    return subscribeDecisionCountsUpdated((detail) => {
+      if (detail.workspaceId !== workspaceId) return;
+      void refresh({ broadcastCounts: false });
+    });
+  }, [workspaceId, refresh]);
 
   useEffect(() => {
     if (!workspaceId || !selectedId) {
@@ -181,7 +207,7 @@ export function ReviewQueuePage() {
     if (!workspaceId || !selectedId) return;
     try {
       await decisionsApi.approve(workspaceId, selectedId);
-      await refresh();
+      await refresh({ broadcastCounts: true });
     } catch (err) {
       window.alert(err instanceof Error ? err.message : t("actionFailed"));
     }
@@ -192,7 +218,7 @@ export function ReviewQueuePage() {
       if (!workspaceId || !selectedId) return;
       try {
         await decisionsApi.reject(workspaceId, selectedId, reason);
-        await refresh();
+        await refresh({ broadcastCounts: true });
       } catch (err) {
         window.alert(err instanceof Error ? err.message : t("actionFailed"));
       }
