@@ -110,6 +110,9 @@ export function createPatchGeneratorWorker(): Worker {
         targetPageId,
         action,
         baseRevisionId,
+        contentOverrideMd,
+        sectionHint,
+        agentRunId,
       } = job.data;
       const log = createJobLogger("patch-generator", job.id);
 
@@ -152,16 +155,26 @@ export function createPatchGeneratorWorker(): Worker {
         if (rev) existingContent = rev.contentMd;
       }
 
-      const incomingText = extractIngestionText(ingestion);
+      const incomingText = contentOverrideMd ?? extractIngestionText(ingestion);
 
       await job.updateProgress(20);
 
       // For "append", concatenate; for "update", use LLM to merge
       let newContent: string;
       let modelRunId: string | null = null;
+      if (contentOverrideMd) {
+        const [decision] = await db
+          .select({ modelRunId: ingestionDecisions.modelRunId })
+          .from(ingestionDecisions)
+          .where(eq(ingestionDecisions.id, decisionId))
+          .limit(1);
+        modelRunId = decision?.modelRunId ?? null;
+      }
 
       if (action === "append") {
         newContent = `${existingContent}\n\n${incomingText}`;
+      } else if (contentOverrideMd) {
+        newContent = contentOverrideMd;
       } else {
         const { provider, model } = getDefaultProvider();
         const adapter = getAIAdapter(provider);
@@ -285,10 +298,12 @@ Produce the merged Markdown:`,
             tokenOutput: aiResponse.tokenOutput,
             latencyMs: aiResponse.latencyMs,
             status: "success",
+            agentRunId: agentRunId ?? null,
             requestMetaJson: {
               ingestionId,
               targetPageId,
               action,
+              agentRunId: agentRunId ?? null,
               budget: budgetMeta,
             },
             responseMetaJson: { contentLength: newContent.length },
@@ -381,6 +396,8 @@ Produce the merged Markdown:`,
                 humanRevisionId: conflict.id,
                 humanEditedAt: conflict.createdAt.toISOString(),
               },
+              agentRunId: agentRunId ?? null,
+              sectionHint: sectionHint ?? null,
             },
           }),
         ]);
@@ -437,6 +454,8 @@ Produce the merged Markdown:`,
             ingestionId,
             decisionId,
             revisionId: revision.id,
+            agentRunId: agentRunId ?? null,
+            sectionHint: sectionHint ?? null,
           },
         }),
       ]);

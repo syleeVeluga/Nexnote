@@ -18,14 +18,14 @@ export interface RouteClassifierJobResult {
 export interface IngestionAgentJobData {
   ingestionId: string;
   workspaceId: string;
-  mode: "shadow";
+  mode: "shadow" | "agent";
 }
 
 /** Result returned from the ingestion-agent shadow job */
 export interface IngestionAgentJobResult {
   ingestionId: string;
   agentRunId: string;
-  status: "shadow" | "failed" | "timeout";
+  status: "shadow" | "completed" | "failed" | "timeout";
   proposedMutations: number;
   totalTokens: number;
 }
@@ -45,6 +45,10 @@ export interface PatchGeneratorJobData {
    * auto-applying. `null` means the page had no content yet.
    */
   baseRevisionId: string | null;
+  /** Optional agent-supplied content for AGENT-5 fallback tools. */
+  contentOverrideMd?: string | null;
+  sectionHint?: string | null;
+  agentRunId?: string | null;
 }
 
 /** Result returned from the patch-generator job */

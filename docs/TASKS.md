@@ -57,12 +57,19 @@ Five tools (`search_pages`, `read_page`, `list_folder`, `find_related_entities`,
 
 Explore→plan→execute orchestrator. Shadow mode: agent runs alongside the classic classifier, writes only to `agent_runs.plan_json`; classic still owns `ingestion_decisions`. **One-week parity dashboard** (action match-rate, target-page match-rate) before any workspace flips to `agent`. Token budgeter (800k input / 60k output, model routing fast vs Opus-1M/Gemini-1M/gpt-5.4-pro), adaptive read truncation.
 
-- Done: `ingestionAgentPlanSchema` and `agent_plan` model-run mode landed; `budgeter.ts` handles env-backed limits, fast/large model routing, and plan-context packing; `loop.ts` runs read-only tool exploration then writes a structured shadow plan; `ingestion-agent` BullMQ worker records `agent_runs.plan_json` / `steps_json` / linked `model_runs`; enqueue now runs classic classifier plus a separate `ingestion-agent` queue in `shadow` mode. Classic remains the decision owner until AGENT-5.
+- Done: `ingestionAgentPlanSchema` and `agent_plan` model-run mode landed; `budgeter.ts` handles env-backed limits, fast/large model routing, and plan-context packing; `loop.ts` runs read-only tool exploration then writes a structured shadow plan; `ingestion-agent` BullMQ worker records `agent_runs.plan_json` / `steps_json` / linked `model_runs`; enqueue runs classic classifier plus a separate `ingestion-agent` queue in `shadow` mode. Classic remains the decision owner in `shadow`; `agent` mode ownership lands in AGENT-5.
 
-### AGENT-5 · [HIGH] Mutate tool wrappers (3-tier patches)
-*Phase C · Size L · Blocked by: parity gate (AGENT-4 + 1-week observation) · Sub-doc on entry: `docs/ingestion-agent-step-5-mutate-tiers.md`*
+### AGENT-4.5 · [HIGH] Shadow hardening before parity gate
+*Phase B/C bridge · Size M · Blocked by: AGENT-4 · Can run beside AGENT-5 · No sub-doc*
 
-`replace_in_page` (find/replace, exact-N match enforce), `edit_page_blocks` (markdown block ops via remark), `edit_page_section` (heading anchor), plus fallback `update_page` / `append_to_page` / `create_page` / `noop` / `request_human_review`. Tier-1/2/3 build the new revision directly without re-calling the LLM (cost + intent preservation). Per-page mutation lock within a run prevents AI-vs-AI race. Plan validator: "if proposed `update_page` keeps ≥70% of existing content, reject and force decompose to `edit_page_blocks`."
+Track the shadow-only gaps that must not be forgotten before production promotion: parity SQL/dashboard (`agent_vs_classic_agreement_rate` by action and target page), exploration prompt hardening, read-result dedupe hinting, workspace daily token cap enforcement, and operator-visible shadow diagnostics. Read context compaction moved into AGENT-5 (80% threshold, oldest-first summary, re-read notice + cache invalidation), so this ticket owns the remaining shadow-rollout hardening rather than mutate execution itself.
+
+### AGENT-5 · [DONE · 2026-04-29] Mutate tool wrappers (3-tier patches)
+*Phase C · Size L · Rollout still gated by: parity observation + AGENT-6/7 UI · Sub-doc: `docs/ingestion-agent-step-5-mutate-tiers.md`*
+
+`replace_in_page` (find/replace, exact-N match enforce), `edit_page_blocks` (markdown block ops via stable block parser), `edit_page_section` (heading anchor), plus fallback `update_page` / `append_to_page` / `create_page` / `noop` / `request_human_review`. Tier-1/2/3 build the new revision directly without re-calling the LLM (cost + intent preservation). Per-page mutation lock within a run prevents AI-vs-AI race. Plan validator: "if proposed `update_page` keeps ≥70% of existing content, reject and force decompose to `edit_page_blocks`."
+
+- Done: shared mutate schemas landed; `tools/mutate.ts` creates fan-out `ingestion_decisions` with `agent_run_id`; direct patch tiers create proposed/current revisions with provenance, diffs, audit logs, and triple/search enqueue; `update_page` / `append_to_page` hand off high-confidence fallback work to patch-generator with agent-supplied content; enqueue now runs classic+agent in `shadow`, but agent-only in `agent` mode. Added Claude Code-style context compaction (80% threshold, oldest-first summaries, re-read notice + cache invalidation) and mutate self-correction hints with one repair turn. Tests cover patch primitives, compaction, dispatcher cache invalidation, and agent-mode repair execution. Remaining AGENT-5 hardening: 70% full-rewrite self-correct and broader DB integration coverage.
 
 ### AGENT-6 · [MED] Workspace toggle + `/settings/ai` UI
 *Phase C · Size S · Blocked by: AGENT-2 (column exists); usefulness blocked by AGENT-5 · No sub-doc*

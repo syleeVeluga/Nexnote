@@ -7,8 +7,12 @@ import {
   getModelContextBudget,
   sliceWithinTokenBudget,
   type AIBudgetMeta,
+  type AIMessage,
   type AIProvider,
 } from "@wekiflow/shared";
+
+const COMPACTION_THRESHOLD_RATIO = 0.8;
+const COMPACTED_TOOL_PREFIX = "[COMPACTED_TOOL_RESULT]";
 
 export interface AgentRuntimeLimits {
   maxSteps: number;
@@ -35,11 +39,22 @@ export interface AgentContextBlock {
   text: string;
   minTokens?: number;
   weight?: number;
+  compacted?: boolean;
 }
 
 export interface PackedAgentContext {
   text: string;
   budgetMeta: AIBudgetMeta;
+  compactionNotices?: AgentContextCompactionNotice[];
+}
+
+export interface AgentContextCompactionNotice {
+  key: string;
+  label: string;
+  toolName?: string;
+  toolCallId?: string;
+  originalEstimatedTokens: number;
+  compactedEstimatedTokens: number;
 }
 
 function positiveIntEnv(
@@ -163,6 +178,272 @@ export function selectAgentModel(
   };
 }
 
+function agentInputCapacity(input: {
+  provider: AIProvider;
+  model: string;
+  env?: NodeJS.ProcessEnv;
+  reserve?: number;
+}): number {
+  const limits = readAgentRuntimeLimits(input.env);
+  const modelBudget = getModelContextBudget(input.provider, input.model);
+  const reserve = input.reserve ?? MODE_OUTPUT_RESERVE.agent_plan;
+  return Math.max(
+    1_000,
+    Math.floor(
+      (Math.min(limits.inputTokenBudget, modelBudget.inputTokenBudget) -
+        Math.min(limits.outputTokenBudget, reserve)) *
+        modelBudget.safetyMarginRatio,
+    ),
+  );
+}
+
+function compactExcerpt(text: string, maxChars: number): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, maxChars)}...`;
+}
+
+function summarizeToolPayload(content: string): Record<string, unknown> {
+  try {
+    const payload = JSON.parse(content) as Record<string, unknown>;
+    const result = payload["result"];
+    if (result && typeof result === "object" && !Array.isArray(result)) {
+      const record = result as Record<string, unknown>;
+      const page = record["page"];
+      const format = record["format"];
+      if (format === "markdown" && typeof record["contentMd"] === "string") {
+        return {
+          ok: payload["ok"] ?? true,
+          format,
+          page,
+          contentCharLength: record["contentMd"].length,
+          excerpt: compactExcerpt(record["contentMd"], 1_200),
+        };
+      }
+      if (format === "blocks" && Array.isArray(record["blocks"])) {
+        return {
+          ok: payload["ok"] ?? true,
+          format,
+          page,
+          blockCount: record["blocks"].length,
+          blocks: record["blocks"].slice(0, 30),
+        };
+      }
+      if (format === "summary") {
+        return {
+          ok: payload["ok"] ?? true,
+          format,
+          page,
+          summary: record["summary"],
+        };
+      }
+    }
+    return {
+      ok: payload["ok"] ?? true,
+      excerpt: compactExcerpt(content, 1_200),
+    };
+  } catch {
+    return { excerpt: compactExcerpt(content, 1_200) };
+  }
+}
+
+function compactToolContent(message: AIMessage): string {
+  return JSON.stringify({
+    compacted: true,
+    marker: COMPACTED_TOOL_PREFIX,
+    toolName: message.toolName ?? null,
+    toolCallId: message.toolCallId ?? null,
+    summary: summarizeToolPayload(message.content),
+    notice:
+      "This prior tool result was compacted because the agent approached its context budget. Call the same read tool again if exact original content is needed.",
+  });
+}
+
+function buildSystemCompactionNotice(
+  notices: AgentContextCompactionNotice[],
+): AIMessage {
+  const compacted = notices
+    .map(
+      (notice) =>
+        `${notice.toolName ?? notice.label} (${notice.toolCallId ?? notice.key})`,
+    )
+    .join(", ");
+  return {
+    role: "system",
+    content:
+      `Context compaction ran: prior tool result(s) ${compacted} were replaced with summary form. ` +
+      "If exact original content is needed, call the relevant read tool again.",
+  };
+}
+
+function isCompactableToolMessage(message: AIMessage): boolean {
+  return (
+    message.role === "tool" &&
+    !message.content.startsWith(COMPACTED_TOOL_PREFIX) &&
+    !message.content.includes(`"marker":"${COMPACTED_TOOL_PREFIX}"`)
+  );
+}
+
+export function compactAgentMessages(input: {
+  provider: AIProvider;
+  model: string;
+  messages: AIMessage[];
+  env?: NodeJS.ProcessEnv;
+  thresholdRatio?: number;
+}): {
+  messages: AIMessage[];
+  notices: AgentContextCompactionNotice[];
+  compactedToolCallIds: string[];
+  estimatedInputTokens: number;
+  thresholdTokens: number;
+} {
+  const thresholdRatio =
+    input.thresholdRatio ?? COMPACTION_THRESHOLD_RATIO;
+  const capacity = agentInputCapacity({
+    provider: input.provider,
+    model: input.model,
+    env: input.env,
+  });
+  const thresholdTokens = Math.floor(capacity * thresholdRatio);
+  let estimatedInputTokens = input.messages.reduce(
+    (sum, message) => sum + estimateTokens(message.content),
+    0,
+  );
+  if (estimatedInputTokens <= thresholdTokens) {
+    return {
+      messages: input.messages,
+      notices: [],
+      compactedToolCallIds: [],
+      estimatedInputTokens,
+      thresholdTokens,
+    };
+  }
+
+  const messages = [...input.messages];
+  const notices: AgentContextCompactionNotice[] = [];
+  const compactedToolCallIds: string[] = [];
+
+  for (let i = 0; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (!isCompactableToolMessage(message)) continue;
+
+    const originalEstimatedTokens = estimateTokens(message.content);
+    const compactedContent = compactToolContent(message);
+    const compactedEstimatedTokens = estimateTokens(compactedContent);
+    messages[i] = { ...message, content: compactedContent };
+    estimatedInputTokens +=
+      compactedEstimatedTokens - originalEstimatedTokens;
+    notices.push({
+      key: message.toolCallId ?? `message_${i}`,
+      label: message.toolName ?? `tool#${i}`,
+      toolName: message.toolName,
+      toolCallId: message.toolCallId,
+      originalEstimatedTokens,
+      compactedEstimatedTokens,
+    });
+    if (message.toolCallId) compactedToolCallIds.push(message.toolCallId);
+    if (estimatedInputTokens <= thresholdTokens) break;
+  }
+
+  if (notices.length > 0) {
+    const notice = buildSystemCompactionNotice(notices);
+    messages.push(notice);
+    estimatedInputTokens += estimateTokens(notice.content);
+  }
+
+  return {
+    messages,
+    notices,
+    compactedToolCallIds,
+    estimatedInputTokens,
+    thresholdTokens,
+  };
+}
+
+function compactContextBlock(
+  block: AgentContextBlock,
+): { block: AgentContextBlock; notice: AgentContextCompactionNotice } {
+  const originalEstimatedTokens = estimateTokens(block.text);
+  const compactedPayload = {
+    compacted: true,
+    marker: COMPACTED_TOOL_PREFIX,
+    label: block.label,
+    summary: summarizeToolPayload(block.text),
+    notice:
+      "This read context was compacted before planning. Re-run the relevant read tool if exact source text is needed.",
+  };
+  const compactedText = JSON.stringify(compactedPayload, null, 2);
+  return {
+    block: {
+      ...block,
+      text: compactedText,
+      minTokens: Math.min(block.minTokens ?? 500, 250),
+      weight: 0.5,
+      compacted: true,
+    },
+    notice: {
+      key: block.key,
+      label: block.label,
+      originalEstimatedTokens,
+      compactedEstimatedTokens: estimateTokens(compactedText),
+    },
+  };
+}
+
+export function compactAgentContextBlocks(input: {
+  blocks: AgentContextBlock[];
+  ingestionText: string;
+  availableTokens: number;
+  thresholdRatio?: number;
+}): {
+  blocks: AgentContextBlock[];
+  notices: AgentContextCompactionNotice[];
+  estimatedBeforeTokens: number;
+  estimatedAfterTokens: number;
+  thresholdTokens: number;
+} {
+  const thresholdTokens = Math.floor(
+    input.availableTokens *
+      (input.thresholdRatio ?? COMPACTION_THRESHOLD_RATIO),
+  );
+  const ingestionTokens = estimateTokens(input.ingestionText);
+  const blocks = [...input.blocks];
+  const notices: AgentContextCompactionNotice[] = [];
+  let estimatedAfterTokens =
+    ingestionTokens +
+    blocks.reduce((sum, block) => sum + estimateTokens(block.text), 0);
+  const estimatedBeforeTokens = estimatedAfterTokens;
+
+  if (estimatedAfterTokens <= thresholdTokens) {
+    return {
+      blocks,
+      notices,
+      estimatedBeforeTokens,
+      estimatedAfterTokens,
+      thresholdTokens,
+    };
+  }
+
+  for (let i = 0; i < blocks.length; i += 1) {
+    if (blocks[i].compacted) continue;
+    const originalTokens = estimateTokens(blocks[i].text);
+    const compacted = compactContextBlock(blocks[i]);
+    blocks[i] = compacted.block;
+    notices.push(compacted.notice);
+    estimatedAfterTokens +=
+      compacted.notice.compactedEstimatedTokens - originalTokens;
+    if (estimatedAfterTokens <= thresholdTokens) break;
+  }
+
+  return {
+    blocks,
+    notices,
+    estimatedBeforeTokens,
+    estimatedAfterTokens,
+    thresholdTokens,
+  };
+}
+
 export function packAgentExploreContext(input: {
   provider: AIProvider;
   model: string;
@@ -250,6 +531,13 @@ export function packAgentPlanContext(input: {
     Math.floor(rawAvailable * modelBudget.safetyMarginRatio),
   );
 
+  const compaction = compactAgentContextBlocks({
+    blocks: input.blocks,
+    ingestionText: input.ingestionText,
+    availableTokens: available,
+  });
+  const contextBlocks = compaction.blocks;
+
   const slots = [
     {
       key: "ingestion",
@@ -257,7 +545,7 @@ export function packAgentPlanContext(input: {
       minTokens: Math.min(8_000, Math.floor(available * 0.5)),
       weight: 10,
     },
-    ...input.blocks.map((block, index) => ({
+    ...contextBlocks.map((block, index) => ({
       key: block.key || `context_${index}`,
       text: block.text,
       minTokens: block.minTokens ?? 500,
@@ -278,7 +566,15 @@ ${allocations.ingestion.text}
 ---`,
   ];
 
-  for (const block of input.blocks) {
+  if (compaction.notices.length > 0) {
+    chunks.push(
+      `[SYSTEM_NOTICE:context_compaction]
+Prior read context was compacted using oldest-first summary form because the plan prompt approached 80% of the model context. Re-run read_page for exact original content if needed.
+${JSON.stringify(compaction.notices, null, 2)}`,
+    );
+  }
+
+  for (const block of contextBlocks) {
     const allocated = allocations[block.key];
     if (!allocated || allocated.text.trim() === "") continue;
     chunks.push(`[CONTEXT:${block.label}]\n${allocated.text}`);
@@ -309,5 +605,6 @@ ${allocations.ingestion.text}
       strategy: "agent_plan_context_packing",
       slotAllocations,
     },
+    compactionNotices: compaction.notices,
   };
 }

@@ -78,8 +78,19 @@ function observeResult(state: AgentRunState, result: AgentToolResult): void {
   for (const pageId of result.observedPageIds ?? []) {
     state.seenPageIds.add(pageId);
   }
+  for (const observed of result.observedPageRevisions ?? []) {
+    state.seenPageIds.add(observed.pageId);
+    state.observedPageRevisionIds.set(observed.pageId, observed.revisionId);
+  }
   for (const blockId of result.observedBlockIds ?? []) {
     state.seenBlockIds.add(blockId);
+  }
+  for (const pageId of result.createdPageIds ?? []) {
+    state.createdPageIds.add(pageId);
+    state.seenPageIds.add(pageId);
+  }
+  for (const pageId of result.mutatedPageIds ?? []) {
+    state.mutatedPageIds.add(pageId);
   }
 }
 
@@ -90,6 +101,7 @@ function toExecutionError(err: unknown): AgentToolErrorPayload {
       message: err.message,
       recoverable: true,
       details: err.details,
+      selfCorrection: err.selfCorrection,
     };
   }
 
@@ -123,6 +135,13 @@ export function createAgentDispatcher(
 
   return {
     state,
+    invalidateCacheForToolCall(toolCall: NormalizedToolCall): void {
+      const tool = tools[toolCall.name];
+      if (!tool) return;
+      const parsed = tool.schema.safeParse(toolCall.arguments);
+      if (!parsed.success) return;
+      cache.delete(`${toolCall.name}:${stableJson(parsed.data)}`);
+    },
     async dispatchToolCalls(
       toolCalls: NormalizedToolCall[],
     ): Promise<AgentToolExecution[]> {

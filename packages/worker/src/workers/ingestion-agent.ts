@@ -10,6 +10,7 @@ import {
 } from "@wekiflow/shared";
 import { createRedisConnection } from "../connection.js";
 import { createJobLogger } from "../logger.js";
+import { getQueue } from "../queues.js";
 import {
   AgentLoopTimeout,
   runIngestionAgentShadow,
@@ -56,7 +57,9 @@ export function createIngestionAgentWorker(): Worker {
     async (job: Job<IngestionAgentJobData>) => {
       const { ingestionId, workspaceId } = job.data;
       const log = createJobLogger("ingestion-agent", job.id);
-      log.info({ ingestionId }, "Processing ingestion agent shadow run");
+      const runMode = job.data.mode;
+      const completedStatus = runMode === "agent" ? "completed" : "shadow";
+      log.info({ ingestionId, runMode }, "Processing ingestion agent run");
 
       await job.updateProgress(5);
 
@@ -82,7 +85,7 @@ export function createIngestionAgentWorker(): Worker {
           and(
             eq(agentRuns.ingestionId, ingestionId),
             eq(agentRuns.workspaceId, workspaceId),
-            eq(agentRuns.status, "shadow"),
+            eq(agentRuns.status, completedStatus),
           ),
         )
         .orderBy(desc(agentRuns.startedAt))
@@ -91,13 +94,13 @@ export function createIngestionAgentWorker(): Worker {
       if (existingComplete) {
         log.info(
           { agentRunId: existingComplete.id },
-          "Shadow agent run already completed",
+          "Ingestion agent run already completed",
         );
         await job.updateProgress(100);
         return {
           ingestionId,
           agentRunId: existingComplete.id,
-          status: "shadow",
+          status: completedStatus,
           proposedMutations: existingComplete.decisionsCount,
           totalTokens: existingComplete.totalTokens,
         };
@@ -156,10 +159,17 @@ export function createIngestionAgentWorker(): Worker {
           );
       }
 
+      if (runMode === "agent") {
+        await db
+          .update(ingestions)
+          .set({ status: "processing" })
+          .where(eq(ingestions.id, ingestionId));
+      }
+
       const recordModelRun = async (
         record: AgentModelRunRecord,
-      ): Promise<void> => {
-        await db.insert(modelRuns).values({
+      ): Promise<{ id: string }> => {
+        const [modelRun] = await db.insert(modelRuns).values({
           workspaceId,
           provider: record.request.provider,
           modelName: record.request.model,
@@ -178,7 +188,8 @@ export function createIngestionAgentWorker(): Worker {
             budget: record.request.budgetMeta ?? null,
           },
           responseMetaJson: record.responseMetaJson,
-        });
+        }).returning({ id: modelRuns.id });
+        return { id: modelRun.id };
       };
 
       try {
@@ -187,8 +198,17 @@ export function createIngestionAgentWorker(): Worker {
           db,
           workspaceId,
           ingestion: { ...ingestion, normalizedText },
+          mode: runMode,
           agentRunId: agentRun.id,
           recordModelRun,
+          mutationQueues:
+            runMode === "agent"
+              ? {
+                  patchQueue: getQueue(QUEUE_NAMES.PATCH),
+                  extractionQueue: getQueue(QUEUE_NAMES.EXTRACTION),
+                  searchQueue: getQueue(QUEUE_NAMES.SEARCH),
+                }
+              : undefined,
         });
 
         await db
@@ -203,6 +223,13 @@ export function createIngestionAgentWorker(): Worker {
             completedAt: new Date(),
           })
           .where(eq(agentRuns.id, agentRun.id));
+
+        if (runMode === "agent") {
+          await db
+            .update(ingestions)
+            .set({ status: "completed", processedAt: new Date() })
+            .where(eq(ingestions.id, ingestionId));
+        }
 
         await job.updateProgress(100);
 
@@ -226,6 +253,13 @@ export function createIngestionAgentWorker(): Worker {
             })
             .where(eq(agentRuns.id, agentRun.id));
 
+          if (runMode === "agent") {
+            await db
+              .update(ingestions)
+              .set({ status: "failed", processedAt: new Date() })
+              .where(eq(ingestions.id, ingestionId));
+          }
+
           await job.updateProgress(100);
           return {
             ingestionId,
@@ -244,6 +278,12 @@ export function createIngestionAgentWorker(): Worker {
             completedAt: new Date(),
           })
           .where(eq(agentRuns.id, agentRun.id));
+        if (runMode === "agent") {
+          await db
+            .update(ingestions)
+            .set({ status: "failed", processedAt: new Date() })
+            .where(eq(ingestions.id, ingestionId));
+        }
         throw err;
       }
     },
