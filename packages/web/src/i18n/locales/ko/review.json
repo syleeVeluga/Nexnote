@@ -50,6 +50,10 @@
   "reviewPending": "검토 대기",
   "review": "검토",
   "noReason": "사유 없음",
+  "fanout": {
+    "badge": "ingestion {{source}}의 {{total}}개 중 {{index}}번째",
+    "title": "ingestion {{source}}에서 나온 {{total}}개 decision 중 {{index}}번째"
+  },
   "conflict": {
     "chip": "충돌",
     "tooltip": "AI가 자동 적용을 결정한 이후 사람이 이 페이지를 수정했습니다. 주의해서 검토하세요.",

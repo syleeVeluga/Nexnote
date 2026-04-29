@@ -737,6 +737,7 @@ export interface DecisionListItem extends DecisionBase {
   reason: string | null;
   hasConflict?: boolean;
   ingestion: {
+    id: string;
     sourceName: string;
     titleHint: string | null;
     receivedAt: string;

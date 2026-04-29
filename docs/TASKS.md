@@ -3,7 +3,7 @@
 > **Snapshot:** 2026-04-30
 > **North-star goal:** External signals flow in continuously; the wiki stays automatically up-to-date under human supervision. AI classifies/merges/deduplicates; humans review/correct/approve.
 >
-> **Status of the core loop** — see [CLAUDE.md](../CLAUDE.md#current-implementation-status-snapshot-2026-04-24-docs-reviewed). The ingest/classify/apply path works, AGENT-1~6 + AGENT-4.5 (tool-calling ingestion agent backend, parity gate, mutate tier 1·2·3, settings UI) have landed, and remaining trust gaps are AGENT-7 fan-out review polish, conflict breadth (concurrent ingestions / triple contradictions), API-token management, and sidebar/digest surfacing.
+> **Status of the core loop** — see [CLAUDE.md](../CLAUDE.md#current-implementation-status-snapshot-2026-04-24-docs-reviewed). The ingest/classify/apply path works, AGENT-1~7 + AGENT-4.5 (tool-calling ingestion agent backend, parity gate, mutate tier 1·2·3, settings UI, fan-out review surfaces) have landed, and remaining trust gaps are conflict breadth (concurrent ingestions / triple contradictions), API-token management, sidebar/digest surfacing, and the final agent-promotion hardening items.
 
 Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH] / [MED] / [LOW]** marks urgency toward the goal.
 
@@ -23,7 +23,7 @@ Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH]
 >
 > **Doc reorg + Ingestion Agent RFC (2026-04-29):** all product/design/RFC docs moved from repo root into [`docs/`](.); orchestrator guides (`AGENTS.md`, `CLAUDE.md`) stay at root and got a Documentation map. The single-shot Classify stage is slated to be replaced by a tool-calling ingestion agent — see new epic **AGENT-1..AGENT-8** below. RFC: [`docs/ingestion-agent-plan.md`](ingestion-agent-plan.md).
 >
-> **Ingestion agent through AGENT-4.5/5/6 landed (2026-04-29 → 2026-04-30):** AGENT-1 (gateway tool-calling normalization), AGENT-2 (`agent_runs` schema + `workspaces.ingestion_mode`), AGENT-3 (read-only dispatcher), AGENT-4 (shadow loop + budgeter), **AGENT-4.5** (parity SQL view + diagnostics API + AISettingsPage dashboard, daily token cap enforcement, dedupe system-message hint, Redis pub/sub SSE live trace, `workspaces.agent_instructions` + system prompt prepend), **AGENT-5** (mutate tier 1·2·3 direct revisions + update_page/append_to_page fallback + create_page/noop/request_human_review, oldest-first 80% context compaction with cache invalidation, mutate self-correction repair turn), **AGENT-6** (`/settings/ai` mode toggle + workspace-scoped model picker + token cap + parity dashboard with server-side promotion gate). AGENT-7 partially landed: AgentTracePanel post-hoc + SSE live; sibling badge + activity row remain. Production 'agent' promotion is now blocked by 5 finishing gaps: `read_page` auto blocks fallback (P0), mutate execute integration test (P0), ReviewQueuePage sibling badge (P1), Activity feed agent_run row (P1), AISettingsPage model diagnostic strip (P2). See [`docs/ingestion-agent-plan.md`](ingestion-agent-plan.md) §Remaining gaps.
+> **Ingestion agent through AGENT-4.5/5/6/7 landed (2026-04-29 → 2026-04-30):** AGENT-1 (gateway tool-calling normalization), AGENT-2 (`agent_runs` schema + `workspaces.ingestion_mode`), AGENT-3 (read-only dispatcher), AGENT-4 (shadow loop + budgeter), **AGENT-4.5** (parity SQL view + diagnostics API + AISettingsPage dashboard, daily token cap enforcement, dedupe system-message hint, Redis pub/sub SSE live trace, `workspaces.agent_instructions` + system prompt prepend), **AGENT-5** (mutate tier 1·2·3 direct revisions + update_page/append_to_page fallback + create_page/noop/request_human_review, oldest-first 80% context compaction with cache invalidation, mutate self-correction repair turn), **AGENT-6** (`/settings/ai` mode toggle + workspace-scoped model picker + token cap + parity dashboard with server-side promotion gate), **AGENT-7** (IngestionDetailPage fan-out decisions, AgentTracePanel post-hoc/live trace, ReviewQueuePage sibling badge, Activity feed `agent_run_completed` row). Production 'agent' promotion is now blocked by 3 finishing gaps: `read_page` auto blocks fallback (P0), mutate execute integration test (P0), AISettingsPage model diagnostic strip (P2). See [`docs/ingestion-agent-plan.md`](ingestion-agent-plan.md) §Remaining gaps.
 
 ---
 
@@ -91,7 +91,7 @@ _Phase C · Size S · Blocked by: AGENT-2 (column exists); usefulness blocked by
 
 - Done: `/settings/ai` lets owners/admins switch classic/shadow/agent, edit workspace `agent_instructions`, inspect parity/token diagnostics, configure workspace-scoped agent provider/fast model/large-context model/fast-threshold, and set a workspace daily token cap. `/system/ai` redirects to the settings route. Agent promotion is server-gated until parity passes; unset model/cap values inherit deployment env defaults.
 
-### AGENT-7 · [PARTIAL · 2026-04-30 · MED] UI fan-out for multiple decisions per ingestion
+### AGENT-7 · [DONE · 2026-04-30 · MED] UI fan-out for multiple decisions per ingestion
 
 _Phase C · Size M · Blocked by: AGENT-2 (`agent_run_id` FK); usefulness blocked by AGENT-4 · No sub-doc_
 
@@ -101,10 +101,8 @@ _Phase C · Size M · Blocked by: AGENT-2 (`agent_run_id` FK); usefulness blocke
   - `AgentTracePanel` (post-hoc `steps_json` + Redis pub/sub SSE live updates) on `/ingestions/:ingestionId`
   - IngestionDetailPage renders `decisions[]` (다중 fan-out) — single-decision 가정 깨짐
   - `/workspaces/:id/agent-runs/:runId` GET + `/events` SSE endpoint (workspace member-only)
-- 잔여:
-  - **ReviewQueuePage sibling 배지 "(N of M from ingestion {sourceName})" (P1)** — `decisions.list`가 이미 `ingestion: { id, sourceName }` 반환하므로 client-side group-by `useMemo`만 추가하면 됨. backend 변경 없음.
-  - **Activity feed agent_run 완료 행 (P1)** — `audit_logs`에 `action='agent_run_completed'` row 1개 추가 + `deriveActivitySummary` 확장 ("Agent ran for ingestion X — N mutations proposed (M auto-applied, K queued)"). 스키마 변경 없음.
-  - **AISettingsPage 모델 진단 strip (P2)** — `/diagnostics` 응답에 `currentModels` (env-resolved fast/large_context) 추가, AISettingsPage에 read-only 표시. workspace-level model override는 이미 AGENT-6에서 시행 중이므로 여기에 미러링.
+  - ReviewQueuePage sibling 배지 "(N of M from ingestion {sourceName})" — visible queue rows are grouped client-side by `ingestion.id`.
+  - Activity feed `agent_run_completed` 행 — ingestion-agent worker writes one `audit_logs` row per completed/shadow run and `deriveActivitySummary` renders proposed/auto-applied/queued counts.
 
 ### AGENT-8 · [MED] Cutover & retire classic
 

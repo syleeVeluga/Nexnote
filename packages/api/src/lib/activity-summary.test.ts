@@ -44,6 +44,25 @@ describe("deriveActivitySummary", () => {
       "Created from an auto-applied ingestion",
     );
   });
+
+  it("summarizes completed ingestion agent runs", () => {
+    assert.equal(
+      deriveActivitySummary({
+        action: "agent_run_completed",
+        entityType: "ingestion",
+        afterJson: {
+          sourceName: "Slack",
+          proposedMutations: 3,
+          autoAppliedCount: 1,
+          queuedCount: 2,
+        },
+        beforeJson: null,
+        revisionNote: null,
+        changedBlocks: null,
+      }),
+      "Agent ran for ingestion Slack - 3 mutations proposed (1 auto-applied, 2 queued)",
+    );
+  });
 });
 
 describe("readNumber", () => {

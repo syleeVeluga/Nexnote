@@ -53,6 +53,10 @@
   "reviewPending": "pending review",
   "review": "Review",
   "noReason": "(no reason provided)",
+  "fanout": {
+    "badge": "{{index}} of {{total}} from ingestion {{source}}",
+    "title": "{{index}} of {{total}} decisions from ingestion {{source}}"
+  },
   "conflict": {
     "chip": "conflict",
     "tooltip": "A human edited this page after the AI decided to auto-apply. Review carefully.",

@@ -1,6 +1,13 @@
 import { Worker, type Job } from "bullmq";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
-import { agentRuns, ingestions, modelRuns, workspaces } from "@wekiflow/db";
+import {
+  agentRuns,
+  auditLogs,
+  ingestionDecisions,
+  ingestions,
+  modelRuns,
+  workspaces,
+} from "@wekiflow/db";
 import { getDb } from "@wekiflow/db/client";
 import {
   agentTraceChannel,
@@ -251,6 +258,92 @@ async function publishAgentRunEvent(
     .catch(() => undefined);
 }
 
+async function loadAgentDecisionStats(
+  db: ReturnType<typeof getDb>,
+  agentRunId: string,
+): Promise<{
+  autoAppliedCount: number;
+  queuedCount: number;
+  failedCount: number;
+}> {
+  const rows = await db
+    .select({
+      status: ingestionDecisions.status,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(ingestionDecisions)
+    .where(eq(ingestionDecisions.agentRunId, agentRunId))
+    .groupBy(ingestionDecisions.status);
+
+  let autoAppliedCount = 0;
+  let queuedCount = 0;
+  let failedCount = 0;
+  for (const row of rows) {
+    const count = Number(row.count ?? 0);
+    if (row.status === "auto_applied") {
+      autoAppliedCount += count;
+    } else if (row.status === "suggested" || row.status === "needs_review") {
+      queuedCount += count;
+    } else if (row.status === "failed") {
+      failedCount += count;
+      queuedCount += count;
+    }
+  }
+
+  return { autoAppliedCount, queuedCount, failedCount };
+}
+
+async function recordAgentRunCompletedActivity(
+  db: ReturnType<typeof getDb>,
+  input: {
+    workspaceId: string;
+    ingestionId: string;
+    sourceName: string;
+    agentRunId: string;
+    status: string;
+    proposedMutations: number;
+    decisionsCount: number;
+    totalTokens: number;
+    totalLatencyMs: number;
+    completedAt: Date | null;
+  },
+): Promise<void> {
+  const [latestModelRun, stats] = await Promise.all([
+    db
+      .select({ id: modelRuns.id })
+      .from(modelRuns)
+      .where(eq(modelRuns.agentRunId, input.agentRunId))
+      .orderBy(desc(modelRuns.createdAt))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
+    loadAgentDecisionStats(db, input.agentRunId),
+  ]);
+
+  await db.insert(auditLogs).values({
+    workspaceId: input.workspaceId,
+    userId: null,
+    modelRunId: latestModelRun?.id ?? null,
+    entityType: "ingestion",
+    entityId: input.ingestionId,
+    action: "agent_run_completed",
+    afterJson: {
+      source: "ingestion_agent",
+      agentRunId: input.agentRunId,
+      ingestionId: input.ingestionId,
+      sourceName: input.sourceName,
+      status: input.status,
+      proposedMutations: input.proposedMutations,
+      decisionsCount: input.decisionsCount,
+      autoAppliedCount: stats.autoAppliedCount,
+      queuedCount: stats.queuedCount,
+      failedCount: stats.failedCount,
+      totalTokens: input.totalTokens,
+      totalLatencyMs: input.totalLatencyMs,
+    },
+    createdAt: input.completedAt ?? new Date(),
+  });
+}
+
 export function createIngestionAgentWorker(): Worker {
   const db = getDb();
   const tracePublisher = createRedisConnection();
@@ -498,6 +591,23 @@ export function createIngestionAgentWorker(): Worker {
           await publishAgentRunEvent(tracePublisher, agentRun.id, {
             type: "status",
             agentRun: toAgentRunDto(completedRun),
+          });
+          await recordAgentRunCompletedActivity(db, {
+            workspaceId,
+            ingestionId,
+            sourceName: ingestion.sourceName,
+            agentRunId: completedRun.id,
+            status: completedRun.status,
+            proposedMutations: result.planJson.proposedPlan.length,
+            decisionsCount: completedRun.decisionsCount,
+            totalTokens: completedRun.totalTokens,
+            totalLatencyMs: completedRun.totalLatencyMs,
+            completedAt: completedRun.completedAt,
+          }).catch((err) => {
+            log.warn(
+              { err, agentRunId: completedRun.id },
+              "Failed to write agent run activity",
+            );
           });
         }
 

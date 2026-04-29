@@ -31,6 +31,7 @@ export function mapDecisionListItem(row: DecisionListRow) {
     hasConflict: Boolean(rationale?.conflict),
     createdAt: row.createdAt.toISOString(),
     ingestion: {
+      id: row.ingestionId,
       sourceName: row.ingestionSourceName,
       titleHint: row.ingestionTitleHint,
       receivedAt: row.ingestionReceivedAt.toISOString(),

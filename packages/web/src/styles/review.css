@@ -123,6 +123,21 @@
   font-weight: 500;
 }
 
+.review-fanout-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 1px 6px;
+  border: 1px solid var(--wf-color-border);
+  border-radius: var(--wf-radius-pill);
+  background: var(--wf-color-blue-bg);
+  color: var(--wf-color-blue);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .review-time {
   color: var(--wf-color-ink-muted);
 }

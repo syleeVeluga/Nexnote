@@ -25,7 +25,23 @@ function blockCountSummary(action: string, changedBlocks: number): string {
   return `${verb} ${changedBlocks} block${changedBlocks === 1 ? "" : "s"}`;
 }
 
-export function deriveActivitySummary(input: ActivitySummaryInput): string | null {
+function agentRunSummary(after: Record<string, unknown> | null): string {
+  const sourceName = readString(after?.sourceName);
+  const proposedMutations =
+    readNumber(after?.proposedMutations) ??
+    readNumber(after?.decisionsCount) ??
+    0;
+  const autoAppliedCount = readNumber(after?.autoAppliedCount) ?? 0;
+  const queuedCount = readNumber(after?.queuedCount) ?? 0;
+  const mutationLabel =
+    proposedMutations === 1 ? "mutation proposed" : "mutations proposed";
+  const source = sourceName ? ` for ingestion ${sourceName}` : "";
+  return `Agent ran${source} - ${proposedMutations} ${mutationLabel} (${autoAppliedCount} auto-applied, ${queuedCount} queued)`;
+}
+
+export function deriveActivitySummary(
+  input: ActivitySummaryInput,
+): string | null {
   const after = input.afterJson;
   const before = input.beforeJson;
   const explicit =
@@ -34,6 +50,10 @@ export function deriveActivitySummary(input: ActivitySummaryInput): string | nul
     readString(before?.summary) ??
     input.revisionNote;
   if (explicit) return explicit;
+
+  if (input.action === "agent_run_completed") {
+    return agentRunSummary(after);
+  }
 
   if (input.changedBlocks !== null) {
     return blockCountSummary(input.action, input.changedBlocks);
