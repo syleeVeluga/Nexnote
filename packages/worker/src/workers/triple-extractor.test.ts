@@ -3,6 +3,7 @@ import { strict as assert } from "node:assert";
 import type { DeterministicFacts, TripleExtraction } from "@wekiflow/shared";
 import {
   buildDeterministicSeeds,
+  collectEntityNamesForExtraction,
   prepareTriplesForInsert,
 } from "./triple-extractor.js";
 
@@ -35,6 +36,59 @@ function createEntityIdMap() {
     ["organization", "entity-object-2"],
   ]);
 }
+
+describe("collectEntityNamesForExtraction", () => {
+  it("uses LLM-provided subject and object entity types", () => {
+    const entityNames = collectEntityNamesForExtraction({
+      extractedTriples: [
+        extractedTriple({
+          subjectType: "organization",
+          object: "Jane Lee",
+          objectEntityType: "person",
+        }),
+      ],
+      deterministicSeeds: [],
+    });
+
+    assert.equal(entityNames.get("acme_corp")?.type, "organization");
+    assert.equal(entityNames.get("jane_lee")?.type, "person");
+  });
+
+  it("falls back to concept when entity type fields are missing", () => {
+    const entityNames = collectEntityNamesForExtraction({
+      extractedTriples: [extractedTriple({ object: "Company" })],
+      deterministicSeeds: [],
+    });
+
+    assert.equal(entityNames.get("acme_corp")?.type, "concept");
+    assert.equal(entityNames.get("company")?.type, "concept");
+  });
+
+  it("prefers a specific type over an earlier concept classification", () => {
+    const entityNames = collectEntityNamesForExtraction({
+      extractedTriples: [
+        extractedTriple({ subject: "Acme Corp", subjectType: "concept" }),
+        extractedTriple({
+          subject: "Acme Corp",
+          subjectType: "organization",
+          objectType: "literal",
+          object: "2010",
+        }),
+      ],
+      deterministicSeeds: [
+        {
+          subjectKey: "acme_corp",
+          subjectName: "Acme Corp",
+          predicate: "has_tag",
+          objectLiteral: "company",
+        },
+      ],
+    });
+
+    assert.equal(entityNames.get("acme_corp")?.type, "organization");
+    assert.equal(entityNames.get("acme_corp")?.name, "Acme Corp");
+  });
+});
 
 describe("prepareTriplesForInsert", () => {
   it("dedupes identical logical triples and merges spans with max confidence", () => {

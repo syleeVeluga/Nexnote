@@ -43,9 +43,10 @@ import type {
   AIResponse,
   AIBudgetMeta,
   TripleExtraction,
+  TripleEntityType,
 } from "@wekiflow/shared";
 
-const PROMPT_VERSION = "triple-extractor-v3";
+const PROMPT_VERSION = "triple-extractor-v4";
 
 type ExtractedTriple = TripleExtraction["triples"][number];
 type ExtractedSpan = ExtractedTriple["spans"][number];
@@ -137,6 +138,61 @@ export function buildDeterministicSeeds(
   for (const wiki of facts.wikilinks)
     if (wiki.target) push("links_to", wiki.target);
   return seeds;
+}
+
+type EntityNameCandidate = { name: string; type: TripleEntityType };
+
+function addEntityNameCandidate(
+  entityNames: Map<string, EntityNameCandidate>,
+  key: string,
+  name: string,
+  type: TripleEntityType | undefined,
+) {
+  const nextType = type ?? "concept";
+  const existing = entityNames.get(key);
+  if (!existing) {
+    entityNames.set(key, { name, type: nextType });
+    return;
+  }
+
+  if (existing.type === "concept" && nextType !== "concept") {
+    entityNames.set(key, { name: existing.name, type: nextType });
+  }
+}
+
+export function collectEntityNamesForExtraction({
+  extractedTriples,
+  deterministicSeeds,
+}: {
+  extractedTriples: ExtractedTriple[];
+  deterministicSeeds: DeterministicSeed[];
+}): Map<string, EntityNameCandidate> {
+  const entityNames = new Map<string, EntityNameCandidate>();
+  for (const t of extractedTriples) {
+    addEntityNameCandidate(
+      entityNames,
+      normalizeKey(t.subject),
+      t.subject,
+      t.subjectType,
+    );
+    if (t.objectType === "entity") {
+      addEntityNameCandidate(
+        entityNames,
+        normalizeKey(t.object),
+        t.object,
+        t.objectEntityType,
+      );
+    }
+  }
+  for (const seed of deterministicSeeds) {
+    addEntityNameCandidate(
+      entityNames,
+      seed.subjectKey,
+      seed.subjectName,
+      "concept",
+    );
+  }
+  return entityNames;
 }
 
 export function prepareTriplesForInsert({
@@ -377,6 +433,18 @@ export function createTripleExtractorWorker(): Worker {
 - \`entity\` — named entities, organizations, places, products, events, documents, or concepts explicitly referred to as entities.
 - \`literal\` — dates, numbers, measurements, statuses, titles, and short descriptive values.
 
+## Entity type rules
+- \`subjectType\` and \`objectEntityType\` MUST use one of: \`person\`, \`organization\`, \`location\`, \`product\`, \`document\`, \`system\`, \`event\`, \`concept\`.
+- \`person\`: individual humans (이순신, Jane Lee).
+- \`organization\`: companies, teams, agencies, military units, committees (Acme Corp, 조선 수군).
+- \`location\`: physical or geopolitical places (Seoul, 한산도).
+- \`product\`: named products, models, or commercial offerings (gpt-5.4, iPhone).
+- \`document\`: named documents or document-like artifacts (PRD, RFC, 회의록).
+- \`system\`: software systems, databases, services, protocols, or infrastructure components (Postgres, BullMQ).
+- \`event\`: named meetings, conferences, incidents, launches, or campaigns (KubeCon 2026, weekly planning meeting).
+- \`concept\`: abstract topics, roles, categories, fields, or anything that does not clearly fit the above.
+- If ambiguous, use \`concept\`. Omit \`objectEntityType\` when \`objectType\` is \`literal\`.
+
 ## Evidence rules (critical)
 - Every triple MUST be supported by at least one exact span from the document provided in the user message.
 - \`start\` and \`end\` are 0-based character offsets into that exact Markdown content. \`end\` is exclusive.
@@ -398,9 +466,11 @@ Schema:
   "triples": [
     {
       "subject": "Entity Name",
+      "subjectType": "person" | "organization" | "location" | "product" | "document" | "system" | "event" | "concept",
       "predicate": "relationship_type",
       "object": "Another Entity or literal value",
       "objectType": "entity" | "literal",
+      "objectEntityType": "person" | "organization" | "location" | "product" | "document" | "system" | "event" | "concept",
       "confidence": 0.9,
       "spans": [{ "start": 0, "end": 50, "excerpt": "text excerpt" }]
     }
@@ -416,14 +486,17 @@ Expected output:
   "triples": [
     {
       "subject": "이순신",
+      "subjectType": "person",
       "predicate": "is_a",
       "object": "장군",
       "objectType": "entity",
+      "objectEntityType": "concept",
       "confidence": 0.95,
       "spans": [{ "start": 0, "end": 18, "excerpt": "이순신은 조선 수군의 장군이었다." }]
     },
     {
       "subject": "이순신",
+      "subjectType": "person",
       "predicate": "born_in",
       "object": "1545년",
       "objectType": "literal",
@@ -441,14 +514,17 @@ Expected output:
   "triples": [
     {
       "subject": "Acme Corp",
+      "subjectType": "organization",
       "predicate": "founded_by",
       "object": "Jane Lee",
       "objectType": "entity",
+      "objectEntityType": "person",
       "confidence": 0.95,
       "spans": [{ "start": 0, "end": 42, "excerpt": "Acme Corp was founded in 2010 by Jane Lee." }]
     },
     {
       "subject": "Acme Corp",
+      "subjectType": "organization",
       "predicate": "founded_in",
       "object": "2010",
       "objectType": "literal",
@@ -457,9 +533,11 @@ Expected output:
     },
     {
       "subject": "Acme Corp",
+      "subjectType": "organization",
       "predicate": "located_in",
       "object": "Seoul",
       "objectType": "entity",
+      "objectEntityType": "location",
       "confidence": 0.9,
       "spans": [{ "start": 43, "end": 73, "excerpt": "The company is based in Seoul." }]
     }
@@ -682,27 +760,10 @@ ${contentSlice.text}
         // Batch entity resolution: collect all unique entity names from the
         // LLM extraction AND the deterministic seeds (the page's own title
         // entity anchors every seed), then bulk upsert.
-        const entityNames = new Map<string, { name: string; type: string }>();
-        for (const t of extracted.triples) {
-          const subKey = normalizeKey(t.subject);
-          if (!entityNames.has(subKey)) {
-            entityNames.set(subKey, { name: t.subject, type: "concept" });
-          }
-          if (t.objectType === "entity") {
-            const objKey = normalizeKey(t.object);
-            if (!entityNames.has(objKey)) {
-              entityNames.set(objKey, { name: t.object, type: "concept" });
-            }
-          }
-        }
-        for (const seed of deterministicSeeds) {
-          if (!entityNames.has(seed.subjectKey)) {
-            entityNames.set(seed.subjectKey, {
-              name: seed.subjectName,
-              type: "concept",
-            });
-          }
-        }
+        const entityNames = collectEntityNamesForExtraction({
+          extractedTriples: extracted.triples,
+          deterministicSeeds,
+        });
 
         // The LLM never sees the destination vocabulary — reconciliation
         // happens AFTER extraction so it can't bias the model.
