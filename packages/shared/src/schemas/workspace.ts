@@ -1,6 +1,16 @@
 import { z } from "zod";
 import { slugSchema, uuidSchema } from "./common.js";
-import { INGESTION_MODES, WORKSPACE_ROLES } from "../constants/index.js";
+import {
+  AGENT_MODEL_PRESETS,
+  AI_PROVIDERS,
+  INGESTION_MODES,
+  WORKSPACE_ROLES,
+} from "../constants/index.js";
+
+const optionalAgentModelSchema = z
+  .enum(AGENT_MODEL_PRESETS)
+  .nullable()
+  .optional();
 
 export const createWorkspaceSchema = z.object({
   name: z.string().min(1).max(200),
@@ -13,6 +23,23 @@ export const createWorkspaceSchema = z.object({
 export const updateWorkspaceSchema = createWorkspaceSchema
   .extend({
     ingestionMode: z.enum(INGESTION_MODES).optional(),
+    agentProvider: z.enum(AI_PROVIDERS).nullable().optional(),
+    agentModelFast: optionalAgentModelSchema,
+    agentModelLargeContext: optionalAgentModelSchema,
+    agentFastThresholdTokens: z
+      .number()
+      .int()
+      .min(1_000)
+      .max(1_000_000)
+      .nullable()
+      .optional(),
+    agentDailyTokenCap: z
+      .number()
+      .int()
+      .min(10_000)
+      .max(500_000_000)
+      .nullable()
+      .optional(),
   })
   .partial();
 

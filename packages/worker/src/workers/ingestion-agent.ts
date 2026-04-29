@@ -62,6 +62,39 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function buildWorkspaceAgentEnv(
+  workspace: {
+    agentProvider: string | null;
+    agentModelFast: string | null;
+    agentModelLargeContext: string | null;
+    agentFastThresholdTokens: number | null;
+    agentDailyTokenCap: number | null;
+  },
+  env: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const next: NodeJS.ProcessEnv = { ...env };
+  if (workspace.agentProvider) {
+    next["AGENT_PROVIDER"] = workspace.agentProvider;
+  }
+  if (workspace.agentModelFast) {
+    next["AGENT_MODEL_FAST"] = workspace.agentModelFast;
+  }
+  if (workspace.agentModelLargeContext) {
+    next["AGENT_MODEL_LARGE_CONTEXT"] = workspace.agentModelLargeContext;
+  }
+  if (workspace.agentFastThresholdTokens) {
+    next["AGENT_FAST_THRESHOLD_TOKENS"] = String(
+      workspace.agentFastThresholdTokens,
+    );
+  }
+  if (workspace.agentDailyTokenCap) {
+    next["AGENT_WORKSPACE_DAILY_TOKEN_CAP"] = String(
+      workspace.agentDailyTokenCap,
+    );
+  }
+  return next;
+}
+
 function startOfUtcDay(now = new Date()): Date {
   return new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
@@ -252,6 +285,11 @@ export function createIngestionAgentWorker(): Worker {
         .select({
           id: workspaces.id,
           agentInstructions: workspaces.agentInstructions,
+          agentProvider: workspaces.agentProvider,
+          agentModelFast: workspaces.agentModelFast,
+          agentModelLargeContext: workspaces.agentModelLargeContext,
+          agentFastThresholdTokens: workspaces.agentFastThresholdTokens,
+          agentDailyTokenCap: workspaces.agentDailyTokenCap,
         })
         .from(workspaces)
         .where(eq(workspaces.id, workspaceId))
@@ -373,6 +411,9 @@ export function createIngestionAgentWorker(): Worker {
         process.env["AGENT_WORKSPACE_DAILY_TOKEN_CAP"],
         AGENT_LIMITS.WORKSPACE_DAILY_TOKEN_CAP,
       );
+      const effectiveWorkspaceDailyTokenCap =
+        workspace.agentDailyTokenCap ?? workspaceDailyTokenCap;
+      const workspaceAgentEnv = buildWorkspaceAgentEnv(workspace);
       const workspaceTokensUsedToday = await loadWorkspaceAgentTokensToday(
         db,
         workspaceId,
@@ -418,8 +459,9 @@ export function createIngestionAgentWorker(): Worker {
           workspaceAgentInstructions: workspace.agentInstructions,
           workspaceTokenUsage: {
             usedToday: workspaceTokensUsedToday,
-            cap: workspaceDailyTokenCap,
+            cap: effectiveWorkspaceDailyTokenCap,
           },
+          env: workspaceAgentEnv,
           reserveWorkspaceTokens: (reservationRequest) =>
             reserveWorkspaceAgentTokens(
               tracePublisher,

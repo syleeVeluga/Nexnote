@@ -8,7 +8,12 @@ import {
   Settings2,
   ShieldAlert,
 } from "lucide-react";
-import { type IngestionMode } from "@wekiflow/shared";
+import {
+  AGENT_MODEL_PRESETS_BY_PROVIDER,
+  type AgentModelPreset,
+  type AIProvider,
+  type IngestionMode,
+} from "@wekiflow/shared";
 import { useWorkspace } from "../hooks/use-workspace.js";
 import {
   agentRuns as agentRunsApi,
@@ -20,6 +25,8 @@ import { Badge, type BadgeTone } from "../components/ui/Badge.js";
 import { IconButton } from "../components/ui/IconButton.js";
 
 const INGESTION_MODES: IngestionMode[] = ["classic", "shadow", "agent"];
+const AGENT_PROVIDERS: AIProvider[] = ["openai", "gemini"];
+type ProviderChoice = AIProvider | "inherit";
 
 function percent(value: number | null): string {
   if (value == null) return "n/a";
@@ -30,6 +37,21 @@ function modeLabel(mode: IngestionMode): string {
   if (mode === "classic") return "Classic";
   if (mode === "shadow") return "Shadow";
   return "Agent";
+}
+
+function providerLabel(provider: ProviderChoice): string {
+  if (provider === "inherit") return "Inherit";
+  return provider === "openai" ? "OpenAI" : "Gemini";
+}
+
+function parseOptionalInteger(value: string, label: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive integer.`);
+  }
+  return parsed;
 }
 
 function gateLabel(status: AgentDiagnostics["gate"]["status"]): string {
@@ -50,6 +72,16 @@ export function AISettingsPage() {
   const { current, refresh } = useWorkspace();
   const [mode, setMode] = useState<IngestionMode>("classic");
   const [instructions, setInstructions] = useState("");
+  const [agentProvider, setAgentProvider] =
+    useState<ProviderChoice>("inherit");
+  const [agentModelFast, setAgentModelFast] = useState<AgentModelPreset | "">(
+    "",
+  );
+  const [agentModelLargeContext, setAgentModelLargeContext] = useState<
+    AgentModelPreset | ""
+  >("");
+  const [fastThresholdInput, setFastThresholdInput] = useState("");
+  const [dailyCapInput, setDailyCapInput] = useState("");
   const [diagnostics, setDiagnostics] = useState<AgentDiagnostics | null>(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -64,7 +96,30 @@ export function AISettingsPage() {
     if (!current) return;
     setMode(current.ingestionMode);
     setInstructions(current.agentInstructions ?? "");
+    setAgentProvider(current.agentProvider ?? "inherit");
+    setAgentModelFast(current.agentModelFast ?? "");
+    setAgentModelLargeContext(current.agentModelLargeContext ?? "");
+    setFastThresholdInput(
+      current.agentFastThresholdTokens == null
+        ? ""
+        : String(current.agentFastThresholdTokens),
+    );
+    setDailyCapInput(
+      current.agentDailyTokenCap == null
+        ? ""
+        : String(current.agentDailyTokenCap),
+    );
   }, [current]);
+
+  const modelOptions = useMemo(
+    () =>
+      agentProvider === "inherit"
+        ? []
+        : ([
+            ...AGENT_MODEL_PRESETS_BY_PROVIDER[agentProvider],
+          ] as AgentModelPreset[]),
+    [agentProvider],
+  );
 
   const loadDiagnostics = useCallback(async () => {
     if (!workspaceId || !canManage) return;
@@ -109,6 +164,18 @@ export function AISettingsPage() {
       setError(gate?.reason ?? "Shadow parity has not passed yet.");
       return;
     }
+    let fastThresholdTokens: number | null;
+    let dailyTokenCap: number | null;
+    try {
+      fastThresholdTokens = parseOptionalInteger(
+        fastThresholdInput,
+        "Fast threshold",
+      );
+      dailyTokenCap = parseOptionalInteger(dailyCapInput, "Daily token cap");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid agent settings");
+      return;
+    }
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -116,6 +183,11 @@ export function AISettingsPage() {
       await workspacesApi.update(workspaceId, {
         ingestionMode: mode,
         agentInstructions: instructions.trim() || null,
+        agentProvider: agentProvider === "inherit" ? null : agentProvider,
+        agentModelFast: agentModelFast || null,
+        agentModelLargeContext: agentModelLargeContext || null,
+        agentFastThresholdTokens: fastThresholdTokens,
+        agentDailyTokenCap: dailyTokenCap,
       });
       await refresh();
       await loadDiagnostics();
@@ -126,6 +198,12 @@ export function AISettingsPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function changeProvider(value: ProviderChoice) {
+    setAgentProvider(value);
+    setAgentModelFast("");
+    setAgentModelLargeContext("");
   }
 
   if (!current) return null;
@@ -232,6 +310,114 @@ export function AISettingsPage() {
               <span style={{ width: `${tokenPercent}%` }} />
             </div>
           </div>
+          <label className="ai-settings-field">
+            <span>Cap override</span>
+            <input
+              type="number"
+              min={10_000}
+              step={10_000}
+              inputMode="numeric"
+              value={dailyCapInput}
+              placeholder={String(
+                diagnostics?.agentSettings.effective.dailyTokenCap ?? "",
+              )}
+              onChange={(event) => setDailyCapInput(event.target.value)}
+            />
+          </label>
+        </div>
+      </section>
+
+      <section className="ai-settings-panel">
+        <header className="ai-settings-panel-header">
+          <span className="system-overview-icon" aria-hidden="true">
+            <Bot size={17} />
+          </span>
+          <div>
+            <h2>Model routing</h2>
+            <p>Provider, fast model, large-context model, and threshold.</p>
+          </div>
+        </header>
+
+        <div className="ai-settings-fields">
+          <label className="ai-settings-field">
+            <span>Provider</span>
+            <select
+              value={agentProvider}
+              onChange={(event) =>
+                changeProvider(event.target.value as ProviderChoice)
+              }
+            >
+              <option value="inherit">{providerLabel("inherit")}</option>
+              {AGENT_PROVIDERS.map((provider) => (
+                <option key={provider} value={provider}>
+                  {providerLabel(provider)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="ai-settings-field">
+            <span>Fast model</span>
+            <select
+              value={agentModelFast}
+              onChange={(event) =>
+                setAgentModelFast(event.target.value as AgentModelPreset | "")
+              }
+              disabled={agentProvider === "inherit"}
+            >
+              <option value="">Inherit</option>
+              {modelOptions.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="ai-settings-field">
+            <span>Large-context model</span>
+            <select
+              value={agentModelLargeContext}
+              onChange={(event) =>
+                setAgentModelLargeContext(
+                  event.target.value as AgentModelPreset | "",
+                )
+              }
+              disabled={agentProvider === "inherit"}
+            >
+              <option value="">Inherit</option>
+              {modelOptions.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="ai-settings-field">
+            <span>Fast threshold</span>
+            <input
+              type="number"
+              min={1_000}
+              step={1_000}
+              inputMode="numeric"
+              value={fastThresholdInput}
+              placeholder={String(
+                diagnostics?.agentSettings.effective.fastThresholdTokens ?? "",
+              )}
+              onChange={(event) => setFastThresholdInput(event.target.value)}
+            />
+          </label>
+        </div>
+
+        <div className="ai-effective-settings">
+          <span>Effective</span>
+          <code>
+            {diagnostics?.agentSettings.effective.provider ?? "default"} /{" "}
+            {diagnostics?.agentSettings.effective.modelFast ?? "default"} /{" "}
+            {diagnostics?.agentSettings.effective.modelLargeContext ??
+              "default"}
+          </code>
         </div>
       </section>
 

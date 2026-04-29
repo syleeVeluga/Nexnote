@@ -97,6 +97,33 @@ export const AI_MODELS = {
   GEMINI_DEFAULT: "gemini-3.1-pro",
 } as const;
 
+export const AGENT_MODEL_PRESETS_BY_PROVIDER = {
+  openai: ["gpt-5.4-mini", "gpt-5.4", "gpt-5.4-pro"],
+  gemini: ["gemini-3.1-flash-lite", "gemini-3.1-pro"],
+} as const satisfies Record<AIProvider, readonly string[]>;
+
+export const AGENT_MODEL_PRESETS = [
+  ...AGENT_MODEL_PRESETS_BY_PROVIDER.openai,
+  ...AGENT_MODEL_PRESETS_BY_PROVIDER.gemini,
+] as const;
+export type AgentModelPreset = (typeof AGENT_MODEL_PRESETS)[number];
+
+export function getAgentModelProvider(
+  model: string | null | undefined,
+): AIProvider | null {
+  if (!model) return null;
+  for (const provider of AI_PROVIDERS) {
+    if (
+      (AGENT_MODEL_PRESETS_BY_PROVIDER[provider] as readonly string[]).includes(
+        model,
+      )
+    ) {
+      return provider;
+    }
+  }
+  return null;
+}
+
 export const MODEL_RUN_MODES = [
   "route_decision",
   "agent_plan",
