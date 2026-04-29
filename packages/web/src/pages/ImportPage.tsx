@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import {
+  CheckCircle2,
+  FileUp,
+  FolderOpen,
+  Globe,
+  Home,
+  RefreshCw,
+  Send,
+  Type,
+  UploadCloud,
+  Zap,
+} from "lucide-react";
 import { useWorkspace } from "../hooks/use-workspace.js";
 import {
   ApiError,
@@ -16,6 +28,9 @@ import {
   destinationToParams,
   type DestinationValue,
 } from "../components/import/DestinationPicker.js";
+import { Badge } from "../components/ui/Badge.js";
+import { PageShell } from "../components/ui/PageShell.js";
+import { SegmentedTabs } from "../components/ui/SegmentedTabs.js";
 
 type TabKey = "file" | "url" | "text" | "api";
 
@@ -336,43 +351,29 @@ export function ImportPage() {
   if (!current) return null;
 
   return (
-    <div className="import-page">
-      <div className="import-header">
-        <h1>{t("title")}</h1>
-        <p className="import-subtitle">{t("subtitle")}</p>
-      </div>
-
-      <div className="import-tabs">
-        {(["file", "url", "text", "api"] as const).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            className={`import-tab${activeTab === tab ? " active" : ""}`}
-            onClick={() => setActiveTab(tab)}
-          >
-            {tab === "file"
-              ? t("tabFile")
-              : tab === "url"
-                ? t("tabUrl")
-                : tab === "text"
-                  ? t("tabText")
-                  : t("tabApi")}
-          </button>
-        ))}
-      </div>
-
+    <PageShell
+      className="import-page"
+      title={t("title")}
+      description={t("subtitle")}
+    >
       {activeTab !== "api" && workspaceId && (
         <div className="import-destination">
           <div className="import-destination-header">
+            <span className="import-destination-icon" aria-hidden="true">
+              <FolderOpen size={16} />
+            </span>
             <h2 className="import-destination-title">
               {t("destinationTitle", "Destination")}
             </h2>
             <p className="import-destination-help">
               {t(
                 "destinationHelp",
-                "Where the new page should land. Imports to a folder reuse that folder's existing entities (e.g. \"주식회사 벨루가\" merges with \"벨루가\") so the knowledge graph stays connected.",
+                'Where the new page should land. Imports to a folder reuse that folder\'s existing entities (e.g. "주식회사 벨루가" merges with "벨루가") so the knowledge graph stays connected.',
               )}
             </p>
+            <Badge tone="blue" size="sm" icon={<Home size={11} />}>
+              {t("destinationSelected", { defaultValue: "Selected" })}
+            </Badge>
           </div>
           <DestinationPicker
             workspaceId={workspaceId}
@@ -421,6 +422,7 @@ export function ImportPage() {
                 onClick={() => void toggleWorkspaceDefault()}
                 disabled={workspaceDefaultBusy}
               >
+                <RefreshCw size={12} aria-hidden="true" />
                 {workspaceDefaultBusy
                   ? t("common:loading")
                   : t("workspaceReconciliationDefaultToggle")}
@@ -429,6 +431,19 @@ export function ImportPage() {
           )}
         </div>
       )}
+
+      <SegmentedTabs
+        className="import-tabs"
+        value={activeTab}
+        onChange={(value) => setActiveTab(value as TabKey)}
+        ariaLabel={t("tabsLabel", { defaultValue: "Import method" })}
+        tabs={[
+          { id: "file", label: t("tabFile"), icon: <FileUp size={14} /> },
+          { id: "url", label: t("tabUrl"), icon: <Globe size={14} /> },
+          { id: "text", label: t("tabText"), icon: <Type size={14} /> },
+          { id: "api", label: t("tabApi"), icon: <Zap size={14} /> },
+        ]}
+      />
 
       <div className="import-body">
         {activeTab === "file" && (
@@ -451,6 +466,12 @@ export function ImportPage() {
               role="button"
               tabIndex={0}
             >
+              <UploadCloud
+                className="import-drop-icon"
+                size={32}
+                strokeWidth={1.6}
+                aria-hidden="true"
+              />
               <p className="import-drop-hint">{t("fileDropHint")}</p>
               <p className="import-drop-types">
                 {t("fileTypes", { sizeMb: SIZE_MB })}
@@ -463,6 +484,7 @@ export function ImportPage() {
                   handleBrowse();
                 }}
               >
+                <FileUp size={14} aria-hidden="true" />
                 {t("fileButton")}
               </button>
               <input
@@ -518,6 +540,7 @@ export function ImportPage() {
                           className="import-link-btn"
                           onClick={() => uploadOne(row, true)}
                         >
+                          <RefreshCw size={12} aria-hidden="true" />
                           {t("replayForce")}
                         </button>
                       )}
@@ -535,6 +558,7 @@ export function ImportPage() {
                     className="import-link-btn"
                     onClick={() => navigate("/review")}
                   >
+                    <CheckCircle2 size={12} aria-hidden="true" />
                     {t("successCta")}
                   </button>
                 )}
@@ -581,6 +605,7 @@ export function ImportPage() {
               className="import-primary-btn"
               disabled={urlBusy || !url.trim()}
             >
+              <Globe size={14} aria-hidden="true" />
               {t("urlSubmit")}
             </button>
             {urlResult && (
@@ -595,6 +620,7 @@ export function ImportPage() {
                     className="import-link-btn"
                     onClick={() => navigate("/review")}
                   >
+                    <CheckCircle2 size={12} aria-hidden="true" />
                     {t("successCta")}
                   </button>
                 )}
@@ -632,6 +658,7 @@ export function ImportPage() {
               className="import-primary-btn"
               disabled={textBusy || !text.trim()}
             >
+              <Send size={14} aria-hidden="true" />
               {t("textSubmit")}
             </button>
             {textResult && (
@@ -648,6 +675,7 @@ export function ImportPage() {
                     className="import-link-btn"
                     onClick={() => navigate("/review")}
                   >
+                    <CheckCircle2 size={12} aria-hidden="true" />
                     {t("successCta")}
                   </button>
                 )}
@@ -662,6 +690,6 @@ export function ImportPage() {
           </div>
         )}
       </div>
-    </div>
+    </PageShell>
   );
 }
