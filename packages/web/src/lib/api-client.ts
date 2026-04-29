@@ -234,6 +234,11 @@ export const folders = {
     });
     return request<Paginated<Folder>>(`/workspaces/${workspaceId}/folders${q}`);
   },
+  get(workspaceId: string, folderId: string) {
+    return request<{ data: Folder }>(
+      `/workspaces/${workspaceId}/folders/${folderId}`,
+    );
+  },
   create(
     workspaceId: string,
     data: { name: string; slug: string; parentFolderId?: string | null },

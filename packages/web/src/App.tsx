@@ -4,7 +4,8 @@ import { WorkspaceLayout } from "./components/layout/WorkspaceLayout.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { RegisterPage } from "./pages/RegisterPage.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
-import { PageListPage } from "./pages/PageListPage.js";
+import { WikiPage } from "./pages/WikiPage.js";
+import { FolderPage } from "./pages/FolderPage.js";
 import { PageEditorPage } from "./pages/PageEditorPage.js";
 import { NewPagePage } from "./pages/NewPagePage.js";
 import { ReviewQueuePage } from "./pages/ReviewQueuePage.js";
@@ -78,7 +79,8 @@ export function App() {
         }
       >
         <Route index element={<DashboardPage />} />
-        <Route path="wiki" element={<PageListPage />} />
+        <Route path="wiki" element={<WikiPage />} />
+        <Route path="folders/:folderId" element={<FolderPage />} />
         <Route path="pages/new" element={<NewPagePage />} />
         <Route path="pages/:pageId" element={<PageEditorPage />} />
         <Route path="review" element={<ReviewQueuePage />} />

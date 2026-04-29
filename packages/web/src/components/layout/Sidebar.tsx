@@ -1431,12 +1431,14 @@ function FolderNode({
             onBlur={shared.onSubmitRename}
           />
         ) : (
-          <button
-            className="page-node-link folder-link"
-            onClick={() => shared.onToggle(folder.id)}
+          <NavLink
+            to={`/folders/${folder.id}`}
+            className={({ isActive }) =>
+              `page-node-link folder-link${isActive ? " active" : ""}`
+            }
           >
             {label}
-          </button>
+          </NavLink>
         )}
         <button
           className="page-add-sub-btn"

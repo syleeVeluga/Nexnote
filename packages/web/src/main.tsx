@@ -16,6 +16,7 @@ import "./styles/import.css";
 import "./styles/admin.css";
 import "./styles/activity.css";
 import "./styles/dashboard.css";
+import "./styles/wiki.css";
 import "./styles/layout.css";
 
 createRoot(document.getElementById("root")!).render(

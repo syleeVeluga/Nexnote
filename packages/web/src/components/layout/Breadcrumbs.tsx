@@ -51,7 +51,10 @@ function folderChain(
     currentId = folder.parentFolderId;
   }
 
-  return chain.map((folder) => ({ label: folder.name }));
+  return chain.map((folder) => ({
+    label: folder.name,
+    to: `/folders/${folder.id}`,
+  }));
 }
 
 function pageChain(
