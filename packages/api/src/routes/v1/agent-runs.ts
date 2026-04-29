@@ -24,7 +24,7 @@ import { sendValidationError } from "../../lib/reply-helpers.js";
 import {
   evaluateAgentParityGate,
   listAgentParityDailyRows,
-  readAgentParityGateCriteria,
+  readAgentParityGateCriteriaForWorkspace,
 } from "../../lib/agent-parity-gate.js";
 
 const agentRunParamsSchema = workspaceParamsSchema.extend({
@@ -425,7 +425,10 @@ const agentRunRoutes: FastifyPluginAsync = async (fastify) => {
         envModel: process.env["AGENT_MODEL_LARGE_CONTEXT"],
         provider: effectiveProvider,
       });
-      const gateCriteria = readAgentParityGateCriteria();
+      const gateCriteria = await readAgentParityGateCriteriaForWorkspace(
+        fastify.db,
+        workspaceId,
+      );
       const dailyAgreement = await listAgentParityDailyRows(
         fastify.db,
         workspaceId,

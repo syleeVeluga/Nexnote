@@ -40,6 +40,32 @@ export const updateWorkspaceSchema = createWorkspaceSchema
       .max(500_000_000)
       .nullable()
       .optional(),
+    agentParityMinObservedDays: z
+      .number()
+      .int()
+      .min(1)
+      .max(30)
+      .nullable()
+      .optional(),
+    agentParityMinComparableCount: z
+      .number()
+      .int()
+      .min(1)
+      .max(1000)
+      .nullable()
+      .optional(),
+    agentParityMinActionAgreementRate: z
+      .number()
+      .min(0)
+      .max(1)
+      .nullable()
+      .optional(),
+    agentParityMinTargetPageAgreementRate: z
+      .number()
+      .min(0)
+      .max(1)
+      .nullable()
+      .optional(),
   })
   .partial();
 

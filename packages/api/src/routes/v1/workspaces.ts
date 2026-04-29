@@ -71,6 +71,16 @@ function toWorkspaceDto(row: typeof workspaces.$inferSelect) {
     agentModelLargeContext: row.agentModelLargeContext,
     agentFastThresholdTokens: row.agentFastThresholdTokens,
     agentDailyTokenCap: row.agentDailyTokenCap,
+    agentParityMinObservedDays: row.agentParityMinObservedDays,
+    agentParityMinComparableCount: row.agentParityMinComparableCount,
+    agentParityMinActionAgreementRate:
+      row.agentParityMinActionAgreementRate == null
+        ? null
+        : Number(row.agentParityMinActionAgreementRate),
+    agentParityMinTargetPageAgreementRate:
+      row.agentParityMinTargetPageAgreementRate == null
+        ? null
+        : Number(row.agentParityMinTargetPageAgreementRate),
     useReconciliationDefault: row.useReconciliationDefault,
     ingestionMode: row.ingestionMode,
     createdAt: row.createdAt.toISOString(),
@@ -246,6 +256,13 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
             agentModelLargeContext: workspaces.agentModelLargeContext,
             agentFastThresholdTokens: workspaces.agentFastThresholdTokens,
             agentDailyTokenCap: workspaces.agentDailyTokenCap,
+            agentParityMinObservedDays: workspaces.agentParityMinObservedDays,
+            agentParityMinComparableCount:
+              workspaces.agentParityMinComparableCount,
+            agentParityMinActionAgreementRate:
+              workspaces.agentParityMinActionAgreementRate,
+            agentParityMinTargetPageAgreementRate:
+              workspaces.agentParityMinTargetPageAgreementRate,
             useReconciliationDefault: workspaces.useReconciliationDefault,
             ingestionMode: workspaces.ingestionMode,
             createdAt: workspaces.createdAt,
@@ -325,10 +342,31 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
         return sendValidationError(reply, bodyResult.error.issues);
       const body = bodyResult.data;
       const userId = request.user.sub;
-      const workspacePatch = {
-        ...body,
+      const {
+        agentParityMinActionAgreementRate: rawActionRate,
+        agentParityMinTargetPageAgreementRate: rawTargetRate,
+        ...bodyRest
+      } = body;
+      const numericRateToString = (value: number | null | undefined) => {
+        if (value == null) return value as null | undefined;
+        return value.toFixed(3);
+      };
+      const workspacePatch: Partial<typeof workspaces.$inferInsert> = {
+        ...bodyRest,
         ...("agentInstructions" in body
           ? { agentInstructions: body.agentInstructions?.trim() || null }
+          : {}),
+        ...("agentParityMinActionAgreementRate" in body
+          ? {
+              agentParityMinActionAgreementRate:
+                numericRateToString(rawActionRate),
+            }
+          : {}),
+        ...("agentParityMinTargetPageAgreementRate" in body
+          ? {
+              agentParityMinTargetPageAgreementRate:
+                numericRateToString(rawTargetRate),
+            }
           : {}),
       };
 

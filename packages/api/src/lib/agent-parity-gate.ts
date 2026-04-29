@@ -1,5 +1,6 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Database } from "@wekiflow/db/client";
+import { workspaces } from "@wekiflow/db";
 
 export interface AgentParityGateCriteria {
   minObservedDays: number;
@@ -98,6 +99,66 @@ export function readAgentParityGateCriteria(
       0.85,
     ),
   };
+}
+
+export interface AgentParityGateOverrides {
+  minObservedDays?: number | null;
+  minComparableCount?: number | null;
+  minActionAgreementRate?: number | string | null;
+  minTargetPageAgreementRate?: number | string | null;
+}
+
+export function applyAgentParityGateOverrides(
+  base: AgentParityGateCriteria,
+  overrides: AgentParityGateOverrides | null | undefined,
+): AgentParityGateCriteria {
+  if (!overrides) return base;
+  const merged: AgentParityGateCriteria = { ...base };
+  if (
+    overrides.minObservedDays != null &&
+    Number.isFinite(overrides.minObservedDays)
+  ) {
+    merged.minObservedDays = overrides.minObservedDays;
+  }
+  if (
+    overrides.minComparableCount != null &&
+    Number.isFinite(overrides.minComparableCount)
+  ) {
+    merged.minComparableCount = overrides.minComparableCount;
+  }
+  if (overrides.minActionAgreementRate != null) {
+    const parsed = Number(overrides.minActionAgreementRate);
+    if (Number.isFinite(parsed)) {
+      merged.minActionAgreementRate = Math.max(0, Math.min(1, parsed));
+    }
+  }
+  if (overrides.minTargetPageAgreementRate != null) {
+    const parsed = Number(overrides.minTargetPageAgreementRate);
+    if (Number.isFinite(parsed)) {
+      merged.minTargetPageAgreementRate = Math.max(0, Math.min(1, parsed));
+    }
+  }
+  return merged;
+}
+
+export async function readAgentParityGateCriteriaForWorkspace(
+  db: Database,
+  workspaceId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<AgentParityGateCriteria> {
+  const base = readAgentParityGateCriteria(env);
+  const [row] = await db
+    .select({
+      minObservedDays: workspaces.agentParityMinObservedDays,
+      minComparableCount: workspaces.agentParityMinComparableCount,
+      minActionAgreementRate: workspaces.agentParityMinActionAgreementRate,
+      minTargetPageAgreementRate:
+        workspaces.agentParityMinTargetPageAgreementRate,
+    })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
+    .limit(1);
+  return applyAgentParityGateOverrides(base, row ?? null);
 }
 
 export function evaluateAgentParityGate(
@@ -241,7 +302,10 @@ export async function readAgentParityGateStatus(
   db: Database,
   workspaceId: string,
 ): Promise<AgentParityGateStatus> {
-  const criteria = readAgentParityGateCriteria();
+  const criteria = await readAgentParityGateCriteriaForWorkspace(
+    db,
+    workspaceId,
+  );
   const dailyRows = await listAgentParityDailyRows(
     db,
     workspaceId,
