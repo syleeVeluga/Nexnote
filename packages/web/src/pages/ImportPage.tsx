@@ -4,9 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   CheckCircle2,
   FileUp,
-  FolderOpen,
   Globe,
-  Home,
   RefreshCw,
   Send,
   Type,
@@ -28,7 +26,6 @@ import {
   destinationToParams,
   type DestinationValue,
 } from "../components/import/DestinationPicker.js";
-import { Badge } from "../components/ui/Badge.js";
 import { PageShell } from "../components/ui/PageShell.js";
 import { SegmentedTabs } from "../components/ui/SegmentedTabs.js";
 
@@ -359,26 +356,18 @@ export function ImportPage() {
       {activeTab !== "api" && workspaceId && (
         <div className="import-destination">
           <div className="import-destination-header">
-            <span className="import-destination-icon" aria-hidden="true">
-              <FolderOpen size={16} />
-            </span>
             <h2 className="import-destination-title">
-              {t("destinationTitle", "Destination")}
+              {t("destinationTitle")}
             </h2>
             <p className="import-destination-help">
-              {t(
-                "destinationHelp",
-                'Where the new page should land. Imports to a folder reuse that folder\'s existing entities (e.g. "주식회사 벨루가" merges with "벨루가") so the knowledge graph stays connected.',
-              )}
+              {t("destinationHelp")}
             </p>
-            <Badge tone="blue" size="sm" icon={<Home size={11} />}>
-              {t("destinationSelected", { defaultValue: "Selected" })}
-            </Badge>
           </div>
           <DestinationPicker
             workspaceId={workspaceId}
             value={destination}
             onChange={setDestination}
+            selectedLabel={t("destinationSelected")}
           />
           <label className="import-checkbox import-destination-toggle">
             <input
@@ -390,22 +379,13 @@ export function ImportPage() {
               }}
             />
             <span>
-              {t(
-                "useReconciliation",
-                "Reconcile with destination's existing entities",
-              )}
+              {t("useReconciliation")}
             </span>
           </label>
           <p className="import-destination-toggle-help">
             {useReconciliation
-              ? t(
-                  "useReconciliationOn",
-                  "Recommended. Similar entities in the chosen folder/page will be reused (alias logged).",
-                )
-              : t(
-                  "useReconciliationOff",
-                  "Fresh extraction — every entity name found in this import becomes a new entity.",
-                )}
+              ? t("useReconciliationOn")
+              : t("useReconciliationOff")}
           </p>
           {canEditWorkspaceDefault && (
             <div className="import-workspace-default">
@@ -436,7 +416,7 @@ export function ImportPage() {
         className="import-tabs"
         value={activeTab}
         onChange={(value) => setActiveTab(value as TabKey)}
-        ariaLabel={t("tabsLabel", { defaultValue: "Import method" })}
+        ariaLabel={t("tabsLabel")}
         tabs={[
           { id: "file", label: t("tabFile"), icon: <FileUp size={14} /> },
           { id: "url", label: t("tabUrl"), icon: <Globe size={14} /> },

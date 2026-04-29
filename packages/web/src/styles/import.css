@@ -432,18 +432,19 @@
 
 /* Destination picker (import flow) */
 .import-destination {
-  padding: 16px 18px;
+  padding: 18px 18px 22px;
   border: 1px solid var(--wf-color-border);
   border-radius: var(--wf-radius-lg);
   background: var(--wf-color-bg-warm);
 }
 
 .import-destination-header {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 18px;
+  text-align: center;
 }
 
 .import-destination-icon {
@@ -457,14 +458,15 @@
 }
 
 .import-destination-title {
-  margin: 0 0 4px;
-  font-size: 14px;
+  margin: 0;
+  font-size: 15px;
   font-weight: 700;
   color: var(--wf-color-ink);
 }
 .import-destination-help {
   margin: 0;
-  font-size: 12px;
+  max-width: 520px;
+  font-size: 13px;
   color: var(--wf-color-ink-subtle);
 }
 .import-destination-toggle {
@@ -531,6 +533,7 @@
   cursor: pointer;
   padding: 2px 4px;
   color: var(--wf-color-ink);
+  min-width: 0;
 }
 .destination-picker-label:hover {
   background: var(--wf-color-bg-warm);
@@ -538,6 +541,13 @@
 }
 .destination-picker-icon {
   font-size: 13px;
+}
+.destination-picker-selected {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--wf-color-blue);
+  white-space: nowrap;
 }
 .destination-picker-loading,
 .destination-picker-error {
@@ -552,14 +562,6 @@
 @media (max-width: 720px) {
   .import-page .page-shell-content {
     width: 100%;
-  }
-
-  .import-destination-header {
-    grid-template-columns: 22px minmax(0, 1fr);
-  }
-
-  .import-destination-header .ui-badge {
-    grid-column: 2;
   }
 
   .import-dropzone {

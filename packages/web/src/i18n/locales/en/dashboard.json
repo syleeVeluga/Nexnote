@@ -2,7 +2,7 @@
   "eyebrow": "Workspace overview",
   "greeting": "Good to see you, {{name}}",
   "description": "Track what AI applied automatically, what needs review, and where wiki content changed recently.",
-  "importAction": "Import",
+  "importAction": "Register",
   "metrics": {
     "autoApplied": "Auto-applied",
     "autoAppliedDetail": "Applied by AI in the last 24 hours",

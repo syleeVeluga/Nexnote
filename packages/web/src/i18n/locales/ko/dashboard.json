@@ -2,7 +2,7 @@
   "eyebrow": "워크스페이스 개요",
   "greeting": "{{name}}님, 안녕하세요",
   "description": "AI가 자동 반영한 변경, 검토가 필요한 항목, 최근 바뀐 위키 문서를 한 곳에서 확인합니다.",
-  "importAction": "가져오기",
+  "importAction": "등록하기",
   "metrics": {
     "autoApplied": "자동 반영",
     "autoAppliedDetail": "최근 24시간 동안 AI가 반영한 변경",

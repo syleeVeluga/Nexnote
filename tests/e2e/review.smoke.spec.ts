@@ -2,20 +2,20 @@ import { test, expect } from "@playwright/test";
 import { registerUser } from "../support/e2e-helpers.ts";
 
 test(
-  "imports suggested content and approves it from the review queue",
+  "registers suggested content and approves it from the review queue",
   { tag: "@smoke" },
   async ({ page }) => {
     await registerUser(page, "review");
 
     await page.goto("/import");
-    await page.getByRole("tab", { name: "Paste" }).click();
+    await page.getByRole("tab", { name: "Direct input" }).click();
     await page.getByLabel("Title hint (optional)").fill("Suggested Smoke");
     await page
       .getByLabel("Markdown or plain text")
       .fill(
         "# [E2E_SUGGEST]\n\n[E2E_SUGGEST] requires human approval before publish.",
       );
-    await page.getByRole("button", { name: "Import text" }).click();
+    await page.getByRole("button", { name: "Register knowledge" }).click();
 
     const reviewLink = page.getByRole("button", { name: "Open review queue" });
     await expect(reviewLink).toBeVisible();

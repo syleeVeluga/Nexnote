@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useTranslation } from "react-i18next";
 import {
   pages as pagesApi,
   folders as foldersApi,
@@ -21,6 +22,8 @@ interface DestinationPickerProps {
   /** Optional id list (folders+pages) that should be hidden — e.g. moving a page should not let you pick its own subtree as destination. */
   hiddenFolderIds?: Set<string>;
   hiddenPageIds?: Set<string>;
+  /** Optional label shown inline on the currently selected destination row. */
+  selectedLabel?: string;
 }
 
 const INDENT_PX = 14;
@@ -38,7 +41,9 @@ export function DestinationPicker({
   label,
   hiddenFolderIds,
   hiddenPageIds,
+  selectedLabel,
 }: DestinationPickerProps) {
+  const { t } = useTranslation("import");
   const [folders, setFolders] = useState<Folder[]>([]);
   const [pages, setPages] = useState<Page[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,7 +65,7 @@ export function DestinationPicker({
         setPages(pagesRes.data);
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Failed to load tree");
+          setError(e instanceof Error ? e.message : "");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -86,6 +91,12 @@ export function DestinationPicker({
 
   const isFolderHidden = (id: string) => hiddenFolderIds?.has(id) ?? false;
   const isPageHidden = (id: string) => hiddenPageIds?.has(id) ?? false;
+  const selectedText = selectedLabel ?? t("destinationSelected");
+
+  const renderSelectedLabel = (selected: boolean) =>
+    selected ? (
+      <span className="destination-picker-selected">{selectedText}</span>
+    ) : null;
 
   // Render a folder row + its children if expanded.
   const renderFolder = (folder: Folder, depth: number): ReactElement | null => {
@@ -107,7 +118,9 @@ export function DestinationPicker({
             type="button"
             className="destination-picker-toggle"
             onClick={() => hasChildren && toggleExpand(key)}
-            aria-label={isOpen ? "Collapse" : "Expand"}
+            aria-label={
+              isOpen ? t("destinationCollapse") : t("destinationExpand")
+            }
             disabled={!hasChildren}
           >
             {hasChildren ? (isOpen ? "▾" : "▸") : "·"}
@@ -121,6 +134,7 @@ export function DestinationPicker({
           >
             <span className="destination-picker-icon">📁</span>
             <span>{folder.name}</span>
+            {renderSelectedLabel(selected)}
           </button>
         </div>
         {isOpen && hasChildren && (
@@ -150,7 +164,9 @@ export function DestinationPicker({
             type="button"
             className="destination-picker-toggle"
             onClick={() => hasChildren && toggleExpand(key)}
-            aria-label={isOpen ? "Collapse" : "Expand"}
+            aria-label={
+              isOpen ? t("destinationCollapse") : t("destinationExpand")
+            }
             disabled={!hasChildren}
           >
             {hasChildren ? (isOpen ? "▾" : "▸") : "·"}
@@ -162,6 +178,7 @@ export function DestinationPicker({
           >
             <span className="destination-picker-icon">📄</span>
             <span>{page.title}</span>
+            {renderSelectedLabel(selected)}
           </button>
         </div>
         {isOpen && hasChildren && (
@@ -178,9 +195,15 @@ export function DestinationPicker({
   return (
     <div className="destination-picker">
       {label && <div className="destination-picker-title">{label}</div>}
-      {error && <div className="destination-picker-error">{error}</div>}
+      {error !== null && (
+        <div className="destination-picker-error">
+          {error || t("destinationLoadFailed")}
+        </div>
+      )}
       {loading ? (
-        <div className="destination-picker-loading">Loading…</div>
+        <div className="destination-picker-loading">
+          {t("destinationLoading")}
+        </div>
       ) : (
         <div className="destination-picker-tree">
           <div
@@ -194,7 +217,8 @@ export function DestinationPicker({
               onClick={() => onChange({ kind: "root" })}
             >
               <span className="destination-picker-icon">🏠</span>
-              <span>Workspace root</span>
+              <span>{t("destinationRoot")}</span>
+              {renderSelectedLabel(rootSelected)}
             </button>
           </div>
           {rootFolders.map((f) => renderFolder(f, 1))}
