@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -6,6 +6,7 @@ import {
   uuid,
   primaryKey,
   boolean,
+  check,
 } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -19,21 +20,31 @@ export const users = pgTable("users", {
     .defaultNow(),
 });
 
-export const workspaces = pgTable("workspaces", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
-  defaultAiPolicy: text("default_ai_policy"),
-  useReconciliationDefault: boolean("use_reconciliation_default")
-    .notNull()
-    .default(true),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const workspaces = pgTable(
+  "workspaces",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull().unique(),
+    defaultAiPolicy: text("default_ai_policy"),
+    useReconciliationDefault: boolean("use_reconciliation_default")
+      .notNull()
+      .default(true),
+    ingestionMode: text("ingestion_mode").notNull().default("classic"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check(
+      "workspaces_ingestion_mode_chk",
+      sql`${t.ingestionMode} IN ('classic','shadow','agent')`,
+    ),
+  ],
+);
 
 export const workspaceMembers = pgTable(
   "workspace_members",

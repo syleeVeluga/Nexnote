@@ -9,26 +9,34 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { workspaces, users } from "./users.js";
+import { agentRuns } from "./agent-runs.js";
 
-export const modelRuns = pgTable("model_runs", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  workspaceId: uuid("workspace_id")
-    .notNull()
-    .references(() => workspaces.id, { onDelete: "cascade" }),
-  provider: text("provider").notNull(),
-  modelName: text("model_name").notNull(),
-  mode: text("mode").notNull(),
-  promptVersion: text("prompt_version").notNull(),
-  tokenInput: integer("token_input"),
-  tokenOutput: integer("token_output"),
-  latencyMs: integer("latency_ms"),
-  status: text("status").notNull(),
-  requestMetaJson: jsonb("request_meta_json"),
-  responseMetaJson: jsonb("response_meta_json"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const modelRuns = pgTable(
+  "model_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    modelName: text("model_name").notNull(),
+    mode: text("mode").notNull(),
+    promptVersion: text("prompt_version").notNull(),
+    tokenInput: integer("token_input"),
+    tokenOutput: integer("token_output"),
+    latencyMs: integer("latency_ms"),
+    status: text("status").notNull(),
+    agentRunId: uuid("agent_run_id").references(() => agentRuns.id, {
+      onDelete: "set null",
+    }),
+    requestMetaJson: jsonb("request_meta_json"),
+    responseMetaJson: jsonb("response_meta_json"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("model_runs_agent_run_idx").on(t.agentRunId)],
+);
 
 export const auditLogs = pgTable(
   "audit_logs",
@@ -69,6 +77,10 @@ export const modelRunsRelations = relations(modelRuns, ({ one }) => ({
   workspace: one(workspaces, {
     fields: [modelRuns.workspaceId],
     references: [workspaces.id],
+  }),
+  agentRun: one(agentRuns, {
+    fields: [modelRuns.agentRunId],
+    references: [agentRuns.id],
   }),
 }));
 
