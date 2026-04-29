@@ -5,6 +5,7 @@ import { parseEnv } from "node:util";
 import type { Worker } from "bullmq";
 import {
   createRouteClassifierWorker,
+  createIngestionAgentWorker,
   createPatchGeneratorWorker,
   createTripleExtractorWorker,
   createPublishRendererWorker,
@@ -38,6 +39,7 @@ const workers: Worker[] = [];
 function startWorkers(): void {
   logger.info("Starting WekiFlow workers...");
   workers.push(createRouteClassifierWorker());
+  workers.push(createIngestionAgentWorker());
   workers.push(createPatchGeneratorWorker());
   workers.push(createTripleExtractorWorker());
   workers.push(createPublishRendererWorker());

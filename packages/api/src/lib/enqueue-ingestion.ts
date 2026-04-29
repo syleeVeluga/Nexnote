@@ -11,11 +11,54 @@ import {
 import {
   DEFAULT_JOB_OPTIONS,
   JOB_NAMES,
+  type IngestionAgentJobData,
+  type IngestionMode,
   type RouteClassifierJobData,
 } from "@wekiflow/shared";
 import { isUniqueViolation } from "./reply-helpers.js";
 
 const BROWSER_IMPORT_TOKEN_NAME = "Browser Import (auto)";
+
+function shouldRunShadowAgent(mode: IngestionMode): boolean {
+  return mode === "shadow" || mode === "agent";
+}
+
+async function enqueueProcessingJobs(
+  fastify: FastifyInstance,
+  input: {
+    ingestionId: string;
+    workspaceId: string;
+    ingestionMode: IngestionMode;
+  },
+): Promise<void> {
+  const routeJobData: RouteClassifierJobData = {
+    ingestionId: input.ingestionId,
+    workspaceId: input.workspaceId,
+  };
+
+  // AGENT-4 only records shadow plans. Keep the classic classifier active for
+  // all modes until AGENT-5 adds mutation execution that can own decisions.
+  await fastify.queues.ingestion.add(JOB_NAMES.ROUTE_CLASSIFIER, routeJobData, {
+    jobId: input.ingestionId,
+    ...DEFAULT_JOB_OPTIONS,
+  });
+
+  if (!shouldRunShadowAgent(input.ingestionMode)) return;
+
+  const agentJobData: IngestionAgentJobData = {
+    ingestionId: input.ingestionId,
+    workspaceId: input.workspaceId,
+    mode: "shadow",
+  };
+  await fastify.queues["ingestion-agent"].add(
+    JOB_NAMES.INGESTION_AGENT,
+    agentJobData,
+    {
+      jobId: `${input.ingestionId}:agent-shadow`,
+      ...DEFAULT_JOB_OPTIONS,
+    },
+  );
+}
 
 // Provisions a hidden auto-token so browser-initiated ingestion rows can
 // satisfy the api_token_id NOT NULL FK. The hash is random bytes that are
@@ -99,18 +142,21 @@ export async function enqueueIngestion(
   const apiTokenId =
     input.apiTokenId ??
     (await getOrCreateImportTokenId(fastify, input.workspaceId, input.userId));
+  const [workspaceSettings] = await fastify.db
+    .select({
+      useReconciliationDefault: workspaces.useReconciliationDefault,
+      ingestionMode: workspaces.ingestionMode,
+    })
+    .from(workspaces)
+    .where(eq(workspaces.id, input.workspaceId))
+    .limit(1);
   const useReconciliation =
     input.useReconciliation ??
-    (
-      await fastify.db
-        .select({
-          useReconciliationDefault: workspaces.useReconciliationDefault,
-        })
-        .from(workspaces)
-        .where(eq(workspaces.id, input.workspaceId))
-        .limit(1)
-    )[0]?.useReconciliationDefault ??
+    workspaceSettings?.useReconciliationDefault ??
     true;
+  const ingestionMode =
+    (workspaceSettings?.ingestionMode as IngestionMode | undefined) ??
+    "classic";
 
   // XOR is enforced by the Zod refine on /import schemas and the DB CHECK on
   // ingestions; no inline guard needed here.
@@ -164,15 +210,17 @@ export async function enqueueIngestion(
           if (prior) {
             await prior.remove().catch(() => undefined);
           }
-          const retryJobData: RouteClassifierJobData = {
+          const priorAgent = await fastify.queues["ingestion-agent"].getJob(
+            `${existing.id}:agent-shadow`,
+          );
+          if (priorAgent) {
+            await priorAgent.remove().catch(() => undefined);
+          }
+          await enqueueProcessingJobs(fastify, {
             ingestionId: existing.id,
             workspaceId: input.workspaceId,
-          };
-          await fastify.queues.ingestion.add(
-            JOB_NAMES.ROUTE_CLASSIFIER,
-            retryJobData,
-            { jobId: existing.id, ...DEFAULT_JOB_OPTIONS },
-          );
+            ingestionMode,
+          });
           return { ingestion: reset ?? existing, replayed: false };
         }
         return { ingestion: existing, replayed: true };
@@ -197,13 +245,10 @@ export async function enqueueIngestion(
     },
   });
 
-  const jobData: RouteClassifierJobData = {
+  await enqueueProcessingJobs(fastify, {
     ingestionId: row.id,
     workspaceId: input.workspaceId,
-  };
-  await fastify.queues.ingestion.add(JOB_NAMES.ROUTE_CLASSIFIER, jobData, {
-    jobId: row.id,
-    ...DEFAULT_JOB_OPTIONS,
+    ingestionMode,
   });
 
   return { ingestion: row, replayed: false };

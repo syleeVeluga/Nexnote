@@ -52,10 +52,12 @@ Five tools (`search_pages`, `read_page`, `list_folder`, `find_related_entities`,
 
 - Done: shared tool input schemas landed in `packages/shared/src/schemas/agent.ts`; worker read tools live under `packages/worker/src/lib/agent/tools/read.ts`; `createAgentDispatcher()` validates, strips LLM-supplied workspace IDs, dedupes parsed args, enforces quotas/turn limits, and records seen page/block IDs. Tests cover dispatcher safety and markdown block IDs.
 
-### AGENT-4 · [HIGH] Agent loop in shadow mode
+### AGENT-4 · [DONE · 2026-04-29] Agent loop in shadow mode
 *Phase B · Size L · Blocked by: AGENT-1 + AGENT-2 + AGENT-3 · Followed by: 1-week parity gate · Sub-doc on entry: `docs/ingestion-agent-step-4-loop-shadow.md`*
 
 Explore→plan→execute orchestrator. Shadow mode: agent runs alongside the classic classifier, writes only to `agent_runs.plan_json`; classic still owns `ingestion_decisions`. **One-week parity dashboard** (action match-rate, target-page match-rate) before any workspace flips to `agent`. Token budgeter (800k input / 60k output, model routing fast vs Opus-1M/Gemini-1M/gpt-5.4-pro), adaptive read truncation.
+
+- Done: `ingestionAgentPlanSchema` and `agent_plan` model-run mode landed; `budgeter.ts` handles env-backed limits, fast/large model routing, and plan-context packing; `loop.ts` runs read-only tool exploration then writes a structured shadow plan; `ingestion-agent` BullMQ worker records `agent_runs.plan_json` / `steps_json` / linked `model_runs`; enqueue now runs classic classifier plus a separate `ingestion-agent` queue in `shadow` mode. Classic remains the decision owner until AGENT-5.
 
 ### AGENT-5 · [HIGH] Mutate tool wrappers (3-tier patches)
 *Phase C · Size L · Blocked by: parity gate (AGENT-4 + 1-week observation) · Sub-doc on entry: `docs/ingestion-agent-step-5-mutate-tiers.md`*

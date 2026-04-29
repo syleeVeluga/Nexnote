@@ -8,6 +8,7 @@ declare module "fastify" {
   interface FastifyInstance {
     queues: {
       ingestion: Queue;
+      "ingestion-agent": Queue;
       patch: Queue;
       extraction: Queue;
       publish: Queue;
@@ -28,6 +29,9 @@ async function queuePluginImpl(fastify: FastifyInstance) {
   const sharedRedis = createConnection();
 
   const ingestionQueue = new Queue(QUEUE_NAMES.INGESTION, {
+    connection: createConnection(),
+  });
+  const ingestionAgentQueue = new Queue(QUEUE_NAMES.INGESTION_AGENT, {
     connection: createConnection(),
   });
   const patchQueue = new Queue(QUEUE_NAMES.PATCH, {
@@ -57,6 +61,7 @@ async function queuePluginImpl(fastify: FastifyInstance) {
   fastify.decorate("redis", sharedRedis);
   fastify.decorate("queues", {
     ingestion: ingestionQueue,
+    "ingestion-agent": ingestionAgentQueue,
     patch: patchQueue,
     extraction: extractionQueue,
     publish: publishQueue,
@@ -68,6 +73,7 @@ async function queuePluginImpl(fastify: FastifyInstance) {
   fastify.addHook("onClose", async () => {
     await Promise.all([
       ingestionQueue.close(),
+      ingestionAgentQueue.close(),
       patchQueue.close(),
       extractionQueue.close(),
       publishQueue.close(),

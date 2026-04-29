@@ -79,6 +79,19 @@ export interface AgentDispatcher {
   ): Promise<AgentToolExecution[]>;
 }
 
+export interface AgentRunTraceStep {
+  step: number;
+  type:
+    | "model_selection"
+    | "ai_response"
+    | "tool_result"
+    | "plan"
+    | "shadow_execute_skipped"
+    | "error";
+  payload: Record<string, unknown>;
+  ts: string;
+}
+
 export class AgentToolError extends Error {
   constructor(
     public readonly code: AgentToolErrorPayload["code"],
