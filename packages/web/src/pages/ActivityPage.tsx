@@ -1,6 +1,15 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import {
+  Bot,
+  CalendarDays,
+  Database,
+  FilterX,
+  MonitorCog,
+  User,
+} from "lucide-react";
 import { useWorkspace } from "../hooks/use-workspace.js";
 import { useTimeAgo } from "../hooks/use-time-ago.js";
 import {
@@ -10,6 +19,8 @@ import {
   type ActivityEntityType,
   type ActivityListParams,
 } from "../lib/api-client.js";
+import { Badge, type BadgeTone } from "../components/ui/Badge.js";
+import { PageShell } from "../components/ui/PageShell.js";
 
 const ACTOR_OPTIONS: (ActivityActorType | "all")[] = [
   "all",
@@ -89,9 +100,7 @@ export function ActivityPage() {
   const actionOptions = useMemo(() => {
     if (filters.entityType === "all") {
       return Array.from(
-        new Set(
-          Object.values(ACTIONS_BY_ENTITY).flat(),
-        ),
+        new Set(Object.values(ACTIONS_BY_ENTITY).flat()),
       ).sort();
     }
     return ACTIONS_BY_ENTITY[filters.entityType] ?? [];
@@ -130,7 +139,7 @@ export function ActivityPage() {
       const next = { ...prev, [key]: value };
       if (key === "entityType") {
         const allowed =
-          value === "all" ? null : ACTIONS_BY_ENTITY[value as string] ?? [];
+          value === "all" ? null : (ACTIONS_BY_ENTITY[value as string] ?? []);
         if (allowed && !allowed.includes(prev.action)) {
           next.action = "";
         }
@@ -146,17 +155,16 @@ export function ActivityPage() {
   if (!current) return null;
 
   return (
-    <div className="activity-page">
-      <div className="activity-header">
-        <div>
-          <h1>{t("title")}</h1>
-          <p className="activity-subtitle">{t("subtitle")}</p>
-        </div>
-        <span className="activity-total">
+    <PageShell
+      className="activity-page"
+      title={t("title")}
+      description={t("subtitle")}
+      actions={
+        <Badge tone="warm" size="md">
           {t("total", { count: total })}
-        </span>
-      </div>
-
+        </Badge>
+      }
+    >
       <div className="activity-filters">
         <label className="activity-filter">
           <span>{t("filters.actor.label")}</span>
@@ -229,11 +237,12 @@ export function ActivityPage() {
           className="activity-reset-btn"
           onClick={resetFilters}
         >
+          <FilterX size={13} aria-hidden="true" />
           {t("filters.reset")}
         </button>
       </div>
 
-      <div className="activity-list">
+      <div className="activity-timeline">
         {loading && items.length === 0 ? (
           <div className="activity-empty">{t("loading")}</div>
         ) : items.length === 0 ? (
@@ -263,8 +272,31 @@ export function ActivityPage() {
           {loading ? t("loading") : t("loadMore")}
         </button>
       )}
-    </div>
+    </PageShell>
   );
+}
+
+function actorBadge(item: ActivityItem, t: TFunction) {
+  switch (item.actor.type) {
+    case "ai":
+      return {
+        label: t("actor.ai"),
+        tone: "blue" as BadgeTone,
+        icon: <Bot size={11} />,
+      };
+    case "system":
+      return {
+        label: t("actor.system"),
+        tone: "warm" as BadgeTone,
+        icon: <MonitorCog size={11} />,
+      };
+    default:
+      return {
+        label: t("filters.actor.user"),
+        tone: "teal" as BadgeTone,
+        icon: <User size={11} />,
+      };
+  }
 }
 
 function ActivityRow({
@@ -283,35 +315,44 @@ function ActivityRow({
         : t("actor.ai")
       : item.actor.type === "system"
         ? t("actor.system")
-        : item.actor.user?.name ?? t("actor.unknownUser");
+        : (item.actor.user?.name ?? t("actor.unknownUser"));
 
   const actionLabel = t(`action.${item.action}`, {
     defaultValue: item.action,
   });
+  const actor = actorBadge(item, t);
 
   return (
     <div className={`activity-row activity-actor-${item.actor.type}`}>
+      <div className="activity-row-marker" aria-hidden="true" />
       <div className="activity-row-main">
-        <span className={`activity-actor-chip activity-actor-chip-${item.actor.type}`}>
-          {actorLabel}
-        </span>
-        <span className="activity-action">{actionLabel}</span>
-        <EntityLink item={item} />
-        {item.context.ingestion && (
-          <span className="activity-from-ingestion">
+        <div className="activity-row-line">
+          <Badge tone={actor.tone} size="sm" icon={actor.icon}>
+            {actor.label}
+          </Badge>
+          <span className="activity-actor-name">{actorLabel}</span>
+          <span className="activity-action">{actionLabel}</span>
+          <EntityLink item={item} />
+          <span
+            className="activity-time"
+            title={new Date(item.createdAt).toLocaleString()}
+          >
+            {timeAgo(item.createdAt)}
+          </span>
+        </div>
+        {item.context.ingestion ? (
+          <div className="activity-row-summary">
+            <Database size={12} aria-hidden="true" />
             {t("fromIngestion", {
               source: item.context.ingestion.sourceName,
             })}
-          </span>
+          </div>
+        ) : (
+          <div className="activity-row-summary">
+            <CalendarDays size={12} aria-hidden="true" />
+            {new Date(item.createdAt).toLocaleDateString()}
+          </div>
         )}
-      </div>
-      <div className="activity-row-meta">
-        <span
-          className="activity-time"
-          title={new Date(item.createdAt).toLocaleString()}
-        >
-          {timeAgo(item.createdAt)}
-        </span>
       </div>
     </div>
   );
@@ -327,7 +368,7 @@ function EntityLink({ item }: { item: ActivityItem }) {
       ? t("untitled")
       : t("fallbackEntity", { type: item.entity.type }));
 
-  const deletedSuffix = item.entity.deleted ? " ✕" : "";
+  const deletedSuffix = item.entity.deleted ? " (deleted)" : "";
 
   if (item.entity.type === "page" && !item.entity.deleted) {
     return (
@@ -349,7 +390,9 @@ function EntityLink({ item }: { item: ActivityItem }) {
   }
 
   return (
-    <span className={`activity-entity-label${item.entity.deleted ? " deleted" : ""}`}>
+    <span
+      className={`activity-entity-label${item.entity.deleted ? " deleted" : ""}`}
+    >
       {label}
       {deletedSuffix}
     </span>

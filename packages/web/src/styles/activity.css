@@ -1,39 +1,15 @@
 .activity-page {
+  background: var(--wf-color-bg);
+}
+
+.activity-page .page-shell-header {
+  align-items: flex-end;
+}
+
+.activity-page .page-shell-content {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  padding: 24px;
-  gap: 16px;
-  overflow-y: auto;
-}
-
-.activity-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-}
-
-.activity-header h1 {
-  font-size: 20px;
-  font-weight: 600;
-  margin: 0;
-}
-
-.activity-subtitle {
-  font-size: 13px;
-  color: #64748b;
-  margin: 4px 0 0;
-}
-
-.activity-total {
-  font-size: 12px;
-  color: #64748b;
-  padding: 4px 8px;
-  background: #f1f5f9;
-  border-radius: 4px;
-  white-space: nowrap;
+  gap: var(--wf-space-6);
 }
 
 .activity-filters {
@@ -41,10 +17,10 @@
   flex-wrap: wrap;
   gap: 12px;
   align-items: flex-end;
-  padding: 12px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  padding: 14px;
+  background: var(--wf-color-bg-warm);
+  border: 1px solid var(--wf-color-border);
+  border-radius: var(--wf-radius-lg);
 }
 
 .activity-filter {
@@ -52,7 +28,7 @@
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
-  color: #475569;
+  color: var(--wf-color-ink-subtle);
 }
 
 .activity-filter > span {
@@ -62,101 +38,121 @@
 .activity-filter select,
 .activity-filter input[type="date"] {
   font-size: 13px;
-  padding: 4px 8px;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
-  background: white;
+  padding: 6px 9px;
+  border: 1px solid var(--wf-color-border);
+  border-radius: var(--wf-radius-sm);
+  background: var(--wf-color-surface);
   min-width: 140px;
 }
 
 .activity-reset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   padding: 6px 12px;
-  background: white;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
-  color: #475569;
+  background: var(--wf-color-surface);
+  border: 1px solid var(--wf-color-border);
+  border-radius: var(--wf-radius-sm);
+  color: var(--wf-color-ink-subtle);
   cursor: pointer;
-  height: 28px;
+  min-height: 32px;
 }
 
 .activity-reset-btn:hover {
-  background: #f1f5f9;
+  background: var(--wf-color-bg-soft);
 }
 
-.activity-list {
+.activity-timeline {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  position: relative;
+  gap: 0;
+  padding: 2px 0 2px 44px;
+}
+
+.activity-timeline::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 14px;
+  width: 1px;
+  background: var(--wf-color-border);
 }
 
 .activity-empty {
   padding: 40px;
   text-align: center;
   font-size: 13px;
-  color: #94a3b8;
+  color: var(--wf-color-ink-muted);
 }
 
 .activity-row {
+  position: relative;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
   gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  background: white;
+  min-height: 74px;
+  padding: 0 0 24px;
+  background: transparent;
+}
+
+.activity-row:last-child {
+  padding-bottom: 0;
+}
+
+.activity-row-marker {
+  position: absolute;
+  top: 8px;
+  left: -34px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--wf-color-bg);
+  border-radius: var(--wf-radius-pill);
+  background: var(--wf-color-teal);
+  z-index: 1;
+}
+
+.activity-actor-ai .activity-row-marker {
+  background: var(--wf-color-blue);
+}
+
+.activity-actor-system .activity-row-marker {
+  background: var(--wf-color-ink-muted);
 }
 
 .activity-row-main {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: #334155;
   flex: 1;
+  flex-direction: column;
+  gap: 6px;
   min-width: 0;
 }
 
-.activity-row-meta {
-  font-size: 12px;
-  color: #94a3b8;
-  white-space: nowrap;
+.activity-row-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--wf-color-ink-subtle);
+  min-width: 0;
 }
 
-.activity-actor-chip {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 2px 6px;
-  border-radius: 4px;
-  white-space: nowrap;
-}
-
-.activity-actor-chip-ai {
-  background: #ede9fe;
-  color: #6d28d9;
-}
-
-.activity-actor-chip-user {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.activity-actor-chip-system {
-  background: #f1f5f9;
-  color: #475569;
+.activity-actor-name {
+  color: var(--wf-color-ink);
+  font-weight: 700;
 }
 
 .activity-action {
-  color: #64748b;
+  color: var(--wf-color-ink-subtle);
 }
 
 .activity-entity-link {
   font-weight: 500;
-  color: #0f172a;
+  color: var(--wf-color-ink);
   text-decoration: none;
-  border-bottom: 1px dotted #cbd5e1;
+  border-bottom: 1px dotted var(--wf-color-border-strong);
   max-width: 360px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -164,41 +160,85 @@
 }
 
 .activity-entity-link:hover {
-  border-bottom-color: #64748b;
+  border-bottom-color: var(--wf-color-ink-subtle);
 }
 
 .activity-entity-label {
   font-weight: 500;
-  color: #334155;
+  color: var(--wf-color-ink);
 }
 
 .activity-entity-label.deleted {
-  color: #94a3b8;
+  color: var(--wf-color-ink-muted);
   text-decoration: line-through;
 }
 
-.activity-from-ingestion {
+.activity-row-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 12px;
-  color: #64748b;
-  font-style: italic;
+  color: var(--wf-color-ink-muted);
+  line-height: 1.55;
+}
+
+.activity-time {
+  margin-left: auto;
+  color: var(--wf-color-ink-muted);
+  font-family: var(--wf-font-mono);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .activity-load-more {
   align-self: center;
   padding: 8px 16px;
   font-size: 13px;
-  background: white;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  color: #334155;
+  background: var(--wf-color-surface);
+  border: 1px solid var(--wf-color-border);
+  border-radius: var(--wf-radius-md);
+  color: var(--wf-color-ink-subtle);
   cursor: pointer;
 }
 
 .activity-load-more:hover:not(:disabled) {
-  background: #f1f5f9;
+  background: var(--wf-color-bg-soft);
 }
 
 .activity-load-more:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+  .activity-page .page-shell-header {
+    align-items: flex-start;
+  }
+
+  .activity-filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .activity-filter select,
+  .activity-filter input[type="date"] {
+    width: 100%;
+  }
+
+  .activity-reset-btn {
+    justify-content: center;
+  }
+
+  .activity-timeline {
+    padding-left: 32px;
+  }
+
+  .activity-row-marker {
+    left: -22px;
+  }
+
+  .activity-time {
+    margin-left: 0;
+    width: 100%;
+  }
 }

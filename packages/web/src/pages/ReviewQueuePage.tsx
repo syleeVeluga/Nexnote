@@ -1,5 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  AlertTriangle,
+  Bot,
+  CheckCircle2,
+  Clock3,
+  Inbox,
+  Send,
+  XCircle,
+} from "lucide-react";
 import { useWorkspace } from "../hooks/use-workspace.js";
 import { useTimeAgo } from "../hooks/use-time-ago.js";
 import {
@@ -11,8 +20,11 @@ import {
 } from "../lib/api-client.js";
 import { ReviewDetail } from "../components/review/ReviewDetail.js";
 import { dispatchDecisionCountsUpdated } from "../lib/decision-events.js";
+import { Badge, type BadgeTone } from "../components/ui/Badge.js";
+import { PageShell } from "../components/ui/PageShell.js";
+import { SegmentedTabs } from "../components/ui/SegmentedTabs.js";
 
-type TabKey = "suggested" | "needs_review" | "failed" | "recent";
+type TabKey = "all" | "needs_review" | "failed" | "recent";
 
 interface TabConfig {
   key: TabKey;
@@ -21,17 +33,75 @@ interface TabConfig {
 }
 
 const TABS: TabConfig[] = [
-  { key: "suggested", statuses: ["suggested"] },
+  { key: "all", statuses: ["suggested", "needs_review", "failed"] },
   { key: "needs_review", statuses: ["needs_review"] },
   { key: "failed", statuses: ["failed"] },
-  { key: "recent", statuses: ["auto_applied", "approved", "rejected"], sinceDays: 7 },
+  {
+    key: "recent",
+    statuses: ["auto_applied", "approved", "rejected"],
+    sinceDays: 7,
+  },
 ];
+
+function tabCount(key: TabKey, counts: DecisionCounts | null) {
+  if (!counts || key === "recent") return undefined;
+  if (key === "all") return counts.pending;
+  return counts[key];
+}
+
+function tabIcon(key: TabKey) {
+  switch (key) {
+    case "all":
+      return <Inbox size={14} />;
+    case "needs_review":
+      return <AlertTriangle size={14} />;
+    case "failed":
+      return <XCircle size={14} />;
+    case "recent":
+      return <Clock3 size={14} />;
+  }
+}
+
+function statusTone(status: DecisionStatus): BadgeTone {
+  switch (status) {
+    case "suggested":
+      return "teal";
+    case "needs_review":
+      return "orange";
+    case "failed":
+      return "red";
+    case "auto_applied":
+    case "approved":
+      return "green";
+    case "rejected":
+      return "warm";
+    default:
+      return "blue";
+  }
+}
+
+function statusIcon(status: DecisionStatus) {
+  switch (status) {
+    case "suggested":
+    case "auto_applied":
+      return <Bot size={11} />;
+    case "needs_review":
+      return <AlertTriangle size={11} />;
+    case "failed":
+    case "rejected":
+      return <XCircle size={11} />;
+    case "approved":
+      return <CheckCircle2 size={11} />;
+    default:
+      return <Send size={11} />;
+  }
+}
 
 export function ReviewQueuePage() {
   const { t } = useTranslation(["review", "common"]);
   const { current } = useWorkspace();
   const timeAgo = useTimeAgo();
-  const [activeTab, setActiveTab] = useState<TabKey>("suggested");
+  const [activeTab, setActiveTab] = useState<TabKey>("all");
   const [items, setItems] = useState<DecisionListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -175,33 +245,37 @@ export function ReviewQueuePage() {
   if (!current) return null;
 
   return (
-    <div className="review-page">
-      <div className="review-header">
-        <div>
-          <h1>{t("title")}</h1>
-          <p className="review-subtitle">{t("subtitle")}</p>
-        </div>
-        <div className="review-shortcut-hint">{t("shortcutHint")}</div>
-      </div>
-
-      <div className="review-tabs">
-        {TABS.map((tab) => {
-          const badgeCount =
-            counts && tab.key !== "recent" ? counts[tab.key] : 0;
-          return (
-            <button
-              key={tab.key}
-              className={`review-tab${activeTab === tab.key ? " active" : ""}`}
-              onClick={() => setActiveTab(tab.key)}
-            >
-              {t(`tabs.${tab.key}`)}
-              {badgeCount > 0 && (
-                <span className="review-tab-count">{badgeCount}</span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+    <PageShell
+      className="review-page"
+      title={t("title")}
+      description={t("subtitle")}
+      actions={
+        <Badge tone="warm" size="sm">
+          {t("shortcutHint")}
+        </Badge>
+      }
+    >
+      <SegmentedTabs
+        className="review-tabs"
+        value={activeTab}
+        onChange={(value) => setActiveTab(value as TabKey)}
+        ariaLabel={t("tabsLabel", { defaultValue: "Review queue status" })}
+        tabs={TABS.map((tab) => ({
+          id: tab.key,
+          label: t(`tabs.${tab.key}`, {
+            defaultValue:
+              tab.key === "all"
+                ? "All"
+                : tab.key === "needs_review"
+                  ? t("tabs.needs_review")
+                  : tab.key === "failed"
+                    ? t("tabs.failed")
+                    : t("tabs.recent"),
+          }),
+          count: tabCount(tab.key, counts),
+          icon: tabIcon(tab.key),
+        }))}
+      />
 
       <div className="review-body">
         <div className="review-list">
@@ -217,17 +291,23 @@ export function ReviewQueuePage() {
                 onClick={() => setSelectedId(item.id)}
               >
                 <div className="review-item-top">
-                  <span className={`review-badge review-badge-${item.status}`}>
+                  <Badge
+                    tone={statusTone(item.status)}
+                    size="sm"
+                    icon={statusIcon(item.status)}
+                    className={`review-badge review-badge-${item.status}`}
+                  >
                     {t(`badge.${item.status}`, {
                       defaultValue: item.status,
                     })}
-                  </span>
+                  </Badge>
                   {item.hasConflict && (
                     <span
                       className="review-conflict-chip"
                       title={t("conflict.tooltip")}
                     >
-                      ⚠ {t("conflict.chip")}
+                      <AlertTriangle size={11} aria-hidden="true" />
+                      {t("conflict.chip")}
                     </span>
                   )}
                   <span className="review-confidence">
@@ -279,6 +359,6 @@ export function ReviewQueuePage() {
           )}
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }
