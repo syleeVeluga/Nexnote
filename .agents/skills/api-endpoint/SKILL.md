@@ -19,7 +19,7 @@ find packages/api/src/routes -name "*.ts" 2>/dev/null | head -20 || echo "No rou
 
 ## Instructions
 
-1. Read the PRD (`PRD — AI 보조 Markdown 지식 위키문서 서비스.md`) for the API contract if this is a defined endpoint
+1. Read the PRD (`docs/PRD — AI 보조 Markdown 지식 위키문서 서비스.md`) for the API contract if this is a defined endpoint
 2. Create or update the appropriate route file in `packages/api/src/routes/`
 3. For each endpoint, create:
    - Zod request schema in `packages/shared/` (if not already present)

@@ -20,6 +20,38 @@ Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH]
 > **S6-1 landed (2026-04-22):** member-readable `GET /workspaces/:id/activity` endpoint joins `audit_logs` with `users` + `model_runs`, batch-loads page/ingestion/folder labels, derives `actor_type` (ai/user/system). New `/activity` page renders "AI (gpt-5.4) updated *Page X* from ingestion *Slack*" style rows with actor/entity/action/date filters and load-more pagination; sidebar gains an Activity nav link. Next up: S5-4 (triple contradictions), S6-2 (sidebar badges).
 >
 > **Post-S6 updates observed (2026-04-24):** soft-delete/trash/purge flows (`0006`), archived original ingestion storage (`0007`), predicate display-label cache/backfill (`0008`/`0009`), graph filters + confidence visual encoding + node evidence inspector, reviewed AI content reformatting via the `reformat` queue, pipeline integration tests, and Playwright smoke tests are in the codebase. Still not present: persisted chunk tables/workers, 3D graph toggle, CI, broad route-level API coverage, and Yjs/Hocuspocus.
+>
+> **Doc reorg + Ingestion Agent RFC (2026-04-29):** all product/design/RFC docs moved from repo root into [`docs/`](.); orchestrator guides (`AGENTS.md`, `CLAUDE.md`) stay at root and got a Documentation map. The single-shot Classify stage is slated to be replaced by a tool-calling ingestion agent — see new epic **AGENT-1..AGENT-8** below. RFC: [`docs/ingestion-agent-plan.md`](ingestion-agent-plan.md).
+
+---
+
+## Stage ②/③ refactor — Ingestion Agent (NEW EPIC, 2026-04-29)
+
+The single-shot route-classifier always creates new pages because (a) only top-3 of 10 DB candidates are shown to the LLM, (b) candidate token budget is 100 tokens vs 80k for incoming, (c) the prompt is biased toward `needs_review`, and (d) the architecture is one LLM call → one decision (no fan-out, no tool calls). Replacing it with a tool-calling agent unlocks "1 ingest → 10+ surgical updates across existing pages" — Karpathy's wiki-maintenance pattern. Full RFC: [`docs/ingestion-agent-plan.md`](ingestion-agent-plan.md). All safeguards (0.85/0.60 confidence gates, baseRevisionId conflict detection, audit_logs, model_runs) are preserved by delegating to the existing [`apply-decision.ts`](../packages/api/src/lib/apply-decision.ts).
+
+### AGENT-1 · [HIGH] AI gateway tool-calling extension
+Extend [ai-gateway.ts](../packages/worker/src/ai-gateway.ts) `AIRequest`/`AIResponse` with normalized `tools` / `toolCalls` fields. OpenAI `tool_calls`/`tool` role ↔ Gemini `functionCall`/`functionResponse` translated at adapter boundary. Conformance test: same fixture must produce identical `NormalizedToolCall[]` from both adapters. **Prerequisite for everything else.**
+
+### AGENT-2 · [HIGH] Schema migration `0015_agent_runs`
+New `agent_runs` table (`{ ingestion_id, workspace_id, status, plan_json, steps_json, decisions_count, total_tokens, started_at, completed_at }`) + nullable `agent_run_id` FKs on `model_runs` and `ingestion_decisions` + new `workspaces.ingestion_mode TEXT NOT NULL DEFAULT 'classic'`. Backwards-compatible — existing classic rows have NULL FKs.
+
+### AGENT-3 · [HIGH] Read-only tool layer + dispatcher
+Five tools (`search_pages`, `read_page`, `list_folder`, `find_related_entities`, `list_recent_pages`) as pure SQL. Dispatcher closes over `workspaceId` (LLM-supplied workspaceId arg is ignored — cross-workspace leak defence), enforces per-tool quotas (search ≤8, read ≤20), dedupes identical args, validates Zod, tracks `seenUUIDs`/`seenBlockIds`.
+
+### AGENT-4 · [HIGH] Agent loop in shadow mode
+Explore→plan→execute orchestrator. Shadow mode: agent runs alongside the classic classifier, writes only to `agent_runs.plan_json`; classic still owns `ingestion_decisions`. **One-week parity dashboard** (action match-rate, target-page match-rate) before any workspace flips to `agent`. Token budgeter (800k input / 60k output, model routing fast vs Opus-1M/Gemini-1M/gpt-5.4-pro), adaptive read truncation.
+
+### AGENT-5 · [HIGH] Mutate tool wrappers (3-tier patches)
+`replace_in_page` (find/replace, exact-N match enforce), `edit_page_blocks` (markdown block ops via remark), `edit_page_section` (heading anchor), plus fallback `update_page` / `append_to_page` / `create_page` / `noop` / `request_human_review`. Tier-1/2/3 build the new revision directly without re-calling the LLM (cost + intent preservation). Per-page mutation lock within a run prevents AI-vs-AI race. Plan validator: "if proposed `update_page` keeps ≥70% of existing content, reject and force decompose to `edit_page_blocks`."
+
+### AGENT-6 · [MED] Workspace toggle + `/settings/ai` UI
+`workspaces.ingestion_mode` switch (classic / shadow / agent), model picker, daily token cap. Default classic; flip internal workspaces to shadow first.
+
+### AGENT-7 · [MED] UI fan-out for multiple decisions per ingestion
+[IngestionDetailPage](../packages/web/src/pages/IngestionDetailPage.tsx) renders decision[] (currently single), [ReviewQueuePage](../packages/web/src/pages/ReviewQueuePage.tsx) sibling badge "(2 of 7 from ingestion X)", new `AgentTracePanel` visualises `agent_runs.steps_json` (thought / tool_call / tool_result timeline). v1 keeps each sibling decision independently approve/rejectable — no bulk approve.
+
+### AGENT-8 · [MED] Cutover & retire classic
+Promote one workspace at a time after parity ≥ target. Retire `route-classifier.ts` after 2 weeks of clean `agent`-mode operation. Existing classic decision rows preserved via NULL `agent_run_id` FK.
 
 ---
 

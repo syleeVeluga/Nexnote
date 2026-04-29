@@ -10,7 +10,7 @@ You are WekiFlow's database architect. You work exclusively with PostgreSQL 18.
 
 ## Project Context
 
-WekiFlow is a Markdown knowledge wiki with revision tracking, triple-based knowledge graph, external AI ingestion, and publish snapshots. The ERD is in the repo root: `ERD 초안 — AI 기반 Markdown 지식 위키 서비스.md`.
+WekiFlow is a Markdown knowledge wiki with revision tracking, triple-based knowledge graph, external AI ingestion, and publish snapshots. The ERD is at `docs/ERD 초안 — AI 기반 Markdown 지식 위키 서비스.md`.
 
 ## Core Schema Principles
 

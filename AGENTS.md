@@ -2,6 +2,22 @@
 
 This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
+## Documentation map
+
+루트에는 오케스트레이터 가이드(이 파일과 [`CLAUDE.md`](CLAUDE.md))만 둔다. 제품·설계·구현 문서는 모두 [`docs/`](docs/) 아래로 이동했다.
+
+| 종류 | 위치 |
+|---|---|
+| 제품 비전 / 요구사항 (PRD) | [`docs/PRD — AI 보조 Markdown 지식 위키문서 서비스.md`](docs/PRD%20%E2%80%94%20AI%20%EB%B3%B4%EC%A1%B0%20Markdown%20%EC%A7%80%EC%8B%9D%20%EC%9C%84%ED%82%A4%EB%AC%B8%EC%84%9C%20%EC%84%9C%EB%B9%84%EC%8A%A4.md) |
+| 데이터 모델 (ERD) | [`docs/ERD 초안 — AI 기반 Markdown 지식 위키 서비스.md`](docs/ERD%20%EC%B4%88%EC%95%88%20%E2%80%94%20AI%20%EA%B8%B0%EB%B0%98%20Markdown%20%EC%A7%80%EC%8B%9D%20%EC%9C%84%ED%82%A4%20%EC%84%9C%EB%B9%84%EC%8A%A4.md) |
+| 백로그 / 진행 상태 | [`docs/TASKS.md`](docs/TASKS.md) |
+| 구현 RFC — Ingestion Agent | [`docs/ingestion-agent-plan.md`](docs/ingestion-agent-plan.md) |
+| 구현 RFC — UI 참조 | [`docs/UI_REFERENCE_IMPLEMENTATION_PLAN.md`](docs/UI_REFERENCE_IMPLEMENTATION_PLAN.md) |
+| 설계 메모 (참고용) | [`docs/CHUNKING_PLAN.md`](docs/CHUNKING_PLAN.md), [`docs/KNOWLEDGE_CONNECTIVITY_PLAN.md`](docs/KNOWLEDGE_CONNECTIVITY_PLAN.md) |
+| 운영 가이드 | [`docs/slack-webhook.md`](docs/slack-webhook.md) |
+
+새 RFC/계획 문서를 만들 때는 `docs/<verb>-<scope>-plan.md` 또는 `docs/<scope>-rfc.md` 규칙을 따른다 — PRD/ERD와 자연스럽게 구분된다.
+
 ## Project Overview
 
 WekiFlow is an AI-assisted Markdown knowledge wiki. Its single north-star goal: **external signals (AI agents, scrapers, webhooks, humans) flow in continuously, and the wiki stays automatically up-to-date under human supervision.** AI does the drudgery of classifying, merging, deduplicating, and extracting structure; humans act as reviewers, correctors, and final approvers.
@@ -98,7 +114,7 @@ Key design invariants (derived from the loop):
 
 ## Data Model (core tables)
 
-The full ERD is in `ERD 초안 — AI 기반 Markdown 지식 위키 서비스.md`. Key relationships:
+The full ERD is in [`docs/ERD 초안 — AI 기반 Markdown 지식 위키 서비스.md`](docs/ERD%20%EC%B4%88%EC%95%88%20%E2%80%94%20AI%20%EA%B8%B0%EB%B0%98%20Markdown%20%EC%A7%80%EC%8B%9D%20%EC%9C%84%ED%82%A4%20%EC%84%9C%EB%B9%84%EC%8A%A4.md). Key relationships:
 
 - **pages** → container pointing to `current_revision_id`; actual content lives in **page_revisions**
 - **page_revisions** → full markdown snapshot + JSON; linked to **revision_diffs** (line diff + block ops diff)
@@ -156,12 +172,14 @@ pnpm --filter db seed              # seed dev data
 ### Revision system
 Every save creates a new `page_revision`. Rollback = creating a new revision from an older one's content. The `base_revision_id` field tracks lineage. `actor_type` is always one of `user`, `ai`, `system`.
 
-### Ingestion routing pipeline
+### Ingestion routing pipeline (current — single-shot classifier)
 1. Raw payload saved to `ingestions` table immediately (202 response)
 2. Text normalized
 3. Candidate pages found via title match → FTS → trigram → entity overlap → optional vector similarity
 4. LLM makes route decision (create/update/append/noop/needs_review) with confidence score
 5. Confidence ≥ 0.85 → auto-apply to draft; 0.60–0.84 → suggestion queue; < 0.60 → needs_review
+
+> **Forward direction (RFC approved 2026-04-29, not yet implemented):** the single-shot path above will be replaced by a tool-calling **ingestion agent** that explore→plan→executes across multiple pages per ingestion (1→N decision fan-out), uses VS-Code-style tier-1/2/3 patches (`replace_in_page` / `edit_page_blocks` / `edit_page_section`) instead of full rewrites, and exploits 800k-token context windows. See [`docs/ingestion-agent-plan.md`](docs/ingestion-agent-plan.md). Rollout is workspace-scoped via `workspaces.ingestion_mode = classic | shadow | agent` with a 1-week shadow comparison before promotion.
 
 ### Editor round-trip
 Block editor (Tiptap/ProseMirror) and Markdown source mode must represent the same document. The canonical store is Markdown. Custom blocks that can't be expressed in standard Markdown use a documented directive syntax. **Round-trip regression tests are essential.**
@@ -182,6 +200,8 @@ AI functions return structured JSON. The three core contracts are defined in the
 - **Patch Proposal**: `{ targetPageId, baseRevisionId, editType, ops[], summary }`
 - **Triple Extraction**: `{ triples[]: { subject, predicate, object, objectType, confidence, spans[] } }`
 
+> **Forward direction:** the planned ingestion agent adds a normalized **Tool-Call** contract (read tools: `search_pages` / `read_page` / `list_folder` / `find_related_entities` / `list_recent_pages`; mutate tools: `replace_in_page` / `edit_page_blocks` / `edit_page_section` / `update_page` / `append_to_page` / `create_page` / `noop` / `request_human_review`) plus an explore→plan→execute trace persisted in a new `agent_runs` table. Full schemas in [`docs/ingestion-agent-plan.md`](docs/ingestion-agent-plan.md).
+
 ## Implementation Priority
 
 1. Monorepo scaffold + shared types
@@ -196,12 +216,12 @@ AI functions return structured JSON. The three core contracts are defined in the
 
 ## Current Implementation Status (snapshot: 2026-04-24, reviewed docs)
 
-Evaluated against the **core knowledge-refresh loop**, not per-package. See [TASKS.md](TASKS.md) for the active backlog.
+Evaluated against the **core knowledge-refresh loop**, not per-package. See [docs/TASKS.md](docs/TASKS.md) for the active backlog.
 
 | Loop stage | Status | Evidence / gap |
 |---|---|---|
 | ① **Ingest** | ✅ DONE | `POST /workspaces/:id/ingestions` saves raw payload + enqueues route-classifier ([ingestions.ts](packages/api/src/routes/v1/ingestions.ts)). Idempotency key + API-token auth present. Hardening: per-user minute rate limit + per-workspace daily quota via Redis fixed-window [consumeRateLimit](packages/api/src/lib/rate-limit.ts) (429 with `Retry-After` + absolute-unix-timestamp `X-RateLimit-Reset`), configurable via `INGESTION_RATE_LIMIT_PER_MINUTE` / `INGESTION_QUOTA_PER_DAY`, fails open on Redis outage so a cache blip doesn't break ingest. Idempotent replays short-circuit before the limiter so retries don't consume budget. TTL refreshes on every increment and aligns with the window end (caps stale-key retention on the 24h daily-quota window). **JWT-only browser import paths** added via [/import](packages/web/src/pages/ImportPage.tsx) UI and [`POST /workspaces/:id/ingestions/{upload,url,text}`](packages/api/src/routes/v1/ingestions-import.ts): file upload (PDF/DOCX/PPTX/XLSX/MD via [officeparser extractor](packages/api/src/lib/extractors/office.ts)), URL scrape (Readability + turndown via [web extractor](packages/api/src/lib/extractors/web.ts), SSRF-guarded by [url-safety.ts](packages/api/src/lib/url-safety.ts)), and text paste — all flow into the same `enqueueIngestion()` helper → existing classify pipeline. Per-user minute rate limit (`IMPORT_RATE_LIMIT_PER_MINUTE`) plus the shared workspace daily quota. |
-| ② **Classify** | ✅ DONE | [route-classifier.ts](packages/worker/src/workers/route-classifier.ts) (523L) does title + FTS + trigram + entity-overlap candidate search, LLM picks action + confidence. Writes `ingestion_decisions`. |
+| ② **Classify** | ✅ DONE (classic) · 🟦 PLANNED (agent) | Current: [route-classifier.ts](packages/worker/src/workers/route-classifier.ts) (523L) does title + FTS + trigram + entity-overlap candidate search, LLM picks action + confidence. Writes `ingestion_decisions`. **Planned replacement** ([`docs/ingestion-agent-plan.md`](docs/ingestion-agent-plan.md)): tool-calling agent fans 1 ingestion out to N decisions across multiple pages, with VS-Code-style line/block/section patches instead of full rewrites — gated by `workspaces.ingestion_mode`, classic stays as fallback during 1-week shadow phase. |
 | ③ **Apply — auto (≥0.85)** | ✅ DONE | route-classifier creates page OR enqueues patch-generator → triple-extractor → search-index-updater. Chain verified. |
 | ③ **Apply — suggest (0.60–0.84)** | ✅ DONE | Route-classifier tags decisions `suggested` when `SUGGESTION_MIN ≤ confidence < AUTO_APPLY`; `/review` and `/ingestions/:id` surface them for humans. |
 | ③ **Apply — needs_review (<0.60)** | ✅ DONE | Route-classifier tags low-confidence decisions `needs_review`; `/review` and `/ingestions/:id` surface them for humans. Manual `POST /ingestions/:id/apply` still writes correct decision status for the older path. |
@@ -221,3 +241,5 @@ Evaluated against the **core knowledge-refresh loop**, not per-package. See [TAS
 With S6-1 and follow-up graph/provenance work shipped, the loop surfaces its own signal: the editor header shows freshness, every AI-authored revision can open its source ingestion, reviewers can inspect the classifier candidate set, conflicts with intervening human edits are downgraded into review, and `/activity` answers "what did the AI do in this workspace today?"
 
 What remains on the path to "AI keeps the wiki continuously up-to-date under human supervision": concurrent-ingestion detection, triple-level contradictions, API-token management, sidebar badges/digests, AI-edit accept/reject UX, workspace-wide graph exploration, and broader CI/integration coverage.
+
+**Next major direction (approved 2026-04-29):** replace the single-shot Classify stage with a tool-calling ingestion agent so one ingestion can update 10+ existing pages with surgical patches instead of always creating new ones. See [`docs/ingestion-agent-plan.md`](docs/ingestion-agent-plan.md).

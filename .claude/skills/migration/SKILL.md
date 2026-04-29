@@ -17,7 +17,7 @@ ls packages/db/migrations/ 2>/dev/null || echo "No migrations directory yet"
 
 ## ERD Reference
 
-Read the ERD file at the repo root (`ERD 초안 — AI 기반 Markdown 지식 위키 서비스.md`) before writing any migration. Ensure your schema matches the ERD's column definitions, types, and constraints.
+Read the ERD file at `docs/ERD 초안 — AI 기반 Markdown 지식 위키 서비스.md` before writing any migration. Ensure your schema matches the ERD's column definitions, types, and constraints.
 
 ## Instructions
 
