@@ -175,11 +175,29 @@
 
 .activity-row-summary {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 5px;
   font-size: 12px;
   color: var(--wf-color-ink-muted);
   line-height: 1.55;
+}
+
+.activity-summary-text {
+  color: var(--wf-color-ink-subtle);
+}
+
+.activity-summary-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 1px 6px;
+  border: 1px solid var(--wf-color-border);
+  border-radius: var(--wf-radius-pill);
+  background: var(--wf-color-bg-soft);
+  color: var(--wf-color-ink-muted);
+  font-size: 11px;
+  line-height: 1.2;
 }
 
 .activity-time {

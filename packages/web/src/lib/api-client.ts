@@ -7,6 +7,8 @@ import {
   type UpdateFolder,
   type ReorderIntent,
   type PageStatus,
+  type PageSummaryMeta,
+  type DashboardDto as SharedDashboardDto,
   type ActorType,
   type RevisionSource,
   type WorkspaceRole,
@@ -265,7 +267,7 @@ export const folders = {
 // Pages
 // ---------------------------------------------------------------------------
 
-export interface Page {
+export interface Page extends PageSummaryMeta {
   id: string;
   workspaceId: string;
   parentPageId: string | null;
@@ -1016,6 +1018,18 @@ export const decisions = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Dashboard aggregate
+// ---------------------------------------------------------------------------
+
+export type DashboardDto = SharedDashboardDto;
+
+export const dashboard = {
+  get(workspaceId: string) {
+    return request<DashboardDto>(`/workspaces/${workspaceId}/dashboard`);
+  },
+};
+
 /** @deprecated Internal-only. Synthesis surface is hidden from the UI. */
 export const synthesis = {
   create(
@@ -1050,7 +1064,8 @@ export type ActivityEntityType =
   | "ingestion"
   | "folder"
   | "workspace"
-  | "decision";
+  | "decision"
+  | "page_revision";
 
 export interface ActivityItem {
   id: string;
@@ -1076,6 +1091,10 @@ export interface ActivityItem {
     decisionId: string | null;
     revisionId: string | null;
   };
+  summary: string | null;
+  changedBlocks: number | null;
+  decisionConfidence: number | null;
+  sourceName: string | null;
 }
 
 export interface ActivityListParams {

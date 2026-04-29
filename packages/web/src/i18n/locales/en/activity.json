@@ -16,7 +16,8 @@
       "ingestion": "Ingestions",
       "folder": "Folders",
       "workspace": "Workspace",
-      "decision": "Decisions"
+      "decision": "Decisions",
+      "page_revision": "Revisions"
     },
     "action": {
       "label": "Action",
@@ -56,6 +57,7 @@
   "fallbackEntity": "{{type}}",
   "untitled": "Untitled",
   "fromIngestion": "from ingestion {{source}}",
+  "changedBlocks": "{{count}} blocks",
   "empty": "No activity yet",
   "emptyFiltered": "No activity matches these filters",
   "loading": "Loading...",

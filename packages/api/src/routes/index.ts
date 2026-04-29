@@ -12,6 +12,7 @@ import auditLogRoutes from "./v1/audit-logs.js";
 import modelRunRoutes from "./v1/model-runs.js";
 import adminQueueRoutes from "./v1/admin-queues.js";
 import activityRoutes from "./v1/activity.js";
+import dashboardRoutes from "./v1/dashboard.js";
 import slackWebhookRoutes from "./v1/webhooks/slack-events.js";
 
 export const routes: FastifyPluginAsync = async (fastify) => {
@@ -48,6 +49,9 @@ export const routes: FastifyPluginAsync = async (fastify) => {
       });
       await scoped.register(activityRoutes, {
         prefix: "/workspaces/:workspaceId/activity",
+      });
+      await scoped.register(dashboardRoutes, {
+        prefix: "/workspaces/:workspaceId/dashboard",
       });
       // Public docs — no auth required (handled inside the plugin)
       await scoped.register(docRoutes, { prefix: "/docs" });

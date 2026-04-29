@@ -6,4 +6,5 @@ export * from "./page.js";
 export * from "./revision.js";
 export * from "./ingestion.js";
 export * from "./publish.js";
+export * from "./dashboard.js";
 export * from "./synthesis.js";

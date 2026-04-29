@@ -35,6 +35,7 @@ const ENTITY_OPTIONS: (ActivityEntityType | "all")[] = [
   "folder",
   "workspace",
   "decision",
+  "page_revision",
 ];
 
 const ACTIONS_BY_ENTITY: Record<string, string[]> = {
@@ -54,6 +55,7 @@ const ACTIONS_BY_ENTITY: Record<string, string[]> = {
   folder: ["folder.create", "folder.update", "folder.delete"],
   workspace: ["workspace.create", "workspace.update", "member.add"],
   decision: ["edit_decision"],
+  page_revision: ["create", "rollback"],
 };
 
 const PAGE_SIZE = 50;
@@ -340,20 +342,54 @@ function ActivityRow({
             {timeAgo(item.createdAt)}
           </span>
         </div>
-        {item.context.ingestion ? (
-          <div className="activity-row-summary">
-            <Database size={12} aria-hidden="true" />
-            {t("fromIngestion", {
-              source: item.context.ingestion.sourceName,
-            })}
-          </div>
-        ) : (
-          <div className="activity-row-summary">
-            <CalendarDays size={12} aria-hidden="true" />
-            {new Date(item.createdAt).toLocaleDateString()}
-          </div>
-        )}
+        <ActivitySummaryLine item={item} />
       </div>
+    </div>
+  );
+}
+
+function ActivitySummaryLine({ item }: { item: ActivityItem }) {
+  const { t } = useTranslation(["activity", "common"]);
+  const source = item.sourceName ?? item.context.ingestion?.sourceName ?? null;
+
+  return (
+    <div className="activity-row-summary">
+      {item.summary ? (
+        <>
+          <CalendarDays size={12} aria-hidden="true" />
+          <span className="activity-summary-text">{item.summary}</span>
+        </>
+      ) : source ? (
+        <>
+          <Database size={12} aria-hidden="true" />
+          <span className="activity-summary-text">
+            {t("fromIngestion", { source })}
+          </span>
+        </>
+      ) : (
+        <>
+          <CalendarDays size={12} aria-hidden="true" />
+          <span className="activity-summary-text">
+            {new Date(item.createdAt).toLocaleDateString()}
+          </span>
+        </>
+      )}
+      {source && item.summary && (
+        <span className="activity-summary-chip">{source}</span>
+      )}
+      {item.changedBlocks !== null && (
+        <span className="activity-summary-chip">
+          {t("changedBlocks", {
+            count: item.changedBlocks,
+            defaultValue: "{{count}} blocks",
+          })}
+        </span>
+      )}
+      {item.decisionConfidence !== null && (
+        <span className="activity-summary-chip">
+          {Math.round(item.decisionConfidence * 100)}%
+        </span>
+      )}
     </div>
   );
 }
