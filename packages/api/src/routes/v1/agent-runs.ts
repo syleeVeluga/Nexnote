@@ -18,6 +18,11 @@ import {
   workspaceParamsSchema,
 } from "../../lib/workspace-auth.js";
 import { sendValidationError } from "../../lib/reply-helpers.js";
+import {
+  evaluateAgentParityGate,
+  listAgentParityDailyRows,
+  readAgentParityGateCriteria,
+} from "../../lib/agent-parity-gate.js";
 
 const agentRunParamsSchema = workspaceParamsSchema.extend({
   agentRunId: z.string().uuid(),
@@ -320,6 +325,21 @@ const agentRunRoutes: FastifyPluginAsync = async (fastify) => {
         process.env["AGENT_WORKSPACE_DAILY_TOKEN_CAP"],
         AGENT_LIMITS.WORKSPACE_DAILY_TOKEN_CAP,
       );
+      const gateCriteria = readAgentParityGateCriteria();
+      const dailyAgreement = await listAgentParityDailyRows(
+        fastify.db,
+        workspaceId,
+        Math.max(sinceDays, gateCriteria.minObservedDays),
+      );
+      const gateAgreement =
+        sinceDays <= gateCriteria.minObservedDays
+          ? dailyAgreement
+          : await listAgentParityDailyRows(
+              fastify.db,
+              workspaceId,
+              gateCriteria.minObservedDays,
+            );
+      const gate = evaluateAgentParityGate(gateAgreement, gateCriteria);
 
       return reply.send({
         sinceDays,
@@ -346,6 +366,8 @@ const agentRunRoutes: FastifyPluginAsync = async (fastify) => {
           cap: dailyCap,
           remaining: Math.max(0, dailyCap - Number(tokenRow?.used ?? 0)),
         },
+        dailyAgreement,
+        gate,
         recentMismatches: mismatchRows.map((row) => ({
           agentRunId: row.agentRunId,
           ingestionId: row.ingestionId,

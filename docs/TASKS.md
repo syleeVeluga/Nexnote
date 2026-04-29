@@ -62,6 +62,7 @@ _Phase B · Size L · Blocked by: AGENT-1 + AGENT-2 + AGENT-3 · Followed by: 1-
 Explore→plan→execute orchestrator. Shadow mode: agent runs alongside the classic classifier, writes only to `agent_runs.plan_json`; classic still owns `ingestion_decisions`. **One-week parity dashboard** (action match-rate, target-page match-rate) before any workspace flips to `agent`. Token budgeter (800k input / 60k output, model routing fast vs Opus-1M/Gemini-1M/gpt-5.4-pro), adaptive read truncation.
 
 - Done: `ingestionAgentPlanSchema` and `agent_plan` model-run mode landed; `budgeter.ts` handles env-backed limits, fast/large model routing, and plan-context packing; `loop.ts` runs read-only tool exploration then writes a structured shadow plan; `ingestion-agent` BullMQ worker records `agent_runs.plan_json` / `steps_json` / linked `model_runs`; enqueue runs classic classifier plus a separate `ingestion-agent` queue in `shadow` mode. Classic remains the decision owner in `shadow`; `agent` mode ownership lands in AGENT-5.
+- Gate active: `PATCH /workspaces/:id` now blocks promotion to `agent` until shadow parity has enough observed days/comparable ingestions and meets action/target agreement thresholds. `/system/ai` shows the same gate status and disables Agent promotion until it passes. Thresholds are env-tunable via `AGENT_PARITY_GATE_MIN_*`.
 
 ### AGENT-4.5 · [DONE · 2026-04-30] Shadow hardening before parity gate
 
@@ -85,7 +86,7 @@ _Phase C · Size S · Blocked by: AGENT-2 (column exists); usefulness blocked by
 
 `workspaces.ingestion_mode` switch (classic / shadow / agent), model picker, daily token cap. Default classic; flip internal workspaces to shadow first.
 
-- Partial: `/system/ai` lets owners/admins switch classic/shadow/agent, edit workspace `agent_instructions`, and inspect parity/token diagnostics. Model picker remains future work.
+- Partial: `/system/ai` lets owners/admins switch classic/shadow/agent, edit workspace `agent_instructions`, inspect parity/token diagnostics, and start the shadow parity gate. Agent promotion is now server-gated until parity passes. Model picker remains future work.
 
 ### AGENT-7 · [MED] UI fan-out for multiple decisions per ingestion
 

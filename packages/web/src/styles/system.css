@@ -609,6 +609,11 @@
   box-shadow: var(--wf-shadow-card);
 }
 
+.ai-mode-control button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .ai-token-meter {
   display: flex;
   flex-direction: column;
@@ -683,6 +688,83 @@
   color: var(--wf-color-ink);
   font-size: 22px;
   line-height: 1;
+}
+
+.ai-gate-status {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 11px 12px;
+  border: 1px solid var(--wf-color-border);
+  border-radius: var(--wf-radius-md);
+  background: var(--wf-color-bg-soft);
+}
+
+.ai-gate-status div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-gate-status strong {
+  color: var(--wf-color-ink);
+  font-size: 13px;
+}
+
+.ai-gate-status span,
+.ai-daily-parity-row span {
+  color: var(--wf-color-ink-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ai-gate-status-passed {
+  border-color: rgba(42, 157, 153, 0.28);
+  background: var(--wf-color-teal-bg);
+}
+
+.ai-gate-status-blocked {
+  border-color: rgba(192, 57, 43, 0.2);
+  background: var(--wf-color-red-bg);
+}
+
+.ai-gate-status-collecting {
+  border-color: rgba(213, 137, 54, 0.24);
+  background: var(--wf-color-orange-bg);
+}
+
+.ai-daily-parity-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--wf-color-border);
+  border-radius: var(--wf-radius-md);
+  overflow: hidden;
+}
+
+.ai-daily-parity-row {
+  display: grid;
+  grid-template-columns: 110px minmax(120px, 0.7fr) minmax(0, 1fr);
+  gap: var(--wf-space-3);
+  align-items: center;
+  min-height: 42px;
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--wf-color-border);
+}
+
+.ai-daily-parity-row:last-child {
+  border-bottom: none;
+}
+
+.ai-daily-parity-row strong {
+  color: var(--wf-color-ink);
+  font-size: 12px;
+}
+
+.ai-daily-parity-row code {
+  color: var(--wf-color-ink-subtle);
+  font-family: var(--wf-font-mono);
+  font-size: 11px;
 }
 
 .ai-mismatch-table {
@@ -903,6 +985,7 @@
   .api-token-row,
   .ai-settings-grid,
   .ai-parity-grid,
+  .ai-daily-parity-row,
   .ai-mismatch-row {
     grid-template-columns: 1fr;
   }
