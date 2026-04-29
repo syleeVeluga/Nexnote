@@ -13,7 +13,6 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@wekiflow/shared": "workspace:^",
     "@tiptap/core": "^3.22.3",
     "@tiptap/extension-code-block-lowlight": "^3.22.3",
     "@tiptap/extension-image": "^3.22.3",
@@ -29,9 +28,11 @@
     "@tiptap/react": "^3.22.3",
     "@tiptap/starter-kit": "^3.22.3",
     "@tiptap/suggestion": "^3.22.3",
+    "@wekiflow/shared": "workspace:^",
     "i18next": "^26.0.4",
     "i18next-browser-languagedetector": "^8.2.1",
     "lowlight": "^3.3.0",
+    "lucide-react": "^1.12.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-force-graph-2d": "^1.29.1",

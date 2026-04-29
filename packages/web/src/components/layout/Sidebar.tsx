@@ -5,9 +5,30 @@ import {
   useRef,
   useCallback,
   type DragEvent,
+  type ReactNode,
 } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import {
+  Activity,
+  BookOpen,
+  ChevronDown,
+  ChevronRight,
+  ChevronsLeft,
+  FilePlus2,
+  FileText,
+  Folder as FolderIcon,
+  FolderOpen,
+  FolderPlus,
+  GraduationCap,
+  GripVertical,
+  Home,
+  LogOut,
+  Plus,
+  Settings2,
+  Trash2,
+  UploadCloud,
+} from "lucide-react";
 import {
   pages as pagesApi,
   folders as foldersApi,
@@ -35,6 +56,8 @@ import { LanguageSwitcher } from "./LanguageSwitcher.js";
 import { subscribeDecisionCountsUpdated } from "../../lib/decision-events.js";
 import { subscribePagesUpdated } from "../../lib/page-events.js";
 import { ConfirmDialog } from "../modals/ConfirmDialog.js";
+import { Badge } from "../ui/Badge.js";
+import { IconButton } from "../ui/IconButton.js";
 import { slugify } from "@wekiflow/shared";
 
 // ---------------------------------------------------------------------------
@@ -246,6 +269,40 @@ interface SidebarProps {
   onLogout: () => void;
 }
 
+function SidebarNavLink({
+  to,
+  icon,
+  label,
+  badge,
+  end = false,
+}: {
+  to: string;
+  icon: ReactNode;
+  label: string;
+  badge?: number;
+  end?: boolean;
+}) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      className={({ isActive }) =>
+        `sidebar-nav-link${isActive ? " active" : ""}`
+      }
+    >
+      <span className="sidebar-nav-icon" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="sidebar-nav-label">{label}</span>
+      {typeof badge === "number" && badge > 0 && (
+        <Badge className="sidebar-nav-badge" tone="teal" size="sm">
+          {badge}
+        </Badge>
+      )}
+    </NavLink>
+  );
+}
+
 export function Sidebar({
   workspace,
   workspaceList,
@@ -340,7 +397,10 @@ export function Sidebar({
     () => bucketFolders(folderList),
     [folderList],
   );
-  const pageBucket: PageBucket = useMemo(() => bucketPages(pageList), [pageList]);
+  const pageBucket: PageBucket = useMemo(
+    () => bucketPages(pageList),
+    [pageList],
+  );
 
   const rootFolders = folderBucket.byParent.get(null) ?? [];
   const rootPages = pageBucket.byFolder.get(null) ?? [];
@@ -517,7 +577,9 @@ export function Sidebar({
     setDeleteBusy(true);
     try {
       await foldersApi.delete(workspace.id, folderDelete.folderId);
-      setFolderList((prev) => prev.filter((f) => f.id !== folderDelete.folderId));
+      setFolderList((prev) =>
+        prev.filter((f) => f.id !== folderDelete.folderId),
+      );
       setFolderDelete(null);
     } catch {
       setFolderDelete({ ...folderDelete, error: t("deleteFailed") });
@@ -807,15 +869,14 @@ export function Sidebar({
   // -------------------------------------------------------------------------
 
   const openContextMenu = useCallback(
-    (
-      e: React.MouseEvent,
-      kind: ExplorerKind,
-      id: string,
-      label: string,
-    ) => {
+    (e: React.MouseEvent, kind: ExplorerKind, id: string, label: string) => {
       e.preventDefault();
       e.stopPropagation();
-      setContextMenu({ x: e.clientX, y: e.clientY, target: { kind, id, label } });
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        target: { kind, id, label },
+      });
     },
     [],
   );
@@ -878,8 +939,10 @@ export function Sidebar({
     addSubfolderTitle: t("newSubfolder"),
   };
 
+  const userInitial = (userName.trim().charAt(0) || "W").toUpperCase();
+
   return (
-    <nav className="sidebar">
+    <nav className="sidebar" aria-label={t("workspaceNavigation")}>
       <div className="sidebar-header">
         {wsRename !== null ? (
           <div className="ws-header-row">
@@ -896,35 +959,29 @@ export function Sidebar({
             />
           </div>
         ) : (
-          <div className="ws-header-row">
-            <button
-              className="ws-selector"
-              onClick={() => setWsDropdown(!wsDropdown)}
-            >
-              <span className="ws-name">{workspace.name}</span>
-              <span className="ws-chevron">&#8964;</span>
-            </button>
-            <button
-              className="sidebar-icon-btn"
-              title="사이드바 닫기"
+          <div className="sidebar-brand">
+            <div className="sidebar-brand-mark" aria-hidden="true">
+              W
+            </div>
+            <div className="sidebar-brand-copy">
+              <span className="sidebar-app-name">WekiFlow</span>
+              <button
+                className="ws-selector"
+                onClick={() => setWsDropdown(!wsDropdown)}
+                aria-expanded={wsDropdown}
+                aria-haspopup="menu"
+              >
+                <span className="ws-name">{workspace.name}</span>
+                <span className="ws-chevron" aria-hidden="true">
+                  <ChevronDown size={12} />
+                </span>
+              </button>
+            </div>
+            <IconButton
+              icon={<ChevronsLeft size={15} />}
+              label={t("collapseSidebar")}
               onClick={onCollapse}
-            >
-              &#171;
-            </button>
-            <button
-              className="sidebar-icon-btn"
-              title={t("newPage")}
-              onClick={onNewPage}
-            >
-              &#x1F5CE;&#xFE0E;
-            </button>
-            <button
-              className="sidebar-icon-btn"
-              title={t("newFolder")}
-              onClick={() => void createFolder(null)}
-            >
-              &#x1F4C1;&#xFE0E;
-            </button>
+            />
           </div>
         )}
         {wsRename === null && wsDropdown && (
@@ -956,59 +1013,80 @@ export function Sidebar({
             </button>
           </div>
         )}
+        {wsRename === null && (
+          <div className="sidebar-quick-actions">
+            <IconButton
+              className="sidebar-action-button"
+              icon={<FilePlus2 size={14} />}
+              label={t("newPage")}
+              showLabel
+              onClick={onNewPage}
+            />
+            <IconButton
+              className="sidebar-action-button"
+              icon={<FolderPlus size={14} />}
+              label={t("newFolder")}
+              showLabel
+              onClick={() => void createFolder(null)}
+            />
+          </div>
+        )}
       </div>
 
       <div className="sidebar-nav-top">
-        <NavLink
+        <p className="sidebar-nav-heading">{t("mainNavigation")}</p>
+        <SidebarNavLink
+          to="/"
+          end
+          icon={<Home size={15} />}
+          label={t("dashboard")}
+        />
+        <SidebarNavLink
           to="/review"
-          className={({ isActive }) =>
-            `sidebar-nav-link${isActive ? " active" : ""}`
-          }
-        >
-          <span className="sidebar-nav-label">{t("review")}</span>
-          {pendingCount > 0 && (
-            <span className="sidebar-nav-badge">{pendingCount}</span>
-          )}
-        </NavLink>
-        <NavLink
-          to="/activity"
-          className={({ isActive }) =>
-            `sidebar-nav-link${isActive ? " active" : ""}`
-          }
-        >
-          <span className="sidebar-nav-label">{t("activity")}</span>
-        </NavLink>
-        <NavLink
+          icon={<GraduationCap size={15} />}
+          label={t("review")}
+          badge={pendingCount}
+        />
+        <SidebarNavLink
           to="/import"
-          className={({ isActive }) =>
-            `sidebar-nav-link${isActive ? " active" : ""}`
-          }
-        >
-          <span className="sidebar-nav-label">{t("import")}</span>
-        </NavLink>
+          icon={<UploadCloud size={15} />}
+          label={t("import")}
+        />
+        <SidebarNavLink
+          to="/activity"
+          icon={<Activity size={15} />}
+          label={t("activity")}
+        />
         {(workspace.role === "owner" || workspace.role === "admin") && (
-          <NavLink
+          <SidebarNavLink
             to="/admin/queues"
-            className={({ isActive }) =>
-              `sidebar-nav-link${isActive ? " active" : ""}`
-            }
-          >
-            <span className="sidebar-nav-label">{t("queueHealth")}</span>
-          </NavLink>
+            icon={<Settings2 size={15} />}
+            label={t("queueHealth")}
+          />
         )}
-        <NavLink
-          to="/trash"
-          className={({ isActive }) =>
-            `sidebar-nav-link${isActive ? " active" : ""}`
-          }
-        >
-          <span className="sidebar-nav-label">{t("trash")}</span>
-        </NavLink>
       </div>
 
       <hr className="sidebar-divider" />
 
-      <h2 className="sidebar-section-header">{t("pagesSectionTitle")}</h2>
+      <div className="sidebar-section-title">
+        <h2 className="sidebar-section-header">
+          <BookOpen size={13} aria-hidden="true" /> {t("wiki")}
+        </h2>
+        <div className="sidebar-section-actions">
+          <IconButton
+            size="sm"
+            icon={<FolderPlus size={13} />}
+            label={t("newFolder")}
+            onClick={() => void createFolder(null)}
+          />
+          <IconButton
+            size="sm"
+            icon={<Plus size={13} />}
+            label={t("newPage")}
+            onClick={onNewPage}
+          />
+        </div>
+      </div>
 
       <div className="sidebar-content">
         {rootFolders.map((folder) => (
@@ -1020,15 +1098,35 @@ export function Sidebar({
         {rootFolders.length === 0 && rootPages.length === 0 && (
           <p className="sidebar-empty">{t("noPagesYet")}</p>
         )}
-        {dndError && <p className="sidebar-empty sidebar-dnd-error">{dndError}</p>}
+        {dndError && (
+          <p className="sidebar-empty sidebar-dnd-error">{dndError}</p>
+        )}
+      </div>
+
+      <div className="sidebar-nav-group">
+        <SidebarNavLink
+          to="/trash"
+          icon={<Trash2 size={15} />}
+          label={t("trash")}
+        />
       </div>
 
       <div className="sidebar-footer">
-        <span className="sidebar-user">{userName}</span>
+        <span className="sidebar-user-avatar" aria-hidden="true">
+          {userInitial}
+        </span>
+        <div className="sidebar-user-meta">
+          <span className="sidebar-user">{userName}</span>
+          <span className="sidebar-user-role">{workspace.role}</span>
+        </div>
         <LanguageSwitcher />
-        <button className="btn-logout" onClick={onLogout}>
-          {t("signOut")}
-        </button>
+        <IconButton
+          className="btn-logout"
+          tone="danger"
+          icon={<LogOut size={14} />}
+          label={t("signOut")}
+          onClick={onLogout}
+        />
       </div>
 
       {contextMenu && (
@@ -1278,7 +1376,9 @@ function FolderNode({
     <div className="page-node">
       <div
         className={`page-node-row folder-row${indicator}`}
-        onContextMenu={(e) => shared.onContextMenu(e, "folder", folder.id, label)}
+        onContextMenu={(e) =>
+          shared.onContextMenu(e, "folder", folder.id, label)
+        }
         onDragOver={(e) => shared.onDragOverRow(e, "folder", folder.id)}
         onDragLeave={() => shared.onDragLeaveRow(folder.id)}
         onDrop={(e) => shared.onDrop(e, "folder", folder.id)}
@@ -1290,20 +1390,29 @@ function FolderNode({
           onDragStart={(e) => shared.onDragStart(e, "folder", folder.id)}
           onDragEnd={shared.onDragEnd}
         >
-          &#x2630;
+          <GripVertical size={12} aria-hidden="true" />
         </span>
-        <button
-          className="page-expand-btn"
-          onClick={(e) => {
-            e.stopPropagation();
-            shared.onToggle(folder.id);
-          }}
-          tabIndex={-1}
-        >
-          {hasChildren ? (isExpanded ? "▾" : "▸") : " "}
-        </button>
-        <span className="folder-icon" aria-hidden>
-          &#128193;&#xFE0E;
+        {hasChildren ? (
+          <button
+            className="page-expand-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              shared.onToggle(folder.id);
+            }}
+            tabIndex={-1}
+            aria-label={isExpanded ? "Collapse folder" : "Expand folder"}
+          >
+            {isExpanded ? (
+              <ChevronDown size={13} aria-hidden="true" />
+            ) : (
+              <ChevronRight size={13} aria-hidden="true" />
+            )}
+          </button>
+        ) : (
+          <span className="page-expand-spacer" aria-hidden="true" />
+        )}
+        <span className="folder-icon page-node-icon" aria-hidden="true">
+          {isExpanded ? <FolderOpen size={13} /> : <FolderIcon size={13} />}
         </span>
         {isRenaming ? (
           <input
@@ -1333,7 +1442,7 @@ function FolderNode({
             shared.onAddSubfolder(folder.id);
           }}
         >
-          &#128193;&#xFE0E;+
+          <FolderPlus size={12} aria-hidden="true" />
         </button>
         <button
           className="page-add-sub-btn"
@@ -1343,7 +1452,7 @@ function FolderNode({
             shared.onAddSubPage("folder", folder.id, label);
           }}
         >
-          +
+          <Plus size={12} aria-hidden="true" />
         </button>
       </div>
 
@@ -1386,18 +1495,30 @@ function PageNode({ page, ...shared }: { page: Page } & SharedNodeProps) {
           onDragStart={(e) => shared.onDragStart(e, "page", page.id)}
           onDragEnd={shared.onDragEnd}
         >
-          &#x2630;
+          <GripVertical size={12} aria-hidden="true" />
         </span>
-        <button
-          className="page-expand-btn"
-          onClick={(e) => {
-            e.stopPropagation();
-            shared.onToggle(page.id);
-          }}
-          tabIndex={-1}
-        >
-          {hasChildren ? (isExpanded ? "▾" : "▸") : " "}
-        </button>
+        {hasChildren ? (
+          <button
+            className="page-expand-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              shared.onToggle(page.id);
+            }}
+            tabIndex={-1}
+            aria-label={isExpanded ? "Collapse page" : "Expand page"}
+          >
+            {isExpanded ? (
+              <ChevronDown size={13} aria-hidden="true" />
+            ) : (
+              <ChevronRight size={13} aria-hidden="true" />
+            )}
+          </button>
+        ) : (
+          <span className="page-expand-spacer" aria-hidden="true" />
+        )}
+        <span className="page-node-icon" aria-hidden="true">
+          <FileText size={13} />
+        </span>
         {isRenaming ? (
           <input
             className="page-rename-input"
@@ -1429,7 +1550,7 @@ function PageNode({ page, ...shared }: { page: Page } & SharedNodeProps) {
             shared.onAddSubPage("page", page.id, title);
           }}
         >
-          +
+          <Plus size={12} aria-hidden="true" />
         </button>
       </div>
 
