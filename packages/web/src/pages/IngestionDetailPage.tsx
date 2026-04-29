@@ -6,8 +6,11 @@ import { useWorkspace } from "../hooks/use-workspace.js";
 import { useTimeAgo } from "../hooks/use-time-ago.js";
 import {
   ApiError,
+  agentRuns as agentRunsApi,
   decisions as decisionsApi,
   ingestions as ingestionsApi,
+  type AgentRunDto,
+  type AgentRunTraceStep,
   type DecisionCandidate,
   type DecisionDetail,
   type DecisionSummary,
@@ -16,6 +19,7 @@ import {
 import { classifyLine } from "../components/revisions/DiffViewer.js";
 import { dispatchDecisionCountsUpdated } from "../lib/decision-events.js";
 import { DecisionOverrideForm } from "../components/review/DecisionOverrideForm.js";
+import { AgentTracePanel } from "../components/agents/AgentTracePanel.js";
 
 interface DecisionPanelProps {
   workspaceId: string;
@@ -387,6 +391,8 @@ export function IngestionDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [agentRun, setAgentRun] = useState<AgentRunDto | null>(null);
+  const [traceError, setTraceError] = useState<string | null>(null);
 
   const workspaceId = current?.id;
 
@@ -405,9 +411,54 @@ export function IngestionDetailPage() {
     }
   }, [workspaceId, ingestionId, t]);
 
+  const loadAgentRun = useCallback(async () => {
+    if (!workspaceId || !ingestionId) return;
+    setTraceError(null);
+    try {
+      const res = await agentRunsApi.list(workspaceId, {
+        ingestionId,
+        limit: 1,
+      });
+      setAgentRun(res.data[0] ?? null);
+    } catch (err) {
+      setTraceError(
+        err instanceof Error ? err.message : "Failed to load agent trace",
+      );
+      setAgentRun(null);
+    }
+  }, [workspaceId, ingestionId]);
+
   useEffect(() => {
     void loadIngestion();
-  }, [loadIngestion]);
+    void loadAgentRun();
+  }, [loadAgentRun, loadIngestion]);
+
+  useEffect(() => {
+    if (!workspaceId || !agentRun || agentRun.status !== "running") return;
+    const agentRunId = agentRun.id;
+
+    function mergeStep(step: AgentRunTraceStep) {
+      setAgentRun((current) => {
+        if (!current || current.id !== agentRunId) return current;
+        if (
+          current.steps.some((s) => s.step === step.step && s.ts === step.ts)
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          steps: [...current.steps, step].sort((a, b) => a.step - b.step),
+        };
+      });
+    }
+
+    return agentRunsApi.stream(workspaceId, agentRunId, {
+      onSnapshot: setAgentRun,
+      onStep: mergeStep,
+      onStatus: setAgentRun,
+      onError: setTraceError,
+    });
+  }, [agentRun?.id, agentRun?.status, workspaceId]);
 
   const handleOnResolved = useCallback(async () => {
     if (!workspaceId) return;
@@ -526,6 +577,10 @@ export function IngestionDetailPage() {
                 {JSON.stringify(data.rawPayload, null, 2)}
               </pre>
             </details>
+          </section>
+
+          <section className="ingestion-detail-section">
+            <AgentTracePanel agentRun={agentRun} streamError={traceError} />
           </section>
 
           <section className="ingestion-detail-section">

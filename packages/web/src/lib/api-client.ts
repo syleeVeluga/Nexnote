@@ -14,6 +14,9 @@ import {
   type RevisionSource,
   type WorkspaceRole,
   type RevisionDiffDto,
+  type AgentRunDto,
+  type AgentRunTraceEvent,
+  type AgentRunTraceStep,
   type GraphNode,
   type GraphEdge,
   type GraphData,
@@ -168,6 +171,7 @@ export interface Workspace {
   name: string;
   slug: string;
   defaultAiPolicy: string | null;
+  agentInstructions: string | null;
   useReconciliationDefault: boolean;
   ingestionMode: IngestionMode;
   role?: WorkspaceRole;
@@ -202,6 +206,8 @@ export const workspaces = {
     id: string,
     data: {
       name?: string;
+      ingestionMode?: IngestionMode;
+      agentInstructions?: string | null;
       useReconciliationDefault?: boolean;
     },
   ) {
@@ -341,6 +347,7 @@ export type {
   IngestionStatus,
   DecisionStatus,
 } from "@wekiflow/shared";
+export type { AgentRunDto, AgentRunTraceEvent, AgentRunTraceStep };
 
 export const pages = {
   list(
@@ -1046,6 +1053,135 @@ export const decisions = {
       method: "PATCH",
       body: JSON.stringify(data),
     });
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Ingestion Agent runs
+// ---------------------------------------------------------------------------
+
+export interface AgentDiagnostics {
+  sinceDays: number;
+  agreement: {
+    agentRunCount: number;
+    comparableCount: number;
+    actionMatches: number;
+    targetMatches: number;
+    fullMatches: number;
+    actionAgreementRate: number | null;
+    targetPageAgreementRate: number | null;
+    fullAgreementRate: number | null;
+    totalAgentTokens: number;
+  };
+  dailyTokenUsage: {
+    used: number;
+    cap: number;
+    remaining: number;
+  };
+  recentMismatches: Array<{
+    agentRunId: string;
+    ingestionId: string;
+    startedAt: string;
+    agentAction: string | null;
+    classicAction: string | null;
+    agentTargetPageId: string | null;
+    classicTargetPageId: string | null;
+    titleHint: string | null;
+    sourceName: string;
+  }>;
+}
+
+export const agentRuns = {
+  list(workspaceId: string, params?: { ingestionId?: string; limit?: number }) {
+    const q = buildQuery({
+      ingestionId: params?.ingestionId,
+      limit: params?.limit,
+    });
+    return request<{ data: AgentRunDto[]; total: number }>(
+      `/workspaces/${workspaceId}/agent-runs${q}`,
+    );
+  },
+  get(workspaceId: string, agentRunId: string) {
+    return request<AgentRunDto>(
+      `/workspaces/${workspaceId}/agent-runs/${agentRunId}`,
+    );
+  },
+  diagnostics(workspaceId: string, params?: { sinceDays?: number }) {
+    const q = buildQuery({ sinceDays: params?.sinceDays });
+    return request<AgentDiagnostics>(
+      `/workspaces/${workspaceId}/agent-runs/diagnostics${q}`,
+    );
+  },
+  stream(
+    workspaceId: string,
+    agentRunId: string,
+    handlers: {
+      onSnapshot?: (agentRun: AgentRunDto) => void;
+      onStep?: (step: AgentRunTraceStep) => void;
+      onStatus?: (agentRun: AgentRunDto) => void;
+      onError?: (message: string) => void;
+    },
+  ): () => void {
+    const controller = new AbortController();
+    void (async () => {
+      const headers: Record<string, string> = {
+        Accept: "text/event-stream",
+      };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      try {
+        const res = await fetch(
+          `${BASE_URL}/workspaces/${workspaceId}/agent-runs/${agentRunId}/events`,
+          { headers, signal: controller.signal },
+        );
+        if (!res.ok || !res.body) {
+          handlers.onError?.(`HTTP ${res.status}`);
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (!controller.signal.aborted) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() ?? "";
+
+          for (const part of parts) {
+            const eventMatch = /^event: (\S+)/m.exec(part);
+            const dataMatch = /^data: (.+)$/m.exec(part);
+            if (!eventMatch || !dataMatch) continue;
+            let payload: AgentRunTraceEvent;
+            try {
+              payload = JSON.parse(dataMatch[1]) as AgentRunTraceEvent;
+            } catch {
+              continue;
+            }
+            if (payload.type === "snapshot") {
+              handlers.onSnapshot?.(payload.agentRun);
+            } else if (payload.type === "step") {
+              handlers.onStep?.(payload.step);
+            } else if (payload.type === "status") {
+              handlers.onStatus?.(payload.agentRun);
+            } else if (payload.type === "error") {
+              handlers.onError?.(payload.message);
+            }
+          }
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          handlers.onError?.(
+            err instanceof Error ? err.message : "Agent trace stream failed",
+          );
+        }
+      }
+    })();
+
+    return () => controller.abort();
   },
 };
 

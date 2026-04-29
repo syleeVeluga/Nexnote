@@ -113,6 +113,13 @@
       "when": 1777658400000,
       "tag": "0015_agent_runs",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1777744800000,
+      "tag": "0016_agent_shadow_hardening",
+      "breakpoints": true
     }
   ]
 }

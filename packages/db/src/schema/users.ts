@@ -27,6 +27,7 @@ export const workspaces = pgTable(
     name: text("name").notNull(),
     slug: text("slug").notNull().unique(),
     defaultAiPolicy: text("default_ai_policy"),
+    agentInstructions: text("agent_instructions"),
     useReconciliationDefault: boolean("use_reconciliation_default")
       .notNull()
       .default(true),

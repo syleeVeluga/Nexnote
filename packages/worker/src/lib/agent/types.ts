@@ -1,4 +1,7 @@
-import type { NormalizedToolCall } from "@wekiflow/shared";
+import type {
+  AgentRunTraceStep as SharedAgentRunTraceStep,
+  NormalizedToolCall,
+} from "@wekiflow/shared";
 import type { getDb } from "@wekiflow/db/client";
 
 export type AgentDb = ReturnType<typeof getDb>;
@@ -99,20 +102,7 @@ export interface AgentDispatcher {
   ): Promise<AgentToolExecution[]>;
 }
 
-export interface AgentRunTraceStep {
-  step: number;
-  type:
-    | "model_selection"
-    | "ai_response"
-    | "context_compaction"
-    | "tool_result"
-    | "plan"
-    | "mutation_result"
-    | "shadow_execute_skipped"
-    | "error";
-  payload: Record<string, unknown>;
-  ts: string;
-}
+export type AgentRunTraceStep = SharedAgentRunTraceStep;
 
 export class AgentToolError extends Error {
   constructor(

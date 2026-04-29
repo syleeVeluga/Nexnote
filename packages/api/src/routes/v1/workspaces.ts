@@ -1,4 +1,8 @@
-import type { FastifyInstance, FastifyPluginAsync, FastifyReply } from "fastify";
+import type {
+  FastifyInstance,
+  FastifyPluginAsync,
+  FastifyReply,
+} from "fastify";
 import { eq, and, count } from "drizzle-orm";
 import { workspaces, workspaceMembers, users, auditLogs } from "@wekiflow/db";
 import {
@@ -58,6 +62,7 @@ function toWorkspaceDto(row: typeof workspaces.$inferSelect) {
     name: row.name,
     slug: row.slug,
     defaultAiPolicy: row.defaultAiPolicy,
+    agentInstructions: row.agentInstructions,
     useReconciliationDefault: row.useReconciliationDefault,
     ingestionMode: row.ingestionMode,
     createdAt: row.createdAt.toISOString(),
@@ -114,8 +119,8 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
               name: body.name,
               slug: body.slug,
               defaultAiPolicy: body.defaultAiPolicy ?? null,
-              useReconciliationDefault:
-                body.useReconciliationDefault ?? true,
+              agentInstructions: body.agentInstructions?.trim() || null,
+              useReconciliationDefault: body.useReconciliationDefault ?? true,
             })
             .returning();
 
@@ -169,6 +174,7 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
             name: workspaces.name,
             slug: workspaces.slug,
             defaultAiPolicy: workspaces.defaultAiPolicy,
+            agentInstructions: workspaces.agentInstructions,
             useReconciliationDefault: workspaces.useReconciliationDefault,
             ingestionMode: workspaces.ingestionMode,
             createdAt: workspaces.createdAt,
@@ -176,7 +182,10 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
             role: workspaceMembers.role,
           })
           .from(workspaceMembers)
-          .innerJoin(workspaces, eq(workspaceMembers.workspaceId, workspaces.id))
+          .innerJoin(
+            workspaces,
+            eq(workspaceMembers.workspaceId, workspaces.id),
+          )
           .where(eq(workspaceMembers.userId, userId))
           .limit(limit)
           .offset(offset),
@@ -245,18 +254,21 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
         return sendValidationError(reply, bodyResult.error.issues);
       const body = bodyResult.data;
       const userId = request.user.sub;
+      const workspacePatch = {
+        ...body,
+        ...("agentInstructions" in body
+          ? { agentInstructions: body.agentInstructions?.trim() || null }
+          : {}),
+      };
 
-      await requireMembership(fastify, workspaceId, userId, [
-        "owner",
-        "admin",
-      ]);
+      await requireMembership(fastify, workspaceId, userId, ["owner", "admin"]);
 
       try {
         const updated = await fastify.db.transaction(async (tx) => {
           const [row] = await tx
             .update(workspaces)
             .set({
-              ...body,
+              ...workspacePatch,
               updatedAt: new Date(),
             })
             .where(eq(workspaces.id, workspaceId))
@@ -270,7 +282,7 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
             entityType: "workspace",
             entityId: workspaceId,
             action: "workspace.update",
-            afterJson: body,
+            afterJson: workspacePatch,
           });
 
           return row;
@@ -310,10 +322,7 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
       const body = bodyResult.data;
       const userId = request.user.sub;
 
-      await requireMembership(fastify, workspaceId, userId, [
-        "owner",
-        "admin",
-      ]);
+      await requireMembership(fastify, workspaceId, userId, ["owner", "admin"]);
 
       try {
         const { member, user } = await fastify.db.transaction(async (tx) => {

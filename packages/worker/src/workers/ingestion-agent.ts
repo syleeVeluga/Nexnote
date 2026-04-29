@@ -1,20 +1,27 @@
 import { Worker, type Job } from "bullmq";
-import { and, desc, eq, sql } from "drizzle-orm";
-import { agentRuns, ingestions, modelRuns } from "@wekiflow/db";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { agentRuns, ingestions, modelRuns, workspaces } from "@wekiflow/db";
 import { getDb } from "@wekiflow/db/client";
 import {
+  agentTraceChannel,
   extractIngestionText,
   QUEUE_NAMES,
+  AGENT_LIMITS,
   type IngestionAgentJobData,
   type IngestionAgentJobResult,
+  type AgentRunDto,
+  type AgentRunTraceEvent,
 } from "@wekiflow/shared";
 import { createRedisConnection } from "../connection.js";
 import { createJobLogger } from "../logger.js";
 import { getQueue } from "../queues.js";
 import {
   AgentLoopTimeout,
+  AgentWorkspaceTokenCapExceeded,
   runIngestionAgentShadow,
   type AgentModelRunRecord,
+  type AgentWorkspaceTokenReservation,
+  type AgentWorkspaceTokenReservationRequest,
 } from "../lib/agent/loop.js";
 import type { AgentRunTraceStep } from "../lib/agent/types.js";
 
@@ -49,8 +56,171 @@ function appendErrorStep(
   ];
 }
 
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function startOfUtcDay(now = new Date()): Date {
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+}
+
+function msUntilNextUtcDay(now = new Date()): number {
+  const nextDay = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
+  );
+  return Math.max(1_000, nextDay - now.getTime());
+}
+
+function workspaceTokenReservationKey(
+  workspaceId: string,
+  now = new Date(),
+): string {
+  return `agent-runs:tokens:${workspaceId}:${now.toISOString().slice(0, 10)}`;
+}
+
+const RESERVE_WORKSPACE_TOKENS_LUA = `
+local current = redis.call('GET', KEYS[1])
+if not current then
+  current = tonumber(ARGV[1]) or 0
+  redis.call('SET', KEYS[1], tostring(current), 'PX', ARGV[4])
+else
+  current = tonumber(current) or 0
+end
+
+local amount = tonumber(ARGV[2]) or 0
+local cap = tonumber(ARGV[3]) or 0
+if current + amount > cap then
+  return {0, current}
+end
+
+local next_value = current + amount
+redis.call('SET', KEYS[1], tostring(next_value), 'PX', ARGV[4])
+return {1, next_value}
+`;
+
+const ADJUST_WORKSPACE_TOKENS_LUA = `
+local current = tonumber(redis.call('GET', KEYS[1]) or '0') or 0
+local delta = tonumber(ARGV[1]) or 0
+local next_value = current + delta
+if next_value < 0 then
+  next_value = 0
+end
+redis.call('SET', KEYS[1], tostring(next_value), 'PX', ARGV[2])
+return next_value
+`;
+
+async function loadWorkspaceAgentTokensToday(
+  db: ReturnType<typeof getDb>,
+  workspaceId: string,
+): Promise<number> {
+  const [row] = await db
+    .select({
+      total: sql<number>`coalesce(sum(coalesce(${modelRuns.tokenInput}, 0) + coalesce(${modelRuns.tokenOutput}, 0)), 0)::int`,
+    })
+    .from(modelRuns)
+    .where(
+      and(
+        eq(modelRuns.workspaceId, workspaceId),
+        eq(modelRuns.mode, "agent_plan"),
+        gte(modelRuns.createdAt, startOfUtcDay()),
+      ),
+    );
+  return Number(row?.total ?? 0);
+}
+
+function parseLuaNumberPair(result: unknown): [number, number] {
+  if (!Array.isArray(result)) return [0, 0];
+  return [Number(result[0] ?? 0), Number(result[1] ?? 0)];
+}
+
+async function reserveWorkspaceAgentTokens(
+  redis: ReturnType<typeof createRedisConnection>,
+  workspaceId: string,
+  request: AgentWorkspaceTokenReservationRequest,
+): Promise<AgentWorkspaceTokenReservation | null> {
+  const reservedTokens = Math.max(1, Math.ceil(request.estimatedTokens));
+  const key = workspaceTokenReservationKey(workspaceId);
+  const ttlMs = msUntilNextUtcDay();
+  const [ok, usedAfterReservation] = parseLuaNumberPair(
+    await redis.eval(
+      RESERVE_WORKSPACE_TOKENS_LUA,
+      1,
+      key,
+      String(request.usedToday),
+      String(reservedTokens),
+      String(request.cap),
+      String(ttlMs),
+    ),
+  );
+  if (ok !== 1) return null;
+
+  return {
+    reservedTokens,
+    usedAfterReservation,
+    release: async (actualTokens: number) => {
+      const delta = Math.ceil(actualTokens) - reservedTokens;
+      if (delta === 0) return;
+      await redis.eval(
+        ADJUST_WORKSPACE_TOKENS_LUA,
+        1,
+        key,
+        String(delta),
+        String(msUntilNextUtcDay()),
+      );
+    },
+  };
+}
+
+async function appendAgentRunStep(
+  db: ReturnType<typeof getDb>,
+  agentRunId: string,
+  step: AgentRunTraceStep,
+): Promise<void> {
+  await db
+    .update(agentRuns)
+    .set({
+      stepsJson: sql`coalesce(${agentRuns.stepsJson}, '[]'::jsonb) || ${JSON.stringify([step])}::jsonb`,
+    })
+    .where(eq(agentRuns.id, agentRunId));
+}
+
+function toAgentRunDto(row: typeof agentRuns.$inferSelect): AgentRunDto {
+  return {
+    id: row.id,
+    ingestionId: row.ingestionId,
+    workspaceId: row.workspaceId,
+    status: row.status as AgentRunDto["status"],
+    plan: row.planJson ?? null,
+    steps: Array.isArray(row.stepsJson)
+      ? (row.stepsJson as AgentRunTraceStep[])
+      : [],
+    decisionsCount: row.decisionsCount,
+    totalTokens: row.totalTokens,
+    totalLatencyMs: row.totalLatencyMs,
+    startedAt: row.startedAt.toISOString(),
+    completedAt: row.completedAt?.toISOString() ?? null,
+  };
+}
+
+async function publishAgentRunEvent(
+  redis: ReturnType<typeof createRedisConnection>,
+  agentRunId: string,
+  event: AgentRunTraceEvent,
+): Promise<void> {
+  await redis
+    .publish(agentTraceChannel(agentRunId), JSON.stringify(event))
+    .catch(() => undefined);
+}
+
 export function createIngestionAgentWorker(): Worker {
   const db = getDb();
+  const tracePublisher = createRedisConnection();
 
   const worker = new Worker<IngestionAgentJobData, IngestionAgentJobResult>(
     QUEUE_NAMES.INGESTION_AGENT,
@@ -76,6 +246,19 @@ export function createIngestionAgentWorker(): Worker {
 
       if (!ingestion) {
         throw new Error(`Ingestion ${ingestionId} not found`);
+      }
+
+      const [workspace] = await db
+        .select({
+          id: workspaces.id,
+          agentInstructions: workspaces.agentInstructions,
+        })
+        .from(workspaces)
+        .where(eq(workspaces.id, workspaceId))
+        .limit(1);
+
+      if (!workspace) {
+        throw new Error(`Workspace ${workspaceId} not found`);
       }
 
       const [existingComplete] = await db
@@ -144,6 +327,26 @@ export function createIngestionAgentWorker(): Worker {
             .returning();
 
       await job.updateProgress(15);
+      await publishAgentRunEvent(tracePublisher, agentRun.id, {
+        type: "snapshot",
+        agentRun: toAgentRunDto(agentRun),
+      });
+      let stepFlush = Promise.resolve();
+      const emitLiveStep = (step: AgentRunTraceStep): Promise<void> => {
+        stepFlush = stepFlush
+          .catch(() => undefined)
+          .then(async () => {
+            await appendAgentRunStep(db, agentRun.id, step);
+            await publishAgentRunEvent(tracePublisher, agentRun.id, {
+              type: "step",
+              step,
+            });
+          });
+        return stepFlush;
+      };
+      const flushLiveSteps = async (): Promise<void> => {
+        await stepFlush.catch(() => undefined);
+      };
 
       let normalizedText = ingestion.normalizedText;
       if (!normalizedText) {
@@ -166,29 +369,41 @@ export function createIngestionAgentWorker(): Worker {
           .where(eq(ingestions.id, ingestionId));
       }
 
+      const workspaceDailyTokenCap = parsePositiveInt(
+        process.env["AGENT_WORKSPACE_DAILY_TOKEN_CAP"],
+        AGENT_LIMITS.WORKSPACE_DAILY_TOKEN_CAP,
+      );
+      const workspaceTokensUsedToday = await loadWorkspaceAgentTokensToday(
+        db,
+        workspaceId,
+      );
+
       const recordModelRun = async (
         record: AgentModelRunRecord,
       ): Promise<{ id: string }> => {
-        const [modelRun] = await db.insert(modelRuns).values({
-          workspaceId,
-          provider: record.request.provider,
-          modelName: record.request.model,
-          mode: record.request.mode,
-          promptVersion: record.request.promptVersion,
-          tokenInput: record.response?.tokenInput ?? 0,
-          tokenOutput: record.response?.tokenOutput ?? 0,
-          latencyMs: record.response?.latencyMs ?? 0,
-          status: record.status,
-          agentRunId: agentRun.id,
-          requestMetaJson: {
-            ...record.requestMetaJson,
-            jobId: job.id ?? null,
-            toolCount: record.request.tools?.length ?? 0,
-            toolChoice: record.request.toolChoice ?? null,
-            budget: record.request.budgetMeta ?? null,
-          },
-          responseMetaJson: record.responseMetaJson,
-        }).returning({ id: modelRuns.id });
+        const [modelRun] = await db
+          .insert(modelRuns)
+          .values({
+            workspaceId,
+            provider: record.request.provider,
+            modelName: record.request.model,
+            mode: record.request.mode,
+            promptVersion: record.request.promptVersion,
+            tokenInput: record.response?.tokenInput ?? 0,
+            tokenOutput: record.response?.tokenOutput ?? 0,
+            latencyMs: record.response?.latencyMs ?? 0,
+            status: record.status,
+            agentRunId: agentRun.id,
+            requestMetaJson: {
+              ...record.requestMetaJson,
+              jobId: job.id ?? null,
+              toolCount: record.request.tools?.length ?? 0,
+              toolChoice: record.request.toolChoice ?? null,
+              budget: record.request.budgetMeta ?? null,
+            },
+            responseMetaJson: record.responseMetaJson,
+          })
+          .returning({ id: modelRuns.id });
         return { id: modelRun.id };
       };
 
@@ -200,6 +415,18 @@ export function createIngestionAgentWorker(): Worker {
           ingestion: { ...ingestion, normalizedText },
           mode: runMode,
           agentRunId: agentRun.id,
+          workspaceAgentInstructions: workspace.agentInstructions,
+          workspaceTokenUsage: {
+            usedToday: workspaceTokensUsedToday,
+            cap: workspaceDailyTokenCap,
+          },
+          reserveWorkspaceTokens: (reservationRequest) =>
+            reserveWorkspaceAgentTokens(
+              tracePublisher,
+              workspaceId,
+              reservationRequest,
+            ),
+          onStep: emitLiveStep,
           recordModelRun,
           mutationQueues:
             runMode === "agent"
@@ -211,7 +438,8 @@ export function createIngestionAgentWorker(): Worker {
               : undefined,
         });
 
-        await db
+        await flushLiveSteps();
+        const [completedRun] = await db
           .update(agentRuns)
           .set({
             status: result.status,
@@ -222,7 +450,14 @@ export function createIngestionAgentWorker(): Worker {
             totalLatencyMs: result.totalLatencyMs,
             completedAt: new Date(),
           })
-          .where(eq(agentRuns.id, agentRun.id));
+          .where(eq(agentRuns.id, agentRun.id))
+          .returning();
+        if (completedRun) {
+          await publishAgentRunEvent(tracePublisher, agentRun.id, {
+            type: "status",
+            agentRun: toAgentRunDto(completedRun),
+          });
+        }
 
         if (runMode === "agent") {
           await db
@@ -241,8 +476,48 @@ export function createIngestionAgentWorker(): Worker {
           totalTokens: result.totalTokens,
         };
       } catch (err) {
+        if (err instanceof AgentWorkspaceTokenCapExceeded) {
+          await flushLiveSteps();
+          const finalSteps = appendErrorStep(err.steps, err);
+          const [failedRun] = await db
+            .update(agentRuns)
+            .set({
+              status: "failed",
+              stepsJson: finalSteps,
+              totalTokens: err.totalTokens,
+              totalLatencyMs: err.totalLatencyMs,
+              completedAt: new Date(),
+            })
+            .where(eq(agentRuns.id, agentRun.id))
+            .returning();
+
+          if (failedRun) {
+            await publishAgentRunEvent(tracePublisher, agentRun.id, {
+              type: "status",
+              agentRun: toAgentRunDto(failedRun),
+            });
+          }
+
+          if (runMode === "agent") {
+            await db
+              .update(ingestions)
+              .set({ status: "failed", processedAt: new Date() })
+              .where(eq(ingestions.id, ingestionId));
+          }
+
+          await job.updateProgress(100);
+          return {
+            ingestionId,
+            agentRunId: agentRun.id,
+            status: "failed",
+            proposedMutations: 0,
+            totalTokens: err.totalTokens,
+          };
+        }
+
         if (err instanceof AgentLoopTimeout) {
-          await db
+          await flushLiveSteps();
+          const [timeoutRun] = await db
             .update(agentRuns)
             .set({
               status: "timeout",
@@ -251,7 +526,15 @@ export function createIngestionAgentWorker(): Worker {
               totalLatencyMs: err.totalLatencyMs,
               completedAt: new Date(),
             })
-            .where(eq(agentRuns.id, agentRun.id));
+            .where(eq(agentRuns.id, agentRun.id))
+            .returning();
+
+          if (timeoutRun) {
+            await publishAgentRunEvent(tracePublisher, agentRun.id, {
+              type: "status",
+              agentRun: toAgentRunDto(timeoutRun),
+            });
+          }
 
           if (runMode === "agent") {
             await db
@@ -270,14 +553,23 @@ export function createIngestionAgentWorker(): Worker {
           };
         }
 
-        await db
+        await flushLiveSteps();
+        const finalErrorStep = errorStep(err);
+        const [failedRun] = await db
           .update(agentRuns)
           .set({
             status: "failed",
-            stepsJson: [errorStep(err)],
+            stepsJson: sql`coalesce(${agentRuns.stepsJson}, '[]'::jsonb) || ${JSON.stringify([finalErrorStep])}::jsonb`,
             completedAt: new Date(),
           })
-          .where(eq(agentRuns.id, agentRun.id));
+          .where(eq(agentRuns.id, agentRun.id))
+          .returning();
+        if (failedRun) {
+          await publishAgentRunEvent(tracePublisher, agentRun.id, {
+            type: "status",
+            agentRun: toAgentRunDto(failedRun),
+          });
+        }
         if (runMode === "agent") {
           await db
             .update(ingestions)
@@ -308,6 +600,10 @@ export function createIngestionAgentWorker(): Worker {
   worker.on("failed", (job, err) => {
     const log = createJobLogger("ingestion-agent", job?.id);
     log.error({ err }, "Job failed");
+  });
+
+  worker.on("closed", () => {
+    void tracePublisher.quit();
   });
 
   return worker;
