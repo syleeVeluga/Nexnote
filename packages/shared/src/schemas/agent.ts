@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { uuidSchema } from "./common.js";
+import { AGENT_LIMITS, INGESTION_ACTIONS } from "../constants/index.js";
 
 export const AGENT_READ_TOOL_NAMES = [
   "search_pages",
@@ -54,3 +55,50 @@ export const agentReadToolInputSchemas = {
   find_related_entities: findRelatedEntitiesToolInputSchema,
   list_recent_pages: listRecentPagesToolInputSchema,
 } as const;
+
+export const agentPlanEvidenceSchema = z.object({
+  pageId: uuidSchema.optional(),
+  note: z.string().trim().min(1).max(1_000),
+});
+export type AgentPlanEvidence = z.infer<typeof agentPlanEvidenceSchema>;
+
+export const agentPlanMutationSchema = z
+  .object({
+    action: z.enum(INGESTION_ACTIONS),
+    targetPageId: uuidSchema.nullable().default(null),
+    confidence: z.number().min(0).max(1),
+    reason: z.string().trim().min(1).max(2_000),
+    proposedTitle: z.string().trim().min(1).max(500).optional(),
+    sectionHint: z.string().trim().min(1).max(500).optional(),
+    contentSummary: z.string().trim().min(1).max(2_000).optional(),
+    evidence: z.array(agentPlanEvidenceSchema).max(20).default([]),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      (value.action === "update" || value.action === "append") &&
+      !value.targetPageId
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetPageId"],
+        message: "targetPageId is required for update/append mutations",
+      });
+    }
+    if (value.action === "create" && !value.proposedTitle) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["proposedTitle"],
+        message: "proposedTitle is required for create mutations",
+      });
+    }
+  });
+export type AgentPlanMutation = z.infer<typeof agentPlanMutationSchema>;
+
+export const ingestionAgentPlanSchema = z.object({
+  summary: z.string().trim().min(1).max(2_000),
+  proposedPlan: z
+    .array(agentPlanMutationSchema)
+    .max(AGENT_LIMITS.MAX_MUTATIONS),
+  openQuestions: z.array(z.string().trim().min(1).max(1_000)).default([]),
+});
+export type IngestionAgentPlan = z.infer<typeof ingestionAgentPlanSchema>;

@@ -14,6 +14,22 @@ export interface RouteClassifierJobResult {
   confidence: number;
 }
 
+/** Data passed to the ingestion-agent shadow job */
+export interface IngestionAgentJobData {
+  ingestionId: string;
+  workspaceId: string;
+  mode: "shadow";
+}
+
+/** Result returned from the ingestion-agent shadow job */
+export interface IngestionAgentJobResult {
+  ingestionId: string;
+  agentRunId: string;
+  status: "shadow" | "failed" | "timeout";
+  proposedMutations: number;
+  totalTokens: number;
+}
+
 /** Data passed to the patch-generator job */
 export interface PatchGeneratorJobData {
   ingestionId: string;

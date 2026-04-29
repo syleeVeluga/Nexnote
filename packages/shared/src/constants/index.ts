@@ -93,6 +93,7 @@ export const AI_MODELS = {
 
 export const MODEL_RUN_MODES = [
   "route_decision",
+  "agent_plan",
   "patch_generation",
   "triple_extraction",
   "entity_match_judge",
@@ -175,6 +176,7 @@ export const DEFAULT_MODEL_CONTEXT_BUDGET: ModelContextBudget = {
 // keep a large reserve so structured JSON is less likely to be cut mid-object.
 export const MODE_OUTPUT_RESERVE: Record<ModelRunMode, number> = {
   route_decision: 2_048,
+  agent_plan: 16_384,
   patch_generation: 8_192,
   triple_extraction: 16_384,
   entity_match_judge: 2_048,
@@ -201,6 +203,7 @@ export const DEFAULT_JOB_OPTIONS = {
 
 export const QUEUE_NAMES = {
   INGESTION: "ingestion",
+  INGESTION_AGENT: "ingestion-agent",
   PATCH: "patch",
   EXTRACTION: "extraction",
   PUBLISH: "publish",
@@ -211,6 +214,7 @@ export const QUEUE_NAMES = {
 
 export const QUEUE_KEYS = [
   QUEUE_NAMES.INGESTION,
+  QUEUE_NAMES.INGESTION_AGENT,
   QUEUE_NAMES.PATCH,
   QUEUE_NAMES.EXTRACTION,
   QUEUE_NAMES.PUBLISH,
@@ -222,6 +226,7 @@ export type QueueKey = (typeof QUEUE_KEYS)[number];
 
 export const JOB_NAMES = {
   ROUTE_CLASSIFIER: "route-classifier",
+  INGESTION_AGENT: "ingestion-agent",
   PATCH_GENERATOR: "patch-generator",
   TRIPLE_EXTRACTOR: "triple-extractor",
   PUBLISH_RENDERER: "publish-renderer",

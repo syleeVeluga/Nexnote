@@ -25,6 +25,7 @@ interface MockFixtureFile {
     string,
     {
       route_decision?: Record<string, unknown>;
+      agent_plan?: Record<string, unknown>;
       patch_generation?: string;
       triple_extraction?: Record<string, unknown>;
       entity_match_judge?: Record<string, unknown>;
@@ -100,6 +101,21 @@ function resolveMockContent(request: AIRequest): string {
     if (request.mode === "patch_generation") {
       return "# E2E Mock Patch\n\nNo explicit marker was provided.\n";
     }
+    if (request.mode === "agent_plan") {
+      return JSON.stringify({
+        summary: "Mock agent plan.",
+        proposedPlan: [
+          {
+            action: "needs_review",
+            targetPageId: null,
+            confidence: 0,
+            reason: "No explicit marker was provided.",
+            evidence: [],
+          },
+        ],
+        openQuestions: [],
+      });
+    }
     if (request.mode === "predicate_label") {
       return JSON.stringify({ labels: [] });
     }
@@ -128,6 +144,21 @@ function resolveMockContent(request: AIRequest): string {
 
   const response = fixture[request.mode];
   if (response == null) {
+    if (request.mode === "agent_plan") {
+      return JSON.stringify({
+        summary: "Mock agent plan.",
+        proposedPlan: [
+          {
+            action: "needs_review",
+            targetPageId: null,
+            confidence: 0,
+            reason: `Mock fixture ${marker} does not define an agent_plan response.`,
+            evidence: [],
+          },
+        ],
+        openQuestions: [],
+      });
+    }
     throw new Error(
       `Mock fixture for ${marker} does not define a response for ${request.mode}`,
     );
