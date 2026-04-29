@@ -81,13 +81,26 @@ export const patchProposalSchema = z.object({
   summary: z.string(),
 });
 
+export const entityTypeEnum = z.enum([
+  "person",
+  "organization",
+  "location",
+  "product",
+  "document",
+  "system",
+  "event",
+  "concept",
+]);
+
 export const tripleExtractionSchema = z.object({
   triples: z.array(
     z.object({
       subject: z.string(),
+      subjectType: entityTypeEnum.optional(),
       predicate: z.string(),
       object: z.string(),
       objectType: z.enum(["entity", "literal"]),
+      objectEntityType: entityTypeEnum.optional(),
       confidence: z.number().min(0).max(1),
       spans: z.array(
         z.object({
@@ -113,5 +126,6 @@ export type ImportTextBody = z.infer<typeof importTextBodySchema>;
 export type ImportFileFields = z.infer<typeof importFileFieldsSchema>;
 export type RouteDecision = z.infer<typeof routeDecisionSchema>;
 export type PatchProposal = z.infer<typeof patchProposalSchema>;
+export type TripleEntityType = z.infer<typeof entityTypeEnum>;
 export type TripleExtraction = z.infer<typeof tripleExtractionSchema>;
 export type EntityMatchJudge = z.infer<typeof entityMatchJudgeSchema>;

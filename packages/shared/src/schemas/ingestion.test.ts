@@ -3,6 +3,7 @@ import { strict as assert } from "node:assert";
 import {
   routeDecisionSchema,
   tripleExtractionSchema,
+  entityTypeEnum,
   createIngestionSchema,
   patchProposalSchema,
 } from "./ingestion.js";
@@ -132,6 +133,17 @@ describe("routeDecisionSchema", () => {
 // tripleExtractionSchema
 // ---------------------------------------------------------------------------
 describe("tripleExtractionSchema", () => {
+  const entityTypes = [
+    "person",
+    "organization",
+    "location",
+    "product",
+    "document",
+    "system",
+    "event",
+    "concept",
+  ] as const;
+
   const validTriple = {
     subject: "TypeScript",
     predicate: "is_a",
@@ -151,6 +163,52 @@ describe("tripleExtractionSchema", () => {
     assert.equal(data.triples[0].subject, "TypeScript");
     assert.equal(data.triples[0].predicate, "is_a");
     assert.equal(data.triples[0].object, "Programming Language");
+  });
+
+  it("accepts optional entity type fields", () => {
+    const data = expectParseSuccess(tripleExtractionSchema, {
+      triples: [
+        {
+          ...validTriple,
+          subjectType: "product",
+          objectEntityType: "concept",
+        },
+      ],
+    });
+    assert.equal(data.triples[0].subjectType, "product");
+    assert.equal(data.triples[0].objectEntityType, "concept");
+  });
+
+  it("keeps entity type fields optional for backwards compatibility", () => {
+    const data = expectParseSuccess(tripleExtractionSchema, {
+      triples: [validTriple],
+    });
+    assert.equal(data.triples[0].subjectType, undefined);
+    assert.equal(data.triples[0].objectEntityType, undefined);
+  });
+
+  it("validates all supported entity types", () => {
+    for (const type of entityTypes) {
+      expectParseSuccess(entityTypeEnum, type);
+      expectParseSuccess(tripleExtractionSchema, {
+        triples: [
+          {
+            ...validTriple,
+            subjectType: type,
+            objectEntityType: type,
+          },
+        ],
+      });
+    }
+  });
+
+  it("rejects invalid entity type fields", () => {
+    expectParseFailure(tripleExtractionSchema, {
+      triples: [{ ...validTriple, subjectType: "team" }],
+    });
+    expectParseFailure(tripleExtractionSchema, {
+      triples: [{ ...validTriple, objectEntityType: "place" }],
+    });
   });
 
   it("accepts empty triples array", () => {
