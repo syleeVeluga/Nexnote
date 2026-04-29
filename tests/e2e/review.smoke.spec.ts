@@ -5,7 +5,7 @@ test("imports suggested content and approves it from the review queue", { tag: "
   await registerUser(page, "review");
 
   await page.goto("/import");
-  await page.getByRole("button", { name: "Paste" }).click();
+  await page.getByRole("tab", { name: "Paste" }).click();
   await page.getByLabel("Title hint (optional)").fill("Suggested Smoke");
   await page
     .getByLabel("Markdown or plain text")
