@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import {
   Activity,
   BookOpen,
+  Bot,
   ChevronDown,
   ChevronRight,
   ChevronsLeft,
@@ -1050,6 +1051,11 @@ export function Sidebar({
               to="/system"
               icon={<Settings2 size={15} />}
               label={t("systemStatus", { defaultValue: t("queueHealth") })}
+            />
+            <SidebarNavLink
+              to="/system/ai"
+              icon={<Bot size={15} />}
+              label={t("aiSettings", { defaultValue: "AI Settings" })}
             />
             <SidebarNavLink
               to="/system/tokens"

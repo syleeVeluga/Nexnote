@@ -45,11 +45,18 @@ const PROMPT_VERSION = "ingestion-agent-v1";
 
 const EXPLORE_SYSTEM_PROMPT = `You are a read-only exploration agent for WekiFlow's Markdown knowledge wiki.
 Investigate the incoming ingestion with the available read-only tools, then stop calling tools when you have enough context to plan possible wiki updates.
-Never invent page IDs. Only refer to pages that tools returned. Do not propose or execute mutations during exploration.`;
+Never invent page IDs. Only refer to pages that tools returned. Do not propose or execute mutations during exploration.
+
+Before proposing a new page, actively rule out duplication:
+- Search by title hint, source-specific nouns, and canonical entity names.
+- If search_pages returns weak or empty results, use list_recent_pages, list_folder, or find_related_entities before assuming create.
+- When the same read tool arguments are repeated and the dispatcher returns a cached result, refine the query or continue planning instead of repeating the same call.`;
 
 const PLAN_SYSTEM_PROMPT = `You are planning wiki maintenance mutations for WekiFlow.
 Use the ingestion and read-only context to propose exact wiki changes.
 Prefer the narrowest safe mutate tool to creating duplicate pages. Keep confidence calibrated.
+Honor workspace operator instructions about where knowledge belongs, source-specific routing, aliases, and forbidden create/update paths.
+If context is insufficient to avoid a duplicate or unsafe rewrite, return request_human_review instead of create_page.
 
 When you can make an exact edit, return a typed tool plan:
 {
@@ -134,6 +141,20 @@ export interface AgentModelRunRecord {
   responseMetaJson: Record<string, unknown>;
 }
 
+export interface AgentWorkspaceTokenReservationRequest {
+  phase: string;
+  estimatedTokens: number;
+  cap: number;
+  usedToday: number;
+  totalTokensInRun: number;
+}
+
+export interface AgentWorkspaceTokenReservation {
+  reservedTokens: number;
+  usedAfterReservation: number;
+  release(actualTokens: number): Promise<void>;
+}
+
 export interface RunIngestionAgentShadowInput {
   db: AgentDb;
   workspaceId: string;
@@ -149,6 +170,15 @@ export interface RunIngestionAgentShadowInput {
     CreateMutateToolsInput,
     "patchQueue" | "extractionQueue" | "searchQueue"
   >;
+  workspaceAgentInstructions?: string | null;
+  workspaceTokenUsage?: {
+    usedToday: number;
+    cap?: number;
+  };
+  reserveWorkspaceTokens?: (
+    request: AgentWorkspaceTokenReservationRequest,
+  ) => Promise<AgentWorkspaceTokenReservation | null>;
+  onStep?: (step: AgentRunTraceStep) => void | Promise<void>;
   env?: NodeJS.ProcessEnv;
   recordModelRun?: (
     record: AgentModelRunRecord,
@@ -184,6 +214,34 @@ export class AgentLoopTimeout extends Error {
     super(message);
     this.name = "AgentLoopTimeout";
   }
+}
+
+export class AgentWorkspaceTokenCapExceeded extends Error {
+  constructor(
+    message: string,
+    public readonly steps: AgentRunTraceStep[],
+    public readonly totalTokens: number,
+    public readonly totalLatencyMs: number,
+    public readonly cap: number,
+    public readonly usedToday: number,
+  ) {
+    super(message);
+    this.name = "AgentWorkspaceTokenCapExceeded";
+  }
+}
+
+function withWorkspaceInstructions(
+  basePrompt: string,
+  instructions: string | null | undefined,
+): string {
+  const trimmed = instructions?.trim();
+  if (!trimmed) return basePrompt;
+  return `${basePrompt}
+
+Workspace operator instructions:
+${trimmed}
+
+Treat these workspace instructions as routing and editing policy. If they conflict with tool safety, confidence gates, or provenance requirements, keep the safety requirement and request human review.`;
 }
 
 function readToolDefinitions(): AIToolDefinition[] {
@@ -259,13 +317,36 @@ function pushStep(
   steps: AgentRunTraceStep[],
   type: AgentRunTraceStep["type"],
   payload: Record<string, unknown>,
-): void {
-  steps.push({
+): AgentRunTraceStep {
+  const step = {
     step: steps.length,
     type,
     payload,
     ts: new Date().toISOString(),
-  });
+  };
+  steps.push(step);
+  return step;
+}
+
+function emitStep(
+  input: Pick<RunIngestionAgentShadowInput, "onStep">,
+  step: AgentRunTraceStep,
+): void {
+  const result = input.onStep?.(step);
+  if (result && typeof (result as Promise<void>).catch === "function") {
+    void (result as Promise<void>).catch(() => undefined);
+  }
+}
+
+function traceStep(
+  input: Pick<RunIngestionAgentShadowInput, "onStep">,
+  steps: AgentRunTraceStep[],
+  type: AgentRunTraceStep["type"],
+  payload: Record<string, unknown>,
+): AgentRunTraceStep {
+  const step = pushStep(steps, type, payload);
+  emitStep(input, step);
+  return step;
 }
 
 function compactJson(value: unknown, maxChars: number): unknown {
@@ -471,6 +552,7 @@ async function executeMutations(input: {
   mutateTools?: Record<string, AgentToolDefinition>;
   mutationQueues?: RunIngestionAgentShadowInput["mutationQueues"];
   steps: AgentRunTraceStep[];
+  onStep?: RunIngestionAgentShadowInput["onStep"];
   repairMutation?: (failure: {
     index: number;
     mutation: AgentPlanMutation;
@@ -500,7 +582,7 @@ async function executeMutations(input: {
   for (const [index, mutation] of input.plan.proposedPlan.entries()) {
     const toolCall = mutationToToolCall(mutation, index, input.ingestionText);
     const [execution] = await dispatcher.dispatchToolCalls([toolCall]);
-    pushStep(input.steps, "mutation_result", {
+    traceStep(input, input.steps, "mutation_result", {
       name: execution.name,
       toolCallId: execution.toolCallId,
       ok: execution.ok,
@@ -530,7 +612,7 @@ async function executeMutations(input: {
         const [repairedExecution] = await dispatcher.dispatchToolCalls([
           repairedToolCall,
         ]);
-        pushStep(input.steps, "mutation_result", {
+        traceStep(input, input.steps, "mutation_result", {
           name: repairedExecution.name,
           toolCallId: repairedExecution.toolCallId,
           ok: repairedExecution.ok,
@@ -566,7 +648,7 @@ async function executeMutations(input: {
           },
         },
       );
-      pushStep(input.steps, "mutation_result", {
+      traceStep(input, input.steps, "mutation_result", {
         name: "request_human_review",
         ok: true,
         result: { decisionId: failureDecisionId, status: "failed" },
@@ -630,6 +712,111 @@ function addUsage(
   totals.latencyMs += response.latencyMs;
 }
 
+function estimateReservationTokens(request: AIRequest): number {
+  const messageText = request.messages
+    .map((message) =>
+      [
+        message.role,
+        message.toolName ?? "",
+        message.toolCallId ?? "",
+        message.content,
+        message.toolCalls?.length ? JSON.stringify(message.toolCalls) : "",
+      ].join("\n"),
+    )
+    .join("\n\n");
+  const messageTokens = estimateTokens(messageText);
+  const toolTokens = request.tools?.length
+    ? estimateTokens(JSON.stringify(request.tools))
+    : 0;
+  const estimatedInputTokens = Math.max(
+    request.budgetMeta?.estimatedInputTokens ?? 0,
+    messageTokens + toolTokens,
+  );
+  return Math.max(
+    1,
+    Math.ceil(estimatedInputTokens * 1.15) + (request.maxTokens ?? 0),
+  );
+}
+
+function enforceWorkspaceTokenCap(input: {
+  steps: AgentRunTraceStep[];
+  totals: { tokens: number; latencyMs: number };
+  cap: number;
+  usedToday: number;
+  phase: string;
+}): void {
+  if (input.usedToday + input.totals.tokens < input.cap) return;
+  throw new AgentWorkspaceTokenCapExceeded(
+    `Workspace daily agent token cap exceeded before ${input.phase}`,
+    input.steps,
+    input.totals.tokens,
+    input.totals.latencyMs,
+    input.cap,
+    input.usedToday,
+  );
+}
+
+function enforceWorkspaceTokenCapAfterUsage(input: {
+  steps: AgentRunTraceStep[];
+  totals: { tokens: number; latencyMs: number };
+  cap: number;
+  usedToday: number;
+  phase: string;
+}): void {
+  if (input.usedToday + input.totals.tokens <= input.cap) return;
+  throw new AgentWorkspaceTokenCapExceeded(
+    `Workspace daily agent token cap exceeded after ${input.phase}`,
+    input.steps,
+    input.totals.tokens,
+    input.totals.latencyMs,
+    input.cap,
+    input.usedToday,
+  );
+}
+
+async function reserveWorkspaceTokensForRequest(
+  input: RunIngestionAgentShadowInput,
+  request: AIRequest,
+  control: {
+    steps: AgentRunTraceStep[];
+    totals: { tokens: number; latencyMs: number };
+    cap: number;
+    usedToday: number;
+    phase: string;
+  },
+): Promise<AgentWorkspaceTokenReservation | null> {
+  if (!input.reserveWorkspaceTokens) {
+    enforceWorkspaceTokenCap(control);
+    return null;
+  }
+
+  const reservation = await input.reserveWorkspaceTokens({
+    phase: control.phase,
+    estimatedTokens: estimateReservationTokens(request),
+    cap: control.cap,
+    usedToday: control.usedToday,
+    totalTokensInRun: control.totals.tokens,
+  });
+  if (reservation) return reservation;
+
+  throw new AgentWorkspaceTokenCapExceeded(
+    `Workspace daily agent token cap exceeded before ${control.phase}`,
+    control.steps,
+    control.totals.tokens,
+    control.totals.latencyMs,
+    control.cap,
+    control.usedToday,
+  );
+}
+
+async function releaseWorkspaceTokenReservation(
+  reservation: AgentWorkspaceTokenReservation | null,
+  actualTokens: number,
+): Promise<void> {
+  if (!reservation) return;
+  await reservation.release(Math.max(0, actualTokens)).catch(() => undefined);
+}
+
 async function recordModelRun(
   input: RunIngestionAgentShadowInput,
   record: AgentModelRunRecord,
@@ -643,10 +830,24 @@ export async function runIngestionAgentShadow(
 ): Promise<IngestionAgentShadowResult> {
   const mode = input.mode ?? "shadow";
   const limits = readAgentRuntimeLimits(input.env);
+  const workspaceTokenCap =
+    input.workspaceTokenUsage?.cap ?? limits.workspaceDailyTokenCap;
+  const workspaceTokensUsedToday = Math.max(
+    0,
+    input.workspaceTokenUsage?.usedToday ?? 0,
+  );
   const deadlineMs = Date.now() + limits.timeoutMs;
   const steps: AgentRunTraceStep[] = [];
   const totals = { tokens: 0, latencyMs: 0 };
   const ingestionText = extractIngestionText(input.ingestion);
+  const exploreSystemPrompt = withWorkspaceInstructions(
+    EXPLORE_SYSTEM_PROMPT,
+    input.workspaceAgentInstructions,
+  );
+  const planSystemPrompt = withWorkspaceInstructions(
+    PLAN_SYSTEM_PROMPT,
+    input.workspaceAgentInstructions,
+  );
   const base =
     input.baseProvider && input.baseModel
       ? { provider: input.baseProvider, model: input.baseModel }
@@ -660,14 +861,16 @@ export async function runIngestionAgentShadow(
   });
   const adapter = input.adapter ?? getAIAdapter(exploreModel.provider);
 
-  pushStep(steps, "model_selection", {
+  traceStep(input, steps, "model_selection", {
     phase: "explore",
     ...exploreModel,
+    workspaceTokenCap,
+    workspaceTokensUsedToday,
   });
   const packedExplore = packAgentExploreContext({
     provider: exploreModel.provider,
     model: exploreModel.model,
-    systemPrompt: EXPLORE_SYSTEM_PROMPT,
+    systemPrompt: exploreSystemPrompt,
     ingestionText,
     sourceName: input.ingestion.sourceName,
     contentType: input.ingestion.contentType,
@@ -683,7 +886,7 @@ export async function runIngestionAgentShadow(
   });
   const toolContextBlocks: AgentContextBlock[] = [];
   let messages: AIMessage[] = [
-    { role: "system", content: EXPLORE_SYSTEM_PROMPT },
+    { role: "system", content: exploreSystemPrompt },
     { role: "user", content: packedExplore.text },
   ];
   const toolCallsById = new Map<string, NormalizedToolCall>();
@@ -701,7 +904,7 @@ export async function runIngestionAgentShadow(
         const toolCall = toolCallsById.get(toolCallId);
         if (toolCall) dispatcher.invalidateCacheForToolCall(toolCall);
       }
-      pushStep(steps, "context_compaction", {
+      traceStep(input, steps, "context_compaction", {
         phase: "explore",
         notices: compacted.notices,
         estimatedInputTokens: compacted.estimatedInputTokens,
@@ -724,7 +927,15 @@ export async function runIngestionAgentShadow(
     };
 
     let response: AIResponse;
+    let reservation: AgentWorkspaceTokenReservation | null = null;
     try {
+      reservation = await reserveWorkspaceTokensForRequest(input, request, {
+        steps,
+        totals,
+        cap: workspaceTokenCap,
+        usedToday: workspaceTokensUsedToday,
+        phase: "explore model call",
+      });
       response = await chatBeforeDeadline(
         adapter,
         request,
@@ -733,6 +944,7 @@ export async function runIngestionAgentShadow(
         totals,
       );
     } catch (err) {
+      await releaseWorkspaceTokenReservation(reservation, 0);
       await recordModelRun(input, {
         request,
         status: "failed",
@@ -750,6 +962,10 @@ export async function runIngestionAgentShadow(
     }
 
     addUsage(totals, response);
+    await releaseWorkspaceTokenReservation(
+      reservation,
+      response.tokenInput + response.tokenOutput,
+    );
     await recordModelRun(input, {
       request,
       response,
@@ -765,7 +981,7 @@ export async function runIngestionAgentShadow(
         toolCallCount: response.toolCalls?.length ?? 0,
       },
     });
-    pushStep(steps, "ai_response", {
+    traceStep(input, steps, "ai_response", {
       phase: "explore",
       finishReason: response.finishReason ?? null,
       tokenInput: response.tokenInput,
@@ -774,6 +990,15 @@ export async function runIngestionAgentShadow(
       contentExcerpt: response.content.slice(0, 2_000),
       toolCalls: response.toolCalls ?? [],
     });
+    if (!input.reserveWorkspaceTokens) {
+      enforceWorkspaceTokenCapAfterUsage({
+        steps,
+        totals,
+        cap: workspaceTokenCap,
+        usedToday: workspaceTokensUsedToday,
+        phase: "explore model call",
+      });
+    }
 
     if (!response.toolCalls?.length) break;
     for (const toolCall of response.toolCalls) {
@@ -787,7 +1012,7 @@ export async function runIngestionAgentShadow(
       toolCalls: response.toolCalls,
     });
     for (const execution of executions) {
-      pushStep(steps, "tool_result", {
+      traceStep(input, steps, "tool_result", {
         name: execution.name,
         toolCallId: execution.toolCallId,
         ok: execution.ok,
@@ -806,6 +1031,14 @@ export async function runIngestionAgentShadow(
         toolName: execution.name,
         content: stringifyToolMessage(execution),
       });
+      if (execution.ok && execution.deduped) {
+        messages.push({
+          role: "system",
+          content:
+            `The ${execution.name} call ${execution.toolCallId} reused a cached result for identical arguments. ` +
+            "Avoid repeating that same read call; refine the query or move to planning.",
+        });
+      }
     }
   }
 
@@ -821,7 +1054,7 @@ export async function runIngestionAgentShadow(
     baseModel: base.model,
     env: input.env,
   });
-  pushStep(steps, "model_selection", {
+  traceStep(input, steps, "model_selection", {
     phase: "plan",
     ...planModel,
   });
@@ -829,7 +1062,7 @@ export async function runIngestionAgentShadow(
   const packed = packAgentPlanContext({
     provider: planModel.provider,
     model: planModel.model,
-    systemPrompt: PLAN_SYSTEM_PROMPT,
+    systemPrompt: planSystemPrompt,
     ingestionText,
     sourceName: input.ingestion.sourceName,
     contentType: input.ingestion.contentType,
@@ -838,7 +1071,7 @@ export async function runIngestionAgentShadow(
     env: input.env,
   });
   if (packed.compactionNotices?.length) {
-    pushStep(steps, "context_compaction", {
+    traceStep(input, steps, "context_compaction", {
       phase: "plan",
       notices: packed.compactionNotices,
     });
@@ -854,7 +1087,7 @@ export async function runIngestionAgentShadow(
     mode: "agent_plan",
     promptVersion: PROMPT_VERSION,
     messages: [
-      { role: "system", content: PLAN_SYSTEM_PROMPT },
+      { role: "system", content: planSystemPrompt },
       { role: "user", content: packed.text },
     ],
     temperature: 0.1,
@@ -864,7 +1097,19 @@ export async function runIngestionAgentShadow(
   };
 
   let planResponse: AIResponse;
+  let planReservation: AgentWorkspaceTokenReservation | null = null;
   try {
+    planReservation = await reserveWorkspaceTokensForRequest(
+      input,
+      planRequest,
+      {
+        steps,
+        totals,
+        cap: workspaceTokenCap,
+        usedToday: workspaceTokensUsedToday,
+        phase: "plan model call",
+      },
+    );
     planResponse = await chatBeforeDeadline(
       planAdapter,
       planRequest,
@@ -873,6 +1118,7 @@ export async function runIngestionAgentShadow(
       totals,
     );
   } catch (err) {
+    await releaseWorkspaceTokenReservation(planReservation, 0);
     await recordModelRun(input, {
       request: planRequest,
       status: "failed",
@@ -890,6 +1136,10 @@ export async function runIngestionAgentShadow(
   }
 
   addUsage(totals, planResponse);
+  await releaseWorkspaceTokenReservation(
+    planReservation,
+    planResponse.tokenInput + planResponse.tokenOutput,
+  );
   const parsed = parsePlan(planResponse.content);
   const planModelRun = await recordModelRun(input, {
     request: planRequest,
@@ -909,15 +1159,24 @@ export async function runIngestionAgentShadow(
     },
   });
 
-  pushStep(steps, "plan", {
+  traceStep(input, steps, "plan", {
     parseFailed: parsed.parseFailed,
     mutationCount: parsed.plan.proposedPlan.length,
     contentExcerpt: planResponse.content.slice(0, 4_000),
     budget: packed.budgetMeta,
   });
+  if (!input.reserveWorkspaceTokens) {
+    enforceWorkspaceTokenCapAfterUsage({
+      steps,
+      totals,
+      cap: workspaceTokenCap,
+      usedToday: workspaceTokensUsedToday,
+      phase: "plan model call",
+    });
+  }
 
   if (mode === "shadow") {
-    pushStep(steps, "shadow_execute_skipped", {
+    traceStep(input, steps, "shadow_execute_skipped", {
       reason: "Shadow mode records plan_json only.",
       proposedMutations: parsed.plan.proposedPlan.length,
     });
@@ -942,7 +1201,9 @@ export async function runIngestionAgentShadow(
     throw new Error("agentRunId is required for ingestion agent execute mode");
   }
   if (!planModelRun?.id) {
-    throw new Error("plan modelRunId is required for ingestion agent execute mode");
+    throw new Error(
+      "plan modelRunId is required for ingestion agent execute mode",
+    );
   }
 
   const execution = await executeMutations({
@@ -957,6 +1218,7 @@ export async function runIngestionAgentShadow(
     mutateTools: input.mutateTools,
     mutationQueues: input.mutationQueues,
     steps,
+    onStep: input.onStep,
     repairMutation: async (failure) => {
       if (!failure.error.selfCorrection) return null;
       const repairRequest: AIRequest = {
@@ -988,7 +1250,19 @@ export async function runIngestionAgentShadow(
       };
 
       let repairResponse: AIResponse;
+      let repairReservation: AgentWorkspaceTokenReservation | null = null;
       try {
+        repairReservation = await reserveWorkspaceTokensForRequest(
+          input,
+          repairRequest,
+          {
+            steps,
+            totals,
+            cap: workspaceTokenCap,
+            usedToday: workspaceTokensUsedToday,
+            phase: "mutation repair model call",
+          },
+        );
         repairResponse = await chatBeforeDeadline(
           planAdapter,
           repairRequest,
@@ -997,6 +1271,7 @@ export async function runIngestionAgentShadow(
           totals,
         );
       } catch (err) {
+        await releaseWorkspaceTokenReservation(repairReservation, 0);
         await recordModelRun(input, {
           request: repairRequest,
           status: "failed",
@@ -1014,6 +1289,10 @@ export async function runIngestionAgentShadow(
       }
 
       addUsage(totals, repairResponse);
+      await releaseWorkspaceTokenReservation(
+        repairReservation,
+        repairResponse.tokenInput + repairResponse.tokenOutput,
+      );
       const repaired = parsePlan(repairResponse.content);
       await recordModelRun(input, {
         request: repairRequest,
@@ -1031,15 +1310,24 @@ export async function runIngestionAgentShadow(
           error: repaired.error,
         },
       });
-      pushStep(steps, "plan", {
+      traceStep(input, steps, "plan", {
         phase: "mutation_repair",
         parseFailed: repaired.parseFailed,
         contentExcerpt: repairResponse.content.slice(0, 2_000),
       });
+      if (!input.reserveWorkspaceTokens) {
+        enforceWorkspaceTokenCapAfterUsage({
+          steps,
+          totals,
+          cap: workspaceTokenCap,
+          usedToday: workspaceTokensUsedToday,
+          phase: "mutation repair model call",
+        });
+      }
 
       return repaired.parseFailed
         ? null
-        : repaired.plan.proposedPlan[0] ?? null;
+        : (repaired.plan.proposedPlan[0] ?? null);
     },
   });
 

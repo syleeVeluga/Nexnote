@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { uuidSchema } from "./common.js";
-import { AGENT_LIMITS, INGESTION_ACTIONS } from "../constants/index.js";
+import {
+  AGENT_LIMITS,
+  AGENT_RUN_STATUSES,
+  INGESTION_ACTIONS,
+} from "../constants/index.js";
 
 export const AGENT_READ_TOOL_NAMES = [
   "search_pages",
@@ -30,9 +34,7 @@ export const searchPagesToolInputSchema = z.object({
   query: z.string().trim().min(1).max(500),
   limit: z.coerce.number().int().min(1).max(20).default(10),
 });
-export type SearchPagesToolInput = z.infer<
-  typeof searchPagesToolInputSchema
->;
+export type SearchPagesToolInput = z.infer<typeof searchPagesToolInputSchema>;
 
 export const readPageToolInputSchema = z.object({
   pageId: uuidSchema,
@@ -147,9 +149,7 @@ export const appendToPageToolInputSchema = z.object({
   confidence: confidenceSchema,
   reason: mutationReasonSchema,
 });
-export type AppendToPageToolInput = z.infer<
-  typeof appendToPageToolInputSchema
->;
+export type AppendToPageToolInput = z.infer<typeof appendToPageToolInputSchema>;
 
 export const createPageToolInputSchema = z
   .object({
@@ -248,3 +248,47 @@ export const ingestionAgentPlanSchema = z.object({
   openQuestions: z.array(z.string().trim().min(1).max(1_000)).default([]),
 });
 export type IngestionAgentPlan = z.infer<typeof ingestionAgentPlanSchema>;
+
+export const agentRunTraceStepSchema = z.object({
+  step: z.number().int().min(0),
+  type: z.enum([
+    "model_selection",
+    "ai_response",
+    "context_compaction",
+    "tool_result",
+    "plan",
+    "mutation_result",
+    "shadow_execute_skipped",
+    "error",
+  ]),
+  payload: z.record(z.string(), z.unknown()),
+  ts: z.string(),
+});
+export type AgentRunTraceStep = z.infer<typeof agentRunTraceStepSchema>;
+
+export const agentRunDtoSchema = z.object({
+  id: uuidSchema,
+  ingestionId: uuidSchema,
+  workspaceId: uuidSchema,
+  status: z.enum(AGENT_RUN_STATUSES),
+  plan: z.unknown().nullable(),
+  steps: z.array(agentRunTraceStepSchema),
+  decisionsCount: z.number().int().min(0),
+  totalTokens: z.number().int().min(0),
+  totalLatencyMs: z.number().int().min(0),
+  startedAt: z.string(),
+  completedAt: z.string().nullable(),
+});
+export type AgentRunDto = z.infer<typeof agentRunDtoSchema>;
+
+export const agentRunTraceEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("snapshot"), agentRun: agentRunDtoSchema }),
+  z.object({ type: z.literal("step"), step: agentRunTraceStepSchema }),
+  z.object({ type: z.literal("status"), agentRun: agentRunDtoSchema }),
+  z.object({
+    type: z.literal("error"),
+    message: z.string(),
+    code: z.string().optional(),
+  }),
+]);
+export type AgentRunTraceEvent = z.infer<typeof agentRunTraceEventSchema>;

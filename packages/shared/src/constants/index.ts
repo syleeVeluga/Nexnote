@@ -33,6 +33,12 @@ export const AGENT_RUN_STATUSES = [
 ] as const;
 export type AgentRunStatus = (typeof AGENT_RUN_STATUSES)[number];
 
+export const AGENT_TRACE_CHANNEL_PREFIX = "agent-runs:trace:" as const;
+
+export function agentTraceChannel(agentRunId: string): string {
+  return `${AGENT_TRACE_CHANNEL_PREFIX}${agentRunId}`;
+}
+
 export const AGENT_LIMITS = {
   MAX_STEPS: 15,
   MAX_CALLS_PER_TURN: 5,

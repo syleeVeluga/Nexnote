@@ -7,7 +7,10 @@ import {
   type AIRequest,
   type AIResponse,
 } from "@wekiflow/shared";
-import { runIngestionAgentShadow } from "./loop.js";
+import {
+  AgentWorkspaceTokenCapExceeded,
+  runIngestionAgentShadow,
+} from "./loop.js";
 import {
   AgentToolError,
   type AgentDb,
@@ -31,9 +34,7 @@ class SequenceAdapter implements AIAdapter {
   }
 }
 
-function response(
-  overrides: Partial<AIResponse>,
-): AIResponse {
+function response(overrides: Partial<AIResponse>): AIResponse {
   return {
     content: "",
     tokenInput: 10,
@@ -126,8 +127,13 @@ describe("runIngestionAgentShadow", () => {
     assert.equal(result.planJson.proposedPlan[0].action, "update");
     assert.equal(result.decisionsCount, 1);
     assert.equal(recorded.length, 3);
-    assert.ok(adapter.requests[0].tools?.some((tool) => tool.name === "search_pages"));
-    assert.equal(adapter.requests[0].budgetMeta?.strategy, "agent_explore_context_packing");
+    assert.ok(
+      adapter.requests[0].tools?.some((tool) => tool.name === "search_pages"),
+    );
+    assert.equal(
+      adapter.requests[0].budgetMeta?.strategy,
+      "agent_explore_context_packing",
+    );
     assert.equal(adapter.requests[2].tools, undefined);
     assert.ok(result.steps.some((step) => step.type === "tool_result"));
     assert.ok(
@@ -388,5 +394,149 @@ describe("runIngestionAgentShadow", () => {
           step.payload["repairAttempt"] === true,
       ),
     );
+  });
+
+  it("prepends workspace agent instructions to explore and plan prompts", async () => {
+    const adapter = new SequenceAdapter([
+      response({ content: "No tools needed." }),
+      response({
+        content: JSON.stringify({
+          summary: "No change.",
+          proposedPlan: [
+            {
+              action: "noop",
+              targetPageId: null,
+              confidence: 1,
+              reason: "The ingestion is already represented.",
+              evidence: [],
+            },
+          ],
+          openQuestions: [],
+        }),
+      }),
+    ]);
+
+    await runIngestionAgentShadow({
+      db: fakeDb,
+      workspaceId: "workspace-1",
+      ingestion: {
+        id: "ingestion-1",
+        sourceName: "test",
+        contentType: "text/markdown",
+        titleHint: "Incident",
+        normalizedText: "Incident note.",
+        rawPayload: {},
+      },
+      adapter,
+      baseProvider: "openai",
+      baseModel: "gpt-5.4",
+      tools: {},
+      workspaceAgentInstructions:
+        "Slack #incidents sources update existing incident pages; never create.",
+    });
+
+    assert.match(
+      adapter.requests[0].messages[0].content,
+      /Slack #incidents sources update existing incident pages/,
+    );
+    assert.match(
+      adapter.requests[1].messages[0].content,
+      /Workspace operator instructions/,
+    );
+  });
+
+  it("stops before model calls when the workspace daily token cap is exhausted", async () => {
+    const adapter = new SequenceAdapter([]);
+
+    await assert.rejects(
+      () =>
+        runIngestionAgentShadow({
+          db: fakeDb,
+          workspaceId: "workspace-1",
+          ingestion: {
+            id: "ingestion-1",
+            sourceName: "test",
+            contentType: "text/markdown",
+            titleHint: "Cap",
+            normalizedText: "Token cap test.",
+            rawPayload: {},
+          },
+          adapter,
+          baseProvider: "openai",
+          baseModel: "gpt-5.4",
+          tools: {},
+          workspaceTokenUsage: { usedToday: 100, cap: 100 },
+        }),
+      AgentWorkspaceTokenCapExceeded,
+    );
+    assert.equal(adapter.requests.length, 0);
+  });
+
+  it("reserves and releases workspace tokens around model calls", async () => {
+    const adapter = new SequenceAdapter([
+      response({ content: "No tools needed." }),
+      response({
+        content: JSON.stringify({
+          summary: "No change.",
+          proposedPlan: [
+            {
+              action: "noop",
+              targetPageId: null,
+              confidence: 1,
+              reason: "The ingestion is already represented.",
+              evidence: [],
+            },
+          ],
+          openQuestions: [],
+        }),
+      }),
+    ]);
+    const reservations: Array<{
+      phase: string;
+      estimatedTokens: number;
+      totalTokensInRun: number;
+    }> = [];
+    const releases: number[] = [];
+
+    await runIngestionAgentShadow({
+      db: fakeDb,
+      workspaceId: "workspace-1",
+      ingestion: {
+        id: "ingestion-1",
+        sourceName: "test",
+        contentType: "text/markdown",
+        titleHint: "Cap",
+        normalizedText: "Token reservation test.",
+        rawPayload: {},
+      },
+      adapter,
+      baseProvider: "openai",
+      baseModel: "gpt-5.4",
+      tools: {},
+      workspaceTokenUsage: { usedToday: 25, cap: 100_000 },
+      reserveWorkspaceTokens: async (request) => {
+        reservations.push({
+          phase: request.phase,
+          estimatedTokens: request.estimatedTokens,
+          totalTokensInRun: request.totalTokensInRun,
+        });
+        return {
+          reservedTokens: request.estimatedTokens,
+          usedAfterReservation: request.usedToday + request.estimatedTokens,
+          release: async (actualTokens) => {
+            releases.push(actualTokens);
+          },
+        };
+      },
+    });
+
+    assert.deepEqual(
+      reservations.map((reservation) => reservation.phase),
+      ["explore model call", "plan model call"],
+    );
+    assert.ok(
+      reservations.every((reservation) => reservation.estimatedTokens > 0),
+    );
+    assert.deepEqual(releases, [15, 15]);
   });
 });
