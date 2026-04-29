@@ -148,7 +148,7 @@ export function useWorkspaceBreadcrumbs(
     if (path.startsWith("/admin/queues") || path.startsWith("/system")) {
       return [
         ...root,
-        { label: t("system", { defaultValue: "System" }) },
+        { label: t("systemStatus", { defaultValue: "System Status" }) },
       ];
     }
 

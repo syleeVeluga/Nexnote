@@ -8,3 +8,4 @@ export * from "./ingestion.js";
 export * from "./publish.js";
 export * from "./dashboard.js";
 export * from "./synthesis.js";
+export * from "./system.js";
