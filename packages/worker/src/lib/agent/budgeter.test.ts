@@ -4,6 +4,7 @@ import {
   compactAgentMessages,
   packAgentExploreContext,
   packAgentPlanContext,
+  readPageMarkdownFallbackBudget,
   selectAgentModel,
 } from "./budgeter.js";
 
@@ -79,6 +80,24 @@ describe("selectAgentModel", () => {
 });
 
 describe("agent context packing", () => {
+  it("flags oversized read_page markdown against the smaller of model budget and token cap", () => {
+    const decision = readPageMarkdownFallbackBudget({
+      provider: "openai",
+      model: "gpt-5.4",
+      contentMd: "page ".repeat(2_000),
+      env: {
+        AGENT_INPUT_TOKEN_BUDGET: "2000",
+        AGENT_OUTPUT_TOKEN_BUDGET: "200",
+        AGENT_READ_PAGE_MARKDOWN_FALLBACK_RATIO: "0.5",
+        AGENT_READ_PAGE_MARKDOWN_TOKEN_LIMIT: "1000",
+      },
+    });
+
+    assert.equal(decision.shouldFallback, true);
+    assert.equal(decision.thresholdTokens, 810);
+    assert.equal(decision.tokenLimit, 1000);
+  });
+
   it("truncates the exploration prompt before the first model call", () => {
     const packed = packAgentExploreContext({
       provider: "openai",
@@ -97,10 +116,7 @@ describe("agent context packing", () => {
     assert.match(packed.text, /Incoming content:/);
     assert.equal(packed.text.includes("TAIL_MARKER"), false);
     assert.equal(packed.budgetMeta.truncated, true);
-    assert.equal(
-      packed.budgetMeta.slotAllocations?.ingestion.truncated,
-      true,
-    );
+    assert.equal(packed.budgetMeta.slotAllocations?.ingestion.truncated, true);
   });
 
   it("truncates read context to fit the selected model budget", () => {
@@ -130,10 +146,7 @@ describe("agent context packing", () => {
     assert.match(packed.text, /\[INGESTION\]/);
     assert.match(packed.text, /\[CONTEXT:read_page#1\]/);
     assert.equal(packed.budgetMeta.truncated, true);
-    assert.equal(
-      packed.budgetMeta.slotAllocations?.read_1.truncated,
-      true,
-    );
+    assert.equal(packed.budgetMeta.slotAllocations?.read_1.truncated, true);
   });
 
   it("compacts oldest tool messages and emits a re-read notice near the threshold", () => {
@@ -171,10 +184,7 @@ describe("agent context packing", () => {
       compacted.messages.at(-1)?.content ?? "",
       /call the relevant read tool again/i,
     );
-    assert.match(
-      compacted.messages[2].content,
-      /COMPACTED_TOOL_RESULT/,
-    );
+    assert.match(compacted.messages[2].content, /COMPACTED_TOOL_RESULT/);
   });
 
   it("compacts oldest plan context blocks before allocation", () => {

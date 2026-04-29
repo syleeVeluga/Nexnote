@@ -11,7 +11,9 @@ import {
 } from "@wekiflow/db";
 import {
   agentReadToolInputSchemas,
+  estimateTokens,
   normalizeKey,
+  sliceWithinTokenBudget,
   type AgentReadToolName,
   type FindRelatedEntitiesToolInput,
   type ListFolderToolInput,
@@ -19,6 +21,7 @@ import {
   type ReadPageToolInput,
   type SearchPagesToolInput,
 } from "@wekiflow/shared";
+import { readPageMarkdownFallbackBudget } from "../budgeter.js";
 import type {
   AgentToolContext,
   AgentToolDefinition,
@@ -42,11 +45,28 @@ interface MarkdownBlock {
   charStart: number;
   charEnd: number;
   headingLevel?: number;
+  contentCharLength?: number;
+  contentTokenEstimate?: number;
+  contentTruncated?: boolean;
+  droppedChars?: number;
 }
 
 const SEARCH_EXCERPT_CHAR_CAP = 1_000;
+const DEFAULT_FALLBACK_BLOCK_LIMIT = 200;
+const DEFAULT_FALLBACK_BLOCK_CONTENT_TOKENS = 80;
 
 const searchExcerptSql = sql<string>`SUBSTRING(${pageRevisions.contentMd}, 1, ${SEARCH_EXCERPT_CHAR_CAP})`;
+
+function positiveIntEnv(
+  env: NodeJS.ProcessEnv | undefined,
+  key: string,
+  fallback: number,
+): number {
+  const raw = env?.[key] ?? process.env[key];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function iso(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null;
@@ -117,14 +137,13 @@ function buildTsQuery(text: string): string {
 }
 
 function createMarkdownBlockId(index: number, content: string): string {
-  const hash = createHash("sha1")
-    .update(content)
-    .digest("hex")
-    .slice(0, 12);
+  const hash = createHash("sha1").update(content).digest("hex").slice(0, 12);
   return `blk_${String(index).padStart(4, "0")}_${hash}`;
 }
 
-function blockType(content: string): Pick<MarkdownBlock, "type" | "headingLevel"> {
+function blockType(
+  content: string,
+): Pick<MarkdownBlock, "type" | "headingLevel"> {
   const firstLine = content.split(/\r?\n/, 1)[0]?.trimStart() ?? "";
   const heading = /^(#{1,6})\s+/.exec(firstLine);
   if (heading) {
@@ -234,6 +253,58 @@ function summarizeMarkdown(markdown: string) {
     blockCount: blocks.length,
     headings,
     excerpt: markdown.slice(0, 2_000),
+  };
+}
+
+function compactBlocksForFallback(
+  blocks: MarkdownBlock[],
+  env: NodeJS.ProcessEnv | undefined,
+): {
+  blocks: MarkdownBlock[];
+  omittedBlockCount: number;
+  contentTruncatedCount: number;
+} {
+  const limit = positiveIntEnv(
+    env,
+    "AGENT_READ_PAGE_BLOCK_FALLBACK_LIMIT",
+    DEFAULT_FALLBACK_BLOCK_LIMIT,
+  );
+  const contentTokenBudget = positiveIntEnv(
+    env,
+    "AGENT_READ_PAGE_BLOCK_FALLBACK_CONTENT_TOKENS",
+    DEFAULT_FALLBACK_BLOCK_CONTENT_TOKENS,
+  );
+  let contentTruncatedCount = 0;
+
+  const compacted = blocks.slice(0, limit).map((block) => {
+    const estimatedTokens = estimateTokens(block.content);
+    if (estimatedTokens <= contentTokenBudget) {
+      return {
+        ...block,
+        contentCharLength: block.content.length,
+        contentTokenEstimate: estimatedTokens,
+      };
+    }
+
+    const sliced = sliceWithinTokenBudget(block.content, contentTokenBudget, {
+      estimatedTokens,
+      preserveStructure: true,
+    });
+    contentTruncatedCount += 1;
+    return {
+      ...block,
+      content: sliced.text,
+      contentCharLength: block.content.length,
+      contentTokenEstimate: estimatedTokens,
+      contentTruncated: true,
+      droppedChars: sliced.droppedChars,
+    };
+  });
+
+  return {
+    blocks: compacted,
+    omittedBlockCount: Math.max(0, blocks.length - compacted.length),
+    contentTruncatedCount,
   };
 }
 
@@ -365,7 +436,9 @@ async function searchPages(
             sql`SIMILARITY(${pages.title}, ${input.query.slice(0, 200)}) > 0.1`,
           ),
         )
-        .orderBy(sql`SIMILARITY(${pages.title}, ${input.query.slice(0, 200)}) DESC`)
+        .orderBy(
+          sql`SIMILARITY(${pages.title}, ${input.query.slice(0, 200)}) DESC`,
+        )
         .limit(input.limit);
 
       for (const row of trigramMatches) addMatch(row, "trigram");
@@ -473,7 +546,11 @@ async function readPage(
 
   if (input.format === "summary") {
     return {
-      data: { ...base, format: "summary", summary: summarizeMarkdown(contentMd) },
+      data: {
+        ...base,
+        format: "summary",
+        summary: summarizeMarkdown(contentMd),
+      },
       observedPageIds: [row.id],
       observedPageRevisions: [
         { pageId: row.id, revisionId: row.currentRevisionId },
@@ -490,6 +567,49 @@ async function readPage(
         { pageId: row.id, revisionId: row.currentRevisionId },
       ],
       observedBlockIds: blocks.map((block) => block.id),
+    };
+  }
+
+  const fallback = readPageMarkdownFallbackBudget({
+    contentMd,
+    provider: ctx.model?.provider,
+    model: ctx.model?.model,
+    env: ctx.env,
+  });
+  if (fallback.shouldFallback) {
+    const allBlocks = parseMarkdownBlocks(contentMd);
+    const compacted = compactBlocksForFallback(allBlocks, ctx.env);
+    return {
+      data: {
+        ...base,
+        format: "blocks",
+        requestedFormat: "markdown",
+        fallback: {
+          type: "markdown_to_blocks",
+          reason:
+            "Full markdown exceeded the safe read_page context threshold.",
+          estimatedTokens: fallback.estimatedTokens,
+          thresholdTokens: fallback.thresholdTokens,
+          capacityTokens: fallback.capacityTokens,
+          thresholdRatio: fallback.thresholdRatio,
+          tokenLimit: fallback.tokenLimit,
+          provider: fallback.provider,
+          model: fallback.model,
+          originalCharLength: contentMd.length,
+          totalBlockCount: allBlocks.length,
+          returnedBlockCount: compacted.blocks.length,
+          omittedBlockCount: compacted.omittedBlockCount,
+          contentTruncatedCount: compacted.contentTruncatedCount,
+          notice:
+            "This is a compact block listing, not full markdown. Use block IDs for narrow edits, or request summary/blocks again if exact context is needed.",
+        },
+        blocks: compacted.blocks,
+      },
+      observedPageIds: [row.id],
+      observedPageRevisions: [
+        { pageId: row.id, revisionId: row.currentRevisionId },
+      ],
+      observedBlockIds: compacted.blocks.map((block) => block.id),
     };
   }
 
@@ -517,7 +637,9 @@ async function listFolder(
     const [folder] = await ctx.db
       .select({ id: folders.id })
       .from(folders)
-      .where(and(eq(folders.workspaceId, ctx.workspaceId), eq(folders.id, folderId)))
+      .where(
+        and(eq(folders.workspaceId, ctx.workspaceId), eq(folders.id, folderId)),
+      )
       .limit(1);
     if (!folder) {
       throw new AgentToolError("not_found", `Folder ${folderId} not found`);

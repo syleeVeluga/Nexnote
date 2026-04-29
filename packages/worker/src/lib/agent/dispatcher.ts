@@ -1,4 +1,4 @@
-import type { NormalizedToolCall } from "@wekiflow/shared";
+import type { AIProvider, NormalizedToolCall } from "@wekiflow/shared";
 import { AGENT_LIMITS } from "@wekiflow/shared";
 import { createReadOnlyTools } from "./tools/read.js";
 import {
@@ -29,6 +29,11 @@ interface CreateAgentDispatcherInput {
   tools?: Record<string, AgentToolDefinition>;
   state?: AgentRunState;
   options?: AgentDispatcherOptions;
+  env?: NodeJS.ProcessEnv;
+  model?: {
+    provider: AIProvider;
+    model: string;
+  };
 }
 
 function stableJson(value: unknown): string {
@@ -131,6 +136,8 @@ export function createAgentDispatcher(
     db: input.db,
     workspaceId: input.workspaceId,
     state,
+    env: input.env,
+    model: input.model,
   };
 
   return {

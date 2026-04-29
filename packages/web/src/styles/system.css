@@ -705,6 +705,44 @@
   white-space: nowrap;
 }
 
+.ai-model-diagnostics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--wf-space-2);
+}
+
+.ai-model-route {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid var(--wf-color-border);
+  border-radius: var(--wf-radius-md);
+  background: var(--wf-color-bg-soft);
+}
+
+.ai-model-route small,
+.ai-model-route span {
+  overflow: hidden;
+  color: var(--wf-color-ink-muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ai-model-route strong {
+  overflow: hidden;
+  color: var(--wf-color-ink);
+  font-family: var(--wf-font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ai-instructions-panel textarea {
   width: 100%;
   min-height: 190px;
@@ -1023,7 +1061,8 @@
     grid-template-columns: 1fr;
   }
 
-  .ai-settings-fields {
+  .ai-settings-fields,
+  .ai-model-diagnostics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1055,6 +1094,7 @@
   .api-token-row,
   .ai-settings-grid,
   .ai-settings-fields,
+  .ai-model-diagnostics,
   .ai-parity-grid,
   .ai-daily-parity-row,
   .ai-mismatch-row {

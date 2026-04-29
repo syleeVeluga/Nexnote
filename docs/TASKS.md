@@ -3,7 +3,7 @@
 > **Snapshot:** 2026-04-30
 > **North-star goal:** External signals flow in continuously; the wiki stays automatically up-to-date under human supervision. AI classifies/merges/deduplicates; humans review/correct/approve.
 >
-> **Status of the core loop** — see [CLAUDE.md](../CLAUDE.md#current-implementation-status-snapshot-2026-04-24-docs-reviewed). The ingest/classify/apply path works, AGENT-1~7 + AGENT-4.5 (tool-calling ingestion agent backend, parity gate, mutate tier 1·2·3, settings UI, fan-out review surfaces) have landed, and remaining trust gaps are conflict breadth (concurrent ingestions / triple contradictions), API-token management, sidebar/digest surfacing, and the final agent-promotion hardening items.
+> **Status of the core loop** — see [CLAUDE.md](../CLAUDE.md#current-implementation-status-snapshot-2026-04-24-docs-reviewed). The ingest/classify/apply path works, AGENT-1~7 + AGENT-4.5 and AGENT-8 start (tool-calling ingestion agent backend, parity gate, mutate tier 1·2·3, settings UI, fan-out review surfaces, pre-promotion hardening) have landed, and remaining trust gaps are conflict breadth (concurrent ingestions / triple contradictions), API-token management, sidebar/digest surfacing, parity observation, and eventual classic retirement.
 
 Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH] / [MED] / [LOW]** marks urgency toward the goal.
 
@@ -23,7 +23,7 @@ Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH]
 >
 > **Doc reorg + Ingestion Agent RFC (2026-04-29):** all product/design/RFC docs moved from repo root into [`docs/`](.); orchestrator guides (`AGENTS.md`, `CLAUDE.md`) stay at root and got a Documentation map. The single-shot Classify stage is slated to be replaced by a tool-calling ingestion agent — see new epic **AGENT-1..AGENT-8** below. RFC: [`docs/ingestion-agent-plan.md`](ingestion-agent-plan.md).
 >
-> **Ingestion agent through AGENT-4.5/5/6/7 landed (2026-04-29 → 2026-04-30):** AGENT-1 (gateway tool-calling normalization), AGENT-2 (`agent_runs` schema + `workspaces.ingestion_mode`), AGENT-3 (read-only dispatcher), AGENT-4 (shadow loop + budgeter), **AGENT-4.5** (parity SQL view + diagnostics API + AISettingsPage dashboard, daily token cap enforcement, dedupe system-message hint, Redis pub/sub SSE live trace, `workspaces.agent_instructions` + system prompt prepend), **AGENT-5** (mutate tier 1·2·3 direct revisions + update_page/append_to_page fallback + create_page/noop/request_human_review, oldest-first 80% context compaction with cache invalidation, mutate self-correction repair turn), **AGENT-6** (`/settings/ai` mode toggle + workspace-scoped model picker + token cap + parity dashboard with server-side promotion gate), **AGENT-7** (IngestionDetailPage fan-out decisions, AgentTracePanel post-hoc/live trace, ReviewQueuePage sibling badge, Activity feed `agent_run_completed` row). Production 'agent' promotion is now blocked by 3 finishing gaps: `read_page` auto blocks fallback (P0), mutate execute integration test (P0), AISettingsPage model diagnostic strip (P2). See [`docs/ingestion-agent-plan.md`](ingestion-agent-plan.md) §Remaining gaps.
+> **Ingestion agent through AGENT-8 start landed (2026-04-29 → 2026-04-30):** AGENT-1 (gateway tool-calling normalization), AGENT-2 (`agent_runs` schema + `workspaces.ingestion_mode`), AGENT-3 (read-only dispatcher), AGENT-4 (shadow loop + budgeter), **AGENT-4.5** (parity SQL view + diagnostics API + AISettingsPage dashboard, daily token cap enforcement, dedupe system-message hint, Redis pub/sub SSE live trace, `workspaces.agent_instructions` + system prompt prepend), **AGENT-5** (mutate tier 1·2·3 direct revisions + update_page/append_to_page fallback + create_page/noop/request_human_review, oldest-first 80% context compaction with cache invalidation, mutate self-correction repair turn), **AGENT-6** (`/settings/ai` mode toggle + workspace-scoped model picker + token cap + parity dashboard with server-side promotion gate), **AGENT-7** (IngestionDetailPage fan-out decisions, AgentTracePanel post-hoc/live trace, ReviewQueuePage sibling badge, Activity feed `agent_run_completed` row), and **AGENT-8 start** (`read_page` large-markdown auto blocks fallback, agent-mode execute smoke coverage, model diagnostic strip, BullMQ-safe agent job IDs). Production 'agent' promotion is now mainly gated by parity observation / staged rollout; global classic retirement still requires 2 weeks of clean `agent` operation.
 
 ---
 
@@ -81,7 +81,7 @@ _Phase C · Size L · Rollout still gated by: parity observation + AGENT-6/7 UI 
 `replace_in_page` (find/replace, exact-N match enforce), `edit_page_blocks` (markdown block ops via stable block parser), `edit_page_section` (heading anchor), plus fallback `update_page` / `append_to_page` / `create_page` / `noop` / `request_human_review`. Tier-1/2/3 build the new revision directly without re-calling the LLM (cost + intent preservation). Per-page mutation lock within a run prevents AI-vs-AI race. Plan validator: "if proposed `update_page` keeps ≥70% of existing content, reject and force decompose to `edit_page_blocks`."
 
 - Done: shared mutate schemas landed; `tools/mutate.ts` creates fan-out `ingestion_decisions` with `agent_run_id`; direct patch tiers create proposed/current revisions with provenance, diffs, audit logs, and triple/search enqueue; `update_page` / `append_to_page` hand off high-confidence fallback work to patch-generator with agent-supplied content; enqueue now runs classic+agent in `shadow`, but agent-only in `agent` mode. Added Claude Code-style context compaction (80% threshold, oldest-first summaries, re-read notice + cache invalidation) and mutate self-correction hints with one repair turn. Tests cover patch primitives, compaction, dispatcher cache invalidation, and agent-mode repair execution.
-- 잔여 hardening (production 'agent' 승격 차단): (a) **`read_page` 큰 본문 자동 `blocks` 폴백 (P0)** — 단일 거대 페이지가 한 턴 input cap을 잠식하는 것을 막아야 함. `tools/read.ts:415-489` `readPage` + 신규 `budgeter.ts` 헬퍼. (b) **mutate execute 통합 테스트 (P0)** — agent 모드 happy/conflict/repair end-to-end. 신규 `loop.execute.test.ts`. (c) Plan validator 70% full-rewrite self-correct (P2 — RFC §AGENT-5 spec).
+- 잔여 hardening: (a) **`read_page` 큰 본문 자동 `blocks` 폴백 (DONE · AGENT-8 start)** — 모델 입력 capacity 비율과 30k-token 상한 중 작은 값 초과 시 compact block listing으로 자동 전환하고 system notice를 주입. (b) **mutate execute 통합 smoke (DONE · AGENT-8 start)** — agent 모드 create_page happy path와 direct patch conflict downgrade가 `ingestion_decisions` / `page_revisions` / `audit_logs` / `agentRunId`까지 검증됨; repair turn은 기존 worker loop test가 커버. (c) Plan validator 70% full-rewrite self-correct (P2 — RFC §AGENT-5 spec).
 
 ### AGENT-6 · [DONE · 2026-04-30] Workspace toggle + `/settings/ai` UI
 
@@ -104,11 +104,13 @@ _Phase C · Size M · Blocked by: AGENT-2 (`agent_run_id` FK); usefulness blocke
   - ReviewQueuePage sibling 배지 "(N of M from ingestion {sourceName})" — visible queue rows are grouped client-side by `ingestion.id`.
   - Activity feed `agent_run_completed` 행 — ingestion-agent worker writes one `audit_logs` row per completed/shadow run and `deriveActivitySummary` renders proposed/auto-applied/queued counts.
 
-### AGENT-8 · [MED] Cutover & retire classic
+### AGENT-8 · [IN PROGRESS · 2026-04-30] Cutover & retire classic
 
 _Phase D · Size S · Blocked by: 2 weeks of clean `agent`-mode operation · No sub-doc_
 
 Promote one workspace at a time after parity ≥ target. Retire `route-classifier.ts` after 2 weeks of clean `agent`-mode operation. Existing classic decision rows preserved via NULL `agent_run_id` FK.
+
+- Started: removed the remaining pre-promotion hard blockers discovered before cutover: large `read_page(format="markdown")` calls now auto-return compact blocks, agent-mode enqueue uses BullMQ-safe job IDs, `/settings/ai` shows the effective provider/base/fast/large model strip, and smoke coverage now exercises agent-mode direct create plus human-conflict downgrade. Classic retirement itself is intentionally deferred until clean production observation.
 
 ---
 

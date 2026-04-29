@@ -68,12 +68,17 @@ function gateTone(status: AgentDiagnostics["gate"]["status"]): BadgeTone {
   return "warm";
 }
 
+function sourceLabel(source: string | null | undefined): string {
+  if (!source || source === "unset") return "unset";
+  if (source === "unconfigured") return "unconfigured";
+  return source;
+}
+
 export function AISettingsPage() {
   const { current, refresh } = useWorkspace();
   const [mode, setMode] = useState<IngestionMode>("classic");
   const [instructions, setInstructions] = useState("");
-  const [agentProvider, setAgentProvider] =
-    useState<ProviderChoice>("inherit");
+  const [agentProvider, setAgentProvider] = useState<ProviderChoice>("inherit");
   const [agentModelFast, setAgentModelFast] = useState<AgentModelPreset | "">(
     "",
   );
@@ -91,6 +96,7 @@ export function AISettingsPage() {
   const workspaceId = current?.id;
   const canManage = current?.role === "owner" || current?.role === "admin";
   const gate = diagnostics?.gate ?? null;
+  const currentModels = diagnostics?.currentModels ?? null;
 
   useEffect(() => {
     if (!current) return;
@@ -410,6 +416,34 @@ export function AISettingsPage() {
           </label>
         </div>
 
+        <div className="ai-model-diagnostics">
+          <ModelRoute
+            label="Provider"
+            value={currentModels?.provider ?? "unconfigured"}
+            source={currentModels?.providerSource}
+          />
+          <ModelRoute
+            label="Base"
+            value={currentModels?.baseModel ?? "unconfigured"}
+            source={currentModels?.baseModelSource}
+          />
+          <ModelRoute
+            label="Fast"
+            value={currentModels?.fastModel ?? "default"}
+            source={currentModels?.fastModelSource}
+          />
+          <ModelRoute
+            label="Large"
+            value={currentModels?.largeContextModel ?? "default"}
+            source={currentModels?.largeContextModelSource}
+          />
+          <ModelRoute
+            label="Threshold"
+            value={(currentModels?.fastThresholdTokens ?? 0).toLocaleString()}
+            source={currentModels?.fastThresholdSource}
+          />
+        </div>
+
         <div className="ai-effective-settings">
           <span>Effective</span>
           <code>
@@ -544,6 +578,24 @@ function Metric({ label, value }: { label: string; value: number | string }) {
     <div className="ai-parity-metric">
       <small>{label}</small>
       <strong>{value}</strong>
+    </div>
+  );
+}
+
+function ModelRoute({
+  label,
+  value,
+  source,
+}: {
+  label: string;
+  value: string;
+  source?: string | null;
+}) {
+  return (
+    <div className="ai-model-route">
+      <small>{label}</small>
+      <strong>{value}</strong>
+      <span>{sourceLabel(source)}</span>
     </div>
   );
 }

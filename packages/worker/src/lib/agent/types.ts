@@ -1,4 +1,5 @@
 import type {
+  AIProvider,
   AgentRunTraceStep as SharedAgentRunTraceStep,
   NormalizedToolCall,
 } from "@wekiflow/shared";
@@ -18,6 +19,11 @@ export interface AgentToolContext {
   db: AgentDb;
   workspaceId: string;
   state: AgentRunState;
+  env?: NodeJS.ProcessEnv;
+  model?: {
+    provider: AIProvider;
+    model: string;
+  };
 }
 
 export interface AgentToolResult<T = unknown> {

@@ -6,6 +6,7 @@ import { buildApp } from "../../packages/api/src/app.ts";
 import {
   createPatchGeneratorWorker,
   createPublishRendererWorker,
+  createIngestionAgentWorker,
   createRouteClassifierWorker,
   createSearchIndexUpdaterWorker,
   createTripleExtractorWorker,
@@ -23,6 +24,7 @@ export async function startIntegrationStack(): Promise<IntegrationStack> {
   const app = await buildApp();
   const workers = [
     createRouteClassifierWorker(),
+    createIngestionAgentWorker(),
     createPatchGeneratorWorker(),
     createTripleExtractorWorker(),
     createPublishRendererWorker(),
