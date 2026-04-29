@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Clock3,
   Inbox,
+  RotateCcw,
   Send,
   XCircle,
 } from "lucide-react";
@@ -41,7 +42,7 @@ const TABS: TabConfig[] = [
   { key: "failed", statuses: ["failed"] },
   {
     key: "recent",
-    statuses: ["auto_applied", "approved", "rejected"],
+    statuses: ["auto_applied", "approved", "rejected", "undone"],
     sinceDays: 7,
   },
 ];
@@ -76,6 +77,8 @@ function statusTone(status: DecisionStatus): BadgeTone {
     case "auto_applied":
     case "approved":
       return "green";
+    case "undone":
+      return "blue";
     case "rejected":
       return "warm";
     default:
@@ -95,6 +98,8 @@ function statusIcon(status: DecisionStatus) {
       return <XCircle size={11} />;
     case "approved":
       return <CheckCircle2 size={11} />;
+    case "undone":
+      return <RotateCcw size={11} />;
     default:
       return <Send size={11} />;
   }
@@ -180,6 +185,22 @@ export function ReviewQueuePage() {
     });
   }, [workspaceId, refresh]);
 
+  const loadDetail = useCallback(
+    async (id: string) => {
+      if (!workspaceId) return;
+      setDetailLoading(true);
+      try {
+        const res = await decisionsApi.get(workspaceId, id);
+        setDetail(res);
+      } catch {
+        setDetail(null);
+      } finally {
+        setDetailLoading(false);
+      }
+    },
+    [workspaceId],
+  );
+
   useEffect(() => {
     if (!workspaceId || !selectedId) {
       setDetail(null);
@@ -225,6 +246,23 @@ export function ReviewQueuePage() {
     },
     [workspaceId, selectedId, refresh, t],
   );
+
+  const handleUndo = useCallback(async () => {
+    if (!workspaceId || !selectedId) return;
+    try {
+      await decisionsApi.undo(workspaceId, selectedId);
+      await refresh({ broadcastCounts: true });
+      await loadDetail(selectedId);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : t("actionFailed"));
+    }
+  }, [workspaceId, selectedId, refresh, loadDetail, t]);
+
+  const handleDecisionChanged = useCallback(async () => {
+    if (!workspaceId || !selectedId) return;
+    await refresh({ broadcastCounts: true });
+    await loadDetail(selectedId);
+  }, [workspaceId, selectedId, refresh, loadDetail]);
 
   const itemsRef = useRef(items);
   const selectedIdRef = useRef(selectedId);
@@ -377,8 +415,11 @@ export function ReviewQueuePage() {
           ) : detail ? (
             <ReviewDetail
               decision={detail}
+              workspaceId={current.id}
               onApprove={handleApprove}
               onReject={handleReject}
+              onUndo={handleUndo}
+              onDecisionChanged={handleDecisionChanged}
             />
           ) : (
             <div className="review-empty">{t("selectItem")}</div>

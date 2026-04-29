@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { RotateCcw } from "lucide-react";
 import { useWorkspace } from "../hooks/use-workspace.js";
 import { useTimeAgo } from "../hooks/use-time-ago.js";
 import {
@@ -14,6 +15,7 @@ import {
 } from "../lib/api-client.js";
 import { classifyLine } from "../components/revisions/DiffViewer.js";
 import { dispatchDecisionCountsUpdated } from "../lib/decision-events.js";
+import { DecisionOverrideForm } from "../components/review/DecisionOverrideForm.js";
 
 interface DecisionPanelProps {
   workspaceId: string;
@@ -73,7 +75,9 @@ function DecisionPanel({
   const [detail, setDetail] = useState<DecisionDetail | null>(null);
   const [loading, setLoading] = useState(initiallyExpanded);
   const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState<"approve" | "reject" | null>(null);
+  const [submitting, setSubmitting] = useState<
+    "approve" | "reject" | "undo" | null
+  >(null);
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
 
@@ -84,9 +88,7 @@ function DecisionPanel({
       const res = await decisionsApi.get(workspaceId, summary.id);
       setDetail(res);
     } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : t("detail.loadFailed"),
-      );
+      setError(err instanceof ApiError ? err.message : t("detail.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -101,7 +103,14 @@ function DecisionPanel({
     summary.status === "approved" ||
     summary.status === "rejected" ||
     summary.status === "auto_applied" ||
+    summary.status === "undone" ||
     summary.status === "noop";
+  const canUndo =
+    summary.status === "auto_applied" &&
+    Boolean(summary.targetPageId && summary.proposedRevisionId) &&
+    (summary.action === "create" ||
+      summary.action === "update" ||
+      summary.action === "append");
 
   const doApprove = async () => {
     setSubmitting("approve");
@@ -133,8 +142,19 @@ function DecisionPanel({
     }
   };
 
-  const candidates =
-    detail?.candidates ?? summary.rationale?.candidates ?? [];
+  const doUndo = async () => {
+    setSubmitting("undo");
+    try {
+      await decisionsApi.undo(workspaceId, summary.id);
+      await Promise.all([loadDetail(), onResolved()]);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : t("actionFailed"));
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  const candidates = detail?.candidates ?? summary.rationale?.candidates ?? [];
   const diffLines = detail?.proposedRevision?.diffMd
     ? detail.proposedRevision.diffMd.split("\n")
     : [];
@@ -145,13 +165,11 @@ function DecisionPanel({
         <div className="ingestion-decision-title">
           {summary.action === "create"
             ? t("newPage", {
-                title:
-                  summary.proposedPageTitle ??
-                  t("common:untitled"),
+                title: summary.proposedPageTitle ?? t("common:untitled"),
               })
-            : detail?.targetPage?.title ??
+            : (detail?.targetPage?.title ??
               summary.proposedPageTitle ??
-              t("common:untitled")}
+              t("common:untitled"))}
         </div>
         <div className="ingestion-decision-meta">
           <span className={`review-badge review-badge-${summary.status}`}>
@@ -173,6 +191,17 @@ function DecisionPanel({
         <div className="ingestion-decision-loading">{t("loading")}</div>
       )}
       {error && <div className="ingestion-decision-error">{error}</div>}
+      {!loading && !detail && (
+        <button
+          type="button"
+          className="btn btn-secondary ingestion-load-detail-btn"
+          onClick={loadDetail}
+        >
+          {t("detail.loadFullDecision", {
+            defaultValue: "Load full decision",
+          })}
+        </button>
+      )}
 
       {(detail?.conflict ?? summary.rationale?.conflict) && (
         <div className="review-conflict-banner">
@@ -241,6 +270,16 @@ function DecisionPanel({
           </ul>
         )}
       </div>
+
+      {detail && !resolved && (
+        <DecisionOverrideForm
+          workspaceId={workspaceId}
+          decision={detail}
+          onSaved={async () => {
+            await Promise.all([loadDetail(), onResolved()]);
+          }}
+        />
+      )}
 
       {detail?.proposedRevision?.diffMd && (
         <div className="review-detail-section">
@@ -318,6 +357,21 @@ function DecisionPanel({
           )}
         </div>
       )}
+
+      {canUndo && (
+        <div className="review-detail-actions">
+          <button
+            className="btn btn-secondary"
+            onClick={doUndo}
+            disabled={submitting !== null}
+          >
+            <RotateCcw size={13} aria-hidden="true" />
+            {submitting === "undo"
+              ? t("undoing", { defaultValue: "Undoing..." })
+              : t("undo", { defaultValue: "Undo" })}
+          </button>
+        </div>
+      )}
     </section>
   );
 }
@@ -344,9 +398,7 @@ export function IngestionDetailPage() {
       const res = await ingestionsApi.get(workspaceId, ingestionId);
       setData(res);
     } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : t("detail.loadFailed"),
-      );
+      setError(err instanceof ApiError ? err.message : t("detail.loadFailed"));
       setData(null);
     } finally {
       setLoading(false);

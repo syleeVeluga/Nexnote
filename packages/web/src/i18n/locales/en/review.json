@@ -14,6 +14,7 @@
     "auto_applied": "auto-applied",
     "approved": "approved",
     "rejected": "rejected",
+    "undone": "undone",
     "noop": "noop"
   },
   "action": {
@@ -39,8 +40,10 @@
   "noDiff": "No diff available",
   "approve": "Approve",
   "reject": "Reject",
+  "undo": "Undo",
   "approving": "Approving...",
   "rejecting": "Rejecting...",
+  "undoing": "Undoing...",
   "approveSuccess": "Approved",
   "rejectSuccess": "Rejected",
   "actionFailed": "Action failed",
@@ -57,6 +60,17 @@
     "bannerBody": "A reviewer saved a new revision on {{editedAt}} after the classifier picked this target, so auto-apply was held back.",
     "approveWarning": "Approving will create a new AI revision on top of the human's edits. Reject and re-run classification if the incoming content is no longer relevant."
   },
+  "override": {
+    "title": "Decision override",
+    "action": "Action",
+    "pageTitle": "Page title",
+    "targetPage": "Target page",
+    "searchPages": "Search pages",
+    "invalidatesRevision": "Changing action or target clears the AI-proposed revision; approval will regenerate from the current target.",
+    "save": "Save override",
+    "saving": "Saving...",
+    "saved": "Decision updated"
+  },
   "detail": {
     "backToReview": "Back to review queue",
     "viewFullDetail": "View full ingestion detail",
@@ -70,6 +84,7 @@
     "downloadOriginal": "Download original",
     "downloadFailed": "Download failed",
     "loadFailed": "Failed to load",
+    "loadFullDecision": "Load full decision",
     "notFound": "Ingestion not found",
     "untitledFromSource": "Untitled ingestion from {{source}}",
     "matchSource": {

@@ -22,6 +22,7 @@ import {
   type IngestionAction,
   type IngestionStatus,
   type DecisionStatus,
+  type ApiTokenScope,
 } from "@wekiflow/shared";
 
 export type { ReorderIntent } from "@wekiflow/shared";
@@ -752,6 +753,7 @@ export interface DecisionCounts {
   needs_review: number;
   approved: number;
   rejected: number;
+  undone: number;
   noop: number;
   failed: number;
   pending: number;
@@ -805,7 +807,9 @@ export const ingestions = {
     // Pull the filename the server suggested; fall back to a generic one.
     const disposition = res.headers.get("Content-Disposition") ?? "";
     const match = disposition.match(/filename="?([^";]+)"?/i);
-    const filename = match ? decodeURIComponent(match[1]) : `ingestion-${ingestionId}`;
+    const filename = match
+      ? decodeURIComponent(match[1])
+      : `ingestion-${ingestionId}`;
 
     const blob = await res.blob();
     const objectUrl = URL.createObjectURL(blob);
@@ -996,6 +1000,27 @@ export const decisions = {
       },
     );
   },
+  undo(workspaceId: string, decisionId: string) {
+    return request<
+      | {
+          status: "undone";
+          action: "create";
+          ingestionId: string;
+          pageId: string;
+          deletedPageIds: string[];
+        }
+      | {
+          status: "undone";
+          action: "update" | "append";
+          ingestionId: string;
+          pageId: string;
+          revisionId: string;
+        }
+    >(`/workspaces/${workspaceId}/decisions/${decisionId}/undo`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  },
   edit(
     workspaceId: string,
     decisionId: string,
@@ -1016,6 +1041,58 @@ export const decisions = {
       method: "PATCH",
       body: JSON.stringify(data),
     });
+  },
+};
+
+// ---------------------------------------------------------------------------
+// API token management
+// ---------------------------------------------------------------------------
+
+export type { ApiTokenScope };
+
+export interface ApiTokenItem {
+  id: string;
+  name: string;
+  sourceNameHint: string | null;
+  scopes: ApiTokenScope[];
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  createdBy: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
+
+export const apiTokens = {
+  list(workspaceId: string, params?: { limit?: number; offset?: number }) {
+    const q = buildQuery({ limit: params?.limit, offset: params?.offset });
+    return request<{
+      data: ApiTokenItem[];
+      total: number;
+      limit: number;
+      offset: number;
+    }>(`/workspaces/${workspaceId}/tokens${q}`);
+  },
+  create(
+    workspaceId: string,
+    data: {
+      name: string;
+      sourceNameHint?: string | null;
+      scopes?: ApiTokenScope[];
+    },
+  ) {
+    return request<{ token: string; data: ApiTokenItem }>(
+      `/workspaces/${workspaceId}/tokens`,
+      { method: "POST", body: JSON.stringify(data) },
+    );
+  },
+  revoke(workspaceId: string, tokenId: string) {
+    return request<{ id: string; revokedAt: string | null }>(
+      `/workspaces/${workspaceId}/tokens/${tokenId}/revoke`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
   },
 };
 
