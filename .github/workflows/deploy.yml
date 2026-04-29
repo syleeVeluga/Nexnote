@@ -236,6 +236,23 @@ jobs:
               git pull --ff-only origin main
               gcloud auth configure-docker asia-northeast3-docker.pkg.dev --quiet
               docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+
+              # certbot 설치 및 인증서 최초 발급 (이미 있으면 갱신 시도만)
+              if ! command -v certbot &>/dev/null; then
+                sudo apt-get install -y certbot
+              fi
+              if [ ! -f /etc/letsencrypt/live/wekiflow.veluga.app/fullchain.pem ]; then
+                # 최초 발급: nginx 80포트를 잠시 중단하고 standalone 모드로 발급
+                docker compose -f docker-compose.prod.yml --env-file .env.prod stop web 2>/dev/null || true
+                sudo certbot certonly --standalone \
+                  -d wekiflow.veluga.app \
+                  --email jjinoon@veluga.io \
+                  --agree-tos --non-interactive
+              else
+                # 갱신 (만료 30일 이내일 때만 실제 갱신)
+                sudo certbot renew --quiet || true
+              fi
+
               docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --remove-orphans
               docker image prune -f || true
             '

@@ -154,6 +154,10 @@ services:
     logging: *common-logging
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      # VM 호스트의 certbot 인증서를 컨테이너에 마운트 (읽기 전용)
+      - /etc/letsencrypt:/etc/letsencrypt:ro
 
 volumes:
   pgdata:
