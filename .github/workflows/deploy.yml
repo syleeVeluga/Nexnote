@@ -170,6 +170,12 @@ jobs:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_HR_CHANNEL_ID: ${{ vars.SLACK_HR_CHANNEL_ID }}
+          SLACK_BOT_USER_ID: ${{ vars.SLACK_BOT_USER_ID }}
+          SLACK_WEKIFLOW_WORKSPACE_ID: ${{ vars.SLACK_WEKIFLOW_WORKSPACE_ID }}
+          SLACK_WEKIFLOW_USER_ID: ${{ vars.SLACK_WEKIFLOW_USER_ID }}
           IMAGE_TAG: ${{ needs.build-push.outputs.image_tag }}
         run: |
           # SSH 키 설정
@@ -203,6 +209,12 @@ jobs:
           JWT_SECRET=${JWT_SECRET}
           OPENAI_API_KEY=${OPENAI_API_KEY}
           GEMINI_API_KEY=${GEMINI_API_KEY}
+          SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}
+          SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+          SLACK_HR_CHANNEL_ID=${SLACK_HR_CHANNEL_ID}
+          SLACK_BOT_USER_ID=${SLACK_BOT_USER_ID}
+          SLACK_WEKIFLOW_WORKSPACE_ID=${SLACK_WEKIFLOW_WORKSPACE_ID}
+          SLACK_WEKIFLOW_USER_ID=${SLACK_WEKIFLOW_USER_ID}
           EOF
           sed -i 's/^[[:space:]]*//' /tmp/env.prod
 

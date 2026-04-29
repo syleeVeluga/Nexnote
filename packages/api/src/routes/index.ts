@@ -12,6 +12,7 @@ import auditLogRoutes from "./v1/audit-logs.js";
 import modelRunRoutes from "./v1/model-runs.js";
 import adminQueueRoutes from "./v1/admin-queues.js";
 import activityRoutes from "./v1/activity.js";
+import slackWebhookRoutes from "./v1/webhooks/slack-events.js";
 
 export const routes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(healthRoutes);
@@ -19,6 +20,7 @@ export const routes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(
     async (scoped) => {
       await scoped.register(authRoutes);
+      await scoped.register(slackWebhookRoutes, { prefix: "/webhooks/slack" });
       await scoped.register(workspaceRoutes, { prefix: "/workspaces" });
       await scoped.register(folderRoutes, {
         prefix: "/workspaces/:workspaceId/folders",
