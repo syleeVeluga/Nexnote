@@ -23,7 +23,7 @@ function reflectionMeta(
   page: Page,
   t: ReturnType<typeof useTranslation>["t"],
 ): { label: string; tone: BadgeTone; icon: ReactNode } {
-  if (page.status === "published") {
+  if (page.isLivePublished || page.status === "published") {
     return {
       label: t("wiki.status.published", { defaultValue: "Published" }),
       tone: "green",
@@ -48,11 +48,7 @@ function registrationMeta(
   page: Page,
   t: ReturnType<typeof useTranslation>["t"],
 ): { label: string; tone: BadgeTone; icon: ReactNode } {
-  if (
-    page.lastAiUpdatedAt &&
-    (!page.lastHumanEditedAt ||
-      page.lastAiUpdatedAt >= page.lastHumanEditedAt)
-  ) {
+  if (page.latestRevisionActorType === "ai") {
     return {
       label: t("wiki.method.ai", { defaultValue: "AI" }),
       tone: "purple",
@@ -60,11 +56,19 @@ function registrationMeta(
     };
   }
 
-  if (page.lastHumanEditedAt) {
+  if (page.latestRevisionActorType === "user") {
     return {
       label: t("wiki.method.human", { defaultValue: "Human" }),
       tone: "blue",
       icon: <UserRound size={12} />,
+    };
+  }
+
+  if (page.latestRevisionActorType === "system") {
+    return {
+      label: t("wiki.method.system", { defaultValue: "System" }),
+      tone: "warm",
+      icon: <FileText size={12} />,
     };
   }
 

@@ -17,28 +17,29 @@ import { useAuth } from "../hooks/use-auth.js";
 import { useTimeAgo } from "../hooks/use-time-ago.js";
 import { useWorkspace } from "../hooks/use-workspace.js";
 import {
-  decisions as decisionsApi,
-  folders as foldersApi,
-  pages as pagesApi,
-  type DecisionCounts,
+  dashboard as dashboardApi,
+  type DashboardDto,
   type DecisionListItem,
-  type Folder as FolderDto,
   type Page,
 } from "../lib/api-client.js";
 import { Badge } from "../components/ui/Badge.js";
 import { IconButton } from "../components/ui/IconButton.js";
 import { PageShell } from "../components/ui/PageShell.js";
 
-interface DashboardData {
-  counts: DecisionCounts | null;
-  pending: DecisionListItem[];
-  recentAutoApplied: DecisionListItem[];
-  recentAutoAppliedTotal: number;
-  pages: Page[];
-  pageTotal: number;
-  folders: FolderDto[];
-  folderTotal: number;
-}
+const EMPTY_DASHBOARD: DashboardDto = {
+  counts: {
+    pages: 0,
+    folders: 0,
+    pendingDecisions: 0,
+    autoAppliedToday: 0,
+    failedDecisions: 0,
+  },
+  pendingPreview: [],
+  recentAutoApplied: [],
+  folders: [],
+  rootPages: [],
+  recentAiPages: [],
+};
 
 function decisionTitle(item: DecisionListItem): string {
   return (
@@ -54,6 +55,9 @@ function confidenceLabel(confidence: number): string {
 }
 
 function latestAiDate(page: Page): string | null {
+  if (page.latestRevisionActorType === "ai" && page.latestRevisionCreatedAt) {
+    return page.latestRevisionCreatedAt;
+  }
   if (!page.lastAiUpdatedAt) return null;
   if (!page.lastHumanEditedAt) return page.lastAiUpdatedAt;
   return page.lastAiUpdatedAt >= page.lastHumanEditedAt
@@ -67,16 +71,7 @@ export function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const timeAgo = useTimeAgo();
-  const [data, setData] = useState<DashboardData>({
-    counts: null,
-    pending: [],
-    recentAutoApplied: [],
-    recentAutoAppliedTotal: 0,
-    pages: [],
-    pageTotal: 0,
-    folders: [],
-    folderTotal: 0,
-  });
+  const [data, setData] = useState<DashboardDto>(EMPTY_DASHBOARD);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -84,45 +79,15 @@ export function DashboardPage() {
     let cancelled = false;
     setLoading(true);
 
-    Promise.all([
-      decisionsApi.counts(current.id),
-      decisionsApi.list(current.id, {
-        status: ["suggested", "needs_review"],
-        limit: 6,
-      }),
-      decisionsApi.list(current.id, {
-        status: ["auto_applied"],
-        sinceDays: 1,
-        limit: 6,
-      }),
-      pagesApi.list(current.id, { limit: 200 }),
-      foldersApi.list(current.id, { limit: 200 }),
-    ])
-      .then(([countsRes, pendingRes, autoRes, pagesRes, foldersRes]) => {
+    dashboardApi
+      .get(current.id)
+      .then((res) => {
         if (cancelled) return;
-        setData({
-          counts: countsRes.counts,
-          pending: pendingRes.data,
-          recentAutoApplied: autoRes.data,
-          recentAutoAppliedTotal: autoRes.total,
-          pages: pagesRes.data,
-          pageTotal: pagesRes.total,
-          folders: foldersRes.data,
-          folderTotal: foldersRes.total,
-        });
+        setData(res);
       })
       .catch(() => {
         if (cancelled) return;
-        setData({
-          counts: null,
-          pending: [],
-          recentAutoApplied: [],
-          recentAutoAppliedTotal: 0,
-          pages: [],
-          pageTotal: 0,
-          folders: [],
-          folderTotal: 0,
-        });
+        setData(EMPTY_DASHBOARD);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -135,49 +100,41 @@ export function DashboardPage() {
 
   const folderSummaries = useMemo(() => {
     return data.folders
-      .map((folder) => {
-        const directPages = data.pages.filter(
-          (page) => page.parentFolderId === folder.id,
-        );
-        const latestUpdatedAt = directPages
+      .map((item) => {
+        const latestUpdatedAt = item.pages
           .map((page) => page.updatedAt)
           .sort()
           .at(-1);
         return {
-          folder,
-          pageCount: directPages.length,
-          latestUpdatedAt: latestUpdatedAt ?? folder.updatedAt,
+          folder: item.folder,
+          pageCount: item.pageCount,
+          latestUpdatedAt: latestUpdatedAt ?? item.folder.updatedAt,
         };
       })
       .sort((a, b) => b.latestUpdatedAt.localeCompare(a.latestUpdatedAt))
       .slice(0, 5);
-  }, [data.folders, data.pages]);
+  }, [data.folders]);
 
   const aiTouchedPages = useMemo(() => {
-    return data.pages
+    return data.recentAiPages
       .map((page) => ({ page, aiDate: latestAiDate(page) }))
       .filter((item): item is { page: Page; aiDate: string } => !!item.aiDate)
       .sort((a, b) => b.aiDate.localeCompare(a.aiDate))
       .slice(0, 5);
-  }, [data.pages]);
+  }, [data.recentAiPages]);
 
   const rootPages = useMemo(() => {
-    return data.pages
-      .filter((page) => !page.parentFolderId && !page.parentPageId)
+    return [...data.rootPages]
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, 5);
-  }, [data.pages]);
+  }, [data.rootPages]);
 
   if (!current) return null;
 
   const firstName = user?.name?.trim().split(/\s+/)[0] || current.name;
-  const pendingCount =
-    data.counts?.pending ??
-    (data.counts
-      ? data.counts.suggested + data.counts.needs_review
-      : data.pending.length);
-  const autoAppliedToday = data.recentAutoAppliedTotal;
-  const failedCount = data.counts?.failed ?? 0;
+  const pendingCount = data.counts.pendingDecisions;
+  const autoAppliedToday = data.counts.autoAppliedToday;
+  const failedCount = data.counts.failedDecisions;
 
   return (
     <PageShell
@@ -222,8 +179,8 @@ export function DashboardPage() {
         <MetricCard
           icon={<FileText size={18} />}
           label={t("metrics.pages")}
-          value={data.pageTotal}
-          detail={t("metrics.pagesDetail", { count: data.folderTotal })}
+          value={data.counts.pages}
+          detail={t("metrics.pagesDetail", { count: data.counts.folders })}
           tone="blue"
         />
         <MetricCard
@@ -242,14 +199,14 @@ export function DashboardPage() {
             title={t("pending.title")}
             to="/review"
           />
-          {data.pending.length === 0 ? (
+          {data.pendingPreview.length === 0 ? (
             <EmptyPanel
               title={t("pending.emptyTitle")}
               body={t("pending.emptyBody")}
             />
           ) : (
             <div className="dashboard-decision-list">
-              {data.pending.map((item) => (
+              {data.pendingPreview.map((item) => (
                 <Link
                   key={item.id}
                   to={`/ingestions/${item.ingestionId}`}

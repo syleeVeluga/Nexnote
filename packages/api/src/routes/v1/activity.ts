@@ -1,5 +1,15 @@
 import type { FastifyPluginAsync } from "fastify";
-import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 import {
   auditLogs,
@@ -8,6 +18,9 @@ import {
   pages,
   ingestions,
   folders,
+  pageRevisions,
+  revisionDiffs,
+  ingestionDecisions,
 } from "@wekiflow/db";
 import { paginationSchema, uuidSchema } from "@wekiflow/shared";
 import {
@@ -16,6 +29,10 @@ import {
   workspaceParamsSchema,
 } from "../../lib/workspace-auth.js";
 import { sendValidationError } from "../../lib/reply-helpers.js";
+import {
+  deriveActivitySummary,
+  readNumber,
+} from "../../lib/activity-summary.js";
 
 const ACTOR_TYPES = ["ai", "user", "system"] as const;
 const ENTITY_TYPES = [
@@ -24,6 +41,7 @@ const ENTITY_TYPES = [
   "folder",
   "workspace",
   "decision",
+  "page_revision",
 ] as const;
 
 const listQuerySchema = paginationSchema.extend({
@@ -39,6 +57,10 @@ interface AfterJson {
   decisionId?: string;
   revisionId?: string;
   source?: string;
+  summary?: string;
+  revisionNote?: string;
+  changedBlocks?: number;
+  confidence?: number;
   [key: string]: unknown;
 }
 
@@ -123,49 +145,138 @@ const activityRoutes: FastifyPluginAsync = async (fastify) => {
     const pageIdSet = new Set<string>();
     const ingestionIdSet = new Set<string>();
     const folderIdSet = new Set<string>();
+    const revisionIdSet = new Set<string>();
+    const decisionIdSet = new Set<string>();
 
     for (const row of rows) {
       if (row.entityType === "page") pageIdSet.add(row.entityId);
       else if (row.entityType === "ingestion") ingestionIdSet.add(row.entityId);
       else if (row.entityType === "folder") folderIdSet.add(row.entityId);
+      else if (row.entityType === "page_revision") {
+        revisionIdSet.add(row.entityId);
+      }
 
       const after = row.afterJson as AfterJson | null;
+      const before = row.beforeJson as AfterJson | null;
       if (after?.ingestionId) ingestionIdSet.add(after.ingestionId);
+      if (before?.ingestionId) ingestionIdSet.add(before.ingestionId);
+      if (after?.revisionId) revisionIdSet.add(after.revisionId);
+      if (before?.revisionId) revisionIdSet.add(before.revisionId);
+      if (after?.decisionId) decisionIdSet.add(after.decisionId);
+      if (before?.decisionId) decisionIdSet.add(before.decisionId);
     }
 
-    const [pageRows, ingestionRows, folderRows] = await Promise.all([
-      pageIdSet.size > 0
-        ? fastify.db
-            .select({
-              id: pages.id,
-              title: pages.title,
-              slug: pages.slug,
-              deletedAt: pages.deletedAt,
-            })
-            .from(pages)
-            .where(inArray(pages.id, Array.from(pageIdSet)))
-        : Promise.resolve([] as Array<{ id: string; title: string; slug: string; deletedAt: Date | null }>),
-      ingestionIdSet.size > 0
-        ? fastify.db
-            .select({
-              id: ingestions.id,
-              sourceName: ingestions.sourceName,
-              titleHint: ingestions.titleHint,
-            })
-            .from(ingestions)
-            .where(inArray(ingestions.id, Array.from(ingestionIdSet)))
-        : Promise.resolve([] as Array<{ id: string; sourceName: string; titleHint: string | null }>),
-      folderIdSet.size > 0
-        ? fastify.db
-            .select({ id: folders.id, name: folders.name, slug: folders.slug })
-            .from(folders)
-            .where(inArray(folders.id, Array.from(folderIdSet)))
-        : Promise.resolve([] as Array<{ id: string; name: string; slug: string }>),
-    ]);
+    const [pageRows, ingestionRows, folderRows, revisionRows, decisionRows] =
+      await Promise.all([
+        pageIdSet.size > 0
+          ? fastify.db
+              .select({
+                id: pages.id,
+                title: pages.title,
+                slug: pages.slug,
+                deletedAt: pages.deletedAt,
+              })
+              .from(pages)
+              .where(inArray(pages.id, Array.from(pageIdSet)))
+          : Promise.resolve(
+              [] as Array<{
+                id: string;
+                title: string;
+                slug: string;
+                deletedAt: Date | null;
+              }>,
+            ),
+        ingestionIdSet.size > 0
+          ? fastify.db
+              .select({
+                id: ingestions.id,
+                sourceName: ingestions.sourceName,
+                titleHint: ingestions.titleHint,
+              })
+              .from(ingestions)
+              .where(inArray(ingestions.id, Array.from(ingestionIdSet)))
+          : Promise.resolve(
+              [] as Array<{
+                id: string;
+                sourceName: string;
+                titleHint: string | null;
+              }>,
+            ),
+        folderIdSet.size > 0
+          ? fastify.db
+              .select({
+                id: folders.id,
+                name: folders.name,
+                slug: folders.slug,
+              })
+              .from(folders)
+              .where(inArray(folders.id, Array.from(folderIdSet)))
+          : Promise.resolve(
+              [] as Array<{ id: string; name: string; slug: string }>,
+            ),
+        revisionIdSet.size > 0
+          ? fastify.db
+              .select({
+                id: pageRevisions.id,
+                pageId: pageRevisions.pageId,
+                revisionNote: pageRevisions.revisionNote,
+                changedBlocks: revisionDiffs.changedBlocks,
+                pageTitle: pages.title,
+                pageSlug: pages.slug,
+                pageDeletedAt: pages.deletedAt,
+              })
+              .from(pageRevisions)
+              .leftJoin(
+                revisionDiffs,
+                eq(revisionDiffs.revisionId, pageRevisions.id),
+              )
+              .leftJoin(pages, eq(pages.id, pageRevisions.pageId))
+              .where(inArray(pageRevisions.id, Array.from(revisionIdSet)))
+          : Promise.resolve(
+              [] as Array<{
+                id: string;
+                pageId: string;
+                revisionNote: string | null;
+                changedBlocks: number | null;
+                pageTitle: string | null;
+                pageSlug: string | null;
+                pageDeletedAt: Date | null;
+              }>,
+            ),
+        decisionIdSet.size > 0
+          ? fastify.db
+              .select({
+                id: ingestionDecisions.id,
+                ingestionId: ingestionDecisions.ingestionId,
+                confidence: ingestionDecisions.confidence,
+                sourceName: ingestions.sourceName,
+              })
+              .from(ingestionDecisions)
+              .innerJoin(
+                ingestions,
+                eq(ingestions.id, ingestionDecisions.ingestionId),
+              )
+              .where(
+                and(
+                  inArray(ingestionDecisions.id, Array.from(decisionIdSet)),
+                  eq(ingestions.workspaceId, workspaceId),
+                ),
+              )
+          : Promise.resolve(
+              [] as Array<{
+                id: string;
+                ingestionId: string;
+                confidence: number;
+                sourceName: string;
+              }>,
+            ),
+      ]);
 
     const pageMap = new Map(pageRows.map((p) => [p.id, p]));
     const ingestionMap = new Map(ingestionRows.map((i) => [i.id, i]));
     const folderMap = new Map(folderRows.map((f) => [f.id, f]));
+    const revisionMap = new Map(revisionRows.map((r) => [r.id, r]));
+    const decisionMap = new Map(decisionRows.map((d) => [d.id, d]));
 
     const data = rows.map((row) => {
       const after = (row.afterJson as AfterJson | null) ?? null;
@@ -206,6 +317,15 @@ const activityRoutes: FastifyPluginAsync = async (fastify) => {
           slug: f?.slug ?? null,
           deleted: false,
         };
+      } else if (row.entityType === "page_revision") {
+        const revision = revisionMap.get(row.entityId);
+        entity = {
+          type: "page_revision",
+          id: row.entityId,
+          label: revision?.pageTitle ?? revision?.revisionNote ?? null,
+          slug: revision?.pageSlug ?? null,
+          deleted: Boolean(revision?.pageDeletedAt),
+        };
       } else {
         entity = {
           type: row.entityType,
@@ -216,10 +336,46 @@ const activityRoutes: FastifyPluginAsync = async (fastify) => {
         };
       }
 
-      const contextIngestionId = after?.ingestionId ?? null;
+      const contextDecisionId = after?.decisionId ?? before?.decisionId ?? null;
+      const contextDecision = contextDecisionId
+        ? decisionMap.get(contextDecisionId) ?? null
+        : null;
+      const contextIngestionId =
+        after?.ingestionId ??
+        before?.ingestionId ??
+        contextDecision?.ingestionId ??
+        (row.entityType === "ingestion" ? row.entityId : null);
       const contextIngestion = contextIngestionId
         ? ingestionMap.get(contextIngestionId) ?? null
         : null;
+      const contextRevisionId =
+        after?.revisionId ??
+        before?.revisionId ??
+        (row.entityType === "page_revision" ? row.entityId : null);
+      const contextRevision = contextRevisionId
+        ? revisionMap.get(contextRevisionId) ?? null
+        : null;
+      const changedBlocks =
+        contextRevision?.changedBlocks ??
+        readNumber(after?.changedBlocks) ??
+        readNumber(before?.changedBlocks);
+      const decisionConfidence =
+        contextDecision?.confidence ??
+        readNumber(after?.confidence) ??
+        readNumber(before?.confidence);
+      const sourceName =
+        contextIngestion?.sourceName ?? contextDecision?.sourceName ?? null;
+      const contextIngestionDto = contextIngestion
+        ? {
+            id: contextIngestion.id,
+            sourceName: contextIngestion.sourceName,
+          }
+        : contextDecision
+          ? {
+              id: contextDecision.ingestionId,
+              sourceName: contextDecision.sourceName,
+            }
+          : null;
 
       return {
         id: row.id,
@@ -240,15 +396,21 @@ const activityRoutes: FastifyPluginAsync = async (fastify) => {
         entity,
         context: {
           source: after?.source ?? before?.source ?? null,
-          ingestion: contextIngestion
-            ? {
-                id: contextIngestion.id,
-                sourceName: contextIngestion.sourceName,
-              }
-            : null,
-          decisionId: after?.decisionId ?? before?.decisionId ?? null,
-          revisionId: after?.revisionId ?? null,
+          ingestion: contextIngestionDto,
+          decisionId: contextDecisionId,
+          revisionId: contextRevisionId,
         },
+        summary: deriveActivitySummary({
+          action: row.action,
+          entityType: row.entityType,
+          afterJson: after,
+          beforeJson: before,
+          revisionNote: contextRevision?.revisionNote ?? null,
+          changedBlocks,
+        }),
+        changedBlocks,
+        decisionConfidence,
+        sourceName,
       };
     });
 

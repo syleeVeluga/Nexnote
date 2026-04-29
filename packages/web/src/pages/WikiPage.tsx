@@ -292,7 +292,7 @@ export function WikiPage() {
                 <p>
                   {t("wiki.documentsByFolderDescription", {
                     defaultValue:
-                      "Status is based on the current page state; registration source will become more precise after the page summary DTO lands.",
+                      "Status uses the live snapshot and registration source from the latest revision.",
                   })}
                 </p>
               </div>

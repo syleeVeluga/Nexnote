@@ -90,6 +90,7 @@ import {
   sqlUuidList,
 } from "../../lib/page-deletion.js";
 import { loadPredicateDisplayLabels } from "../../lib/predicate-display-labels.js";
+import { mapPageDto, pageSummarySelect } from "../../lib/page-dto.js";
 
 // ---------------------------------------------------------------------------
 // Param & query schemas
@@ -123,38 +124,6 @@ const createRevisionBodySchema = createRevisionSchema
 // ---------------------------------------------------------------------------
 // DTO mappers — never return raw DB rows
 // ---------------------------------------------------------------------------
-
-function mapPageDto(page: {
-  id: string;
-  workspaceId: string;
-  parentPageId: string | null;
-  parentFolderId?: string | null;
-  title: string;
-  slug: string;
-  status: string;
-  sortOrder: number;
-  currentRevisionId: string | null;
-  lastAiUpdatedAt?: Date | null;
-  lastHumanEditedAt?: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-}) {
-  return {
-    id: page.id,
-    workspaceId: page.workspaceId,
-    parentPageId: page.parentPageId,
-    parentFolderId: page.parentFolderId ?? null,
-    title: page.title,
-    slug: page.slug,
-    status: page.status,
-    sortOrder: page.sortOrder,
-    currentRevisionId: page.currentRevisionId,
-    lastAiUpdatedAt: page.lastAiUpdatedAt ? page.lastAiUpdatedAt.toISOString() : null,
-    lastHumanEditedAt: page.lastHumanEditedAt ? page.lastHumanEditedAt.toISOString() : null,
-    createdAt: page.createdAt.toISOString(),
-    updatedAt: page.updatedAt.toISOString(),
-  };
-}
 
 function mapRevisionDto(revision: {
   id: string;
@@ -438,7 +407,15 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         );
 
         return reply.code(201).send({
-          page: mapPageDto(result.page),
+          page: mapPageDto({
+            ...result.page,
+            latestRevisionActorType: result.revision.actorType,
+            latestRevisionSource: result.revision.source,
+            latestRevisionCreatedAt: result.revision.createdAt,
+            latestRevisionSourceIngestionId:
+              result.revision.sourceIngestionId,
+            latestRevisionSourceDecisionId: result.revision.sourceDecisionId,
+          }),
           revision: mapRevisionDto(result.revision),
         });
       } catch (err: unknown) {
@@ -498,22 +475,19 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
 
       const [data, [{ total }]] = await Promise.all([
         fastify.db
-          .select({
-            id: pages.id,
-            workspaceId: pages.workspaceId,
-            parentPageId: pages.parentPageId,
-            parentFolderId: pages.parentFolderId,
-            title: pages.title,
-            slug: pages.slug,
-            status: pages.status,
-            sortOrder: pages.sortOrder,
-            currentRevisionId: pages.currentRevisionId,
-            lastAiUpdatedAt: pages.lastAiUpdatedAt,
-            lastHumanEditedAt: pages.lastHumanEditedAt,
-            createdAt: pages.createdAt,
-            updatedAt: pages.updatedAt,
-          })
+          .select(pageSummarySelect)
           .from(pages)
+          .leftJoin(
+            pageRevisions,
+            eq(pages.currentRevisionId, pageRevisions.id),
+          )
+          .leftJoin(
+            publishedSnapshots,
+            and(
+              eq(publishedSnapshots.pageId, pages.id),
+              eq(publishedSnapshots.isLive, true),
+            ),
+          )
           .where(whereClause)
           .orderBy(pages.sortOrder, pages.createdAt)
           .limit(limit)
@@ -552,21 +526,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
 
       const rows = await fastify.db
         .select({
-          page: {
-            id: pages.id,
-            workspaceId: pages.workspaceId,
-            parentPageId: pages.parentPageId,
-            parentFolderId: pages.parentFolderId,
-            title: pages.title,
-            slug: pages.slug,
-            status: pages.status,
-            sortOrder: pages.sortOrder,
-            currentRevisionId: pages.currentRevisionId,
-            lastAiUpdatedAt: pages.lastAiUpdatedAt,
-            lastHumanEditedAt: pages.lastHumanEditedAt,
-            createdAt: pages.createdAt,
-            updatedAt: pages.updatedAt,
-          },
+          page: pageSummarySelect,
           revision: {
             id: pageRevisions.id,
             pageId: pageRevisions.pageId,
@@ -585,6 +545,13 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         .leftJoin(
           pageRevisions,
           eq(pages.currentRevisionId, pageRevisions.id),
+        )
+        .leftJoin(
+          publishedSnapshots,
+          and(
+            eq(publishedSnapshots.pageId, pages.id),
+            eq(publishedSnapshots.isLive, true),
+          ),
         )
         .where(
           and(
@@ -859,7 +826,26 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           });
         }
 
-        return reply.code(200).send({ page: mapPageDto(result) });
+        const [summaryPage] = await fastify.db
+          .select(pageSummarySelect)
+          .from(pages)
+          .leftJoin(
+            pageRevisions,
+            eq(pages.currentRevisionId, pageRevisions.id),
+          )
+          .leftJoin(
+            publishedSnapshots,
+            and(
+              eq(publishedSnapshots.pageId, pages.id),
+              eq(publishedSnapshots.isLive, true),
+            ),
+          )
+          .where(eq(pages.id, result.id))
+          .limit(1);
+
+        return reply
+          .code(200)
+          .send({ page: mapPageDto(summaryPage ?? result) });
       } catch (err: unknown) {
         if (err instanceof ReorderFailedError) {
           return reply.code(err.detail.statusCode).send(err.detail.body);
@@ -2378,6 +2364,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           p.id,
           p.workspace_id    AS "workspaceId",
           p.parent_page_id  AS "parentPageId",
+          p.parent_folder_id AS "parentFolderId",
           p.title,
           p.slug,
           p.status,
@@ -2387,12 +2374,20 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           p.last_human_edited_at AS "lastHumanEditedAt",
           p.created_at      AS "createdAt",
           p.updated_at      AS "updatedAt",
+          r.actor_type AS "latestRevisionActorType",
+          r.source AS "latestRevisionSource",
+          r.created_at AS "latestRevisionCreatedAt",
+          r.source_ingestion_id AS "latestRevisionSourceIngestionId",
+          r.source_decision_id AS "latestRevisionSourceDecisionId",
+          ps.published_at AS "publishedAt",
+          COALESCE(ps.is_live, false) AS "isLivePublished",
           ts_rank(
             to_tsvector('simple', coalesce(p.title, '') || ' ' || coalesce(r.content_md, '')),
             plainto_tsquery('simple', ${q})
           ) AS rank
         FROM pages p
         LEFT JOIN page_revisions r ON r.id = p.current_revision_id
+        LEFT JOIN published_snapshots ps ON ps.page_id = p.id AND ps.is_live = true
         WHERE
           p.workspace_id = ${workspaceId}
           AND p.status != 'archived'
@@ -2410,6 +2405,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         id: string;
         workspaceId: string;
         parentPageId: string | null;
+        parentFolderId: string | null;
         title: string;
         slug: string;
         status: string;
@@ -2419,20 +2415,14 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         lastHumanEditedAt: Date | null;
         createdAt: Date;
         updatedAt: Date;
-      }>).map((row) => ({
-        id: row.id,
-        workspaceId: row.workspaceId,
-        parentPageId: row.parentPageId,
-        title: row.title,
-        slug: row.slug,
-        status: row.status,
-        sortOrder: row.sortOrder,
-        currentRevisionId: row.currentRevisionId,
-        lastAiUpdatedAt: row.lastAiUpdatedAt ? new Date(row.lastAiUpdatedAt).toISOString() : null,
-        lastHumanEditedAt: row.lastHumanEditedAt ? new Date(row.lastHumanEditedAt).toISOString() : null,
-        createdAt: new Date(row.createdAt).toISOString(),
-        updatedAt: new Date(row.updatedAt).toISOString(),
-      }));
+        latestRevisionActorType: string | null;
+        latestRevisionSource: string | null;
+        latestRevisionCreatedAt: Date | null;
+        latestRevisionSourceIngestionId: string | null;
+        latestRevisionSourceDecisionId: string | null;
+        publishedAt: Date | null;
+        isLivePublished: boolean | null;
+      }>).map((row) => mapPageDto(row));
 
       return reply.code(200).send({ data, total: data.length, q });
     },

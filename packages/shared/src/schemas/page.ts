@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { slugSchema, uuidSchema } from "./common.js";
-import { PAGE_STATUSES } from "../constants/index.js";
+import { ACTOR_TYPES, PAGE_STATUSES } from "../constants/index.js";
 
 export const reorderIntentSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("asFirstChild") }),
@@ -86,3 +86,33 @@ export type UpdatePage = z.infer<typeof updatePageSchema>;
 export type CreateFolder = z.infer<typeof createFolderSchema>;
 export type UpdateFolder = z.infer<typeof updateFolderSchema>;
 export type GraphQuery = z.infer<typeof graphQuerySchema>;
+
+export const pageSummaryMetaSchema = z.object({
+  latestRevisionActorType: z.enum(ACTOR_TYPES).nullable(),
+  latestRevisionSource: z.string().nullable(),
+  latestRevisionCreatedAt: z.string().datetime().nullable(),
+  latestRevisionSourceIngestionId: uuidSchema.nullable(),
+  latestRevisionSourceDecisionId: uuidSchema.nullable(),
+  publishedAt: z.string().datetime().nullable(),
+  isLivePublished: z.boolean(),
+});
+export type PageSummaryMeta = z.infer<typeof pageSummaryMetaSchema>;
+
+export const pageDtoSchema = z
+  .object({
+    id: uuidSchema,
+    workspaceId: uuidSchema,
+    parentPageId: uuidSchema.nullable(),
+    parentFolderId: uuidSchema.nullable(),
+    title: z.string(),
+    slug: slugSchema,
+    status: z.enum(PAGE_STATUSES),
+    sortOrder: z.number().int(),
+    currentRevisionId: uuidSchema.nullable(),
+    lastAiUpdatedAt: z.string().datetime().nullable(),
+    lastHumanEditedAt: z.string().datetime().nullable(),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .merge(pageSummaryMetaSchema);
+export type PageDto = z.infer<typeof pageDtoSchema>;

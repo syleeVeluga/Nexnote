@@ -37,6 +37,10 @@ import {
 } from "../../lib/workspace-auth.js";
 import { sendValidationError } from "../../lib/reply-helpers.js";
 import { approveDecision, rejectDecision } from "../../lib/apply-decision.js";
+import {
+  mapDecisionListItem,
+  type DecisionListRow,
+} from "../../lib/decision-dto.js";
 
 const decisionParamsSchema = z.object({
   workspaceId: uuidSchema,
@@ -81,52 +85,6 @@ const editBodySchema = z
       data.proposedPageTitle !== undefined,
     { message: "At least one field must be provided" },
   );
-
-interface DecisionListRow extends IngestionDecision {
-  ingestionSourceName: string;
-  ingestionTitleHint: string | null;
-  ingestionReceivedAt: Date;
-  targetPageTitle: string | null;
-  targetPageSlug: string | null;
-}
-
-function mapDecisionListItem(row: DecisionListRow) {
-  const rationale = row.rationaleJson as {
-    reason?: string;
-    conflict?: {
-      type: string;
-      humanEditedAt: string;
-      humanUserId: string | null;
-    };
-  } | null;
-  return {
-    id: row.id,
-    ingestionId: row.ingestionId,
-    targetPageId: row.targetPageId,
-    proposedRevisionId: row.proposedRevisionId,
-    modelRunId: row.modelRunId,
-    action: row.action,
-    status: row.status,
-    proposedPageTitle: row.proposedPageTitle,
-    confidence: row.confidence,
-    reason: rationale?.reason ?? null,
-    hasConflict: Boolean(rationale?.conflict),
-    createdAt: row.createdAt.toISOString(),
-    ingestion: {
-      sourceName: row.ingestionSourceName,
-      titleHint: row.ingestionTitleHint,
-      receivedAt: row.ingestionReceivedAt.toISOString(),
-    },
-    targetPage:
-      row.targetPageId && row.targetPageTitle
-        ? {
-            id: row.targetPageId,
-            title: row.targetPageTitle,
-            slug: row.targetPageSlug,
-          }
-        : null,
-  };
-}
 
 const decisionRoutes: FastifyPluginAsync = async (fastify) => {
   // GET / — list decisions for the workspace (filterable by status + sinceDays)

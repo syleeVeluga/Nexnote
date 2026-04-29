@@ -20,7 +20,7 @@
   },
   "autoApplied": {
     "title": "Recently auto-applied",
-    "emptyTitle": "No automatic changes today",
+    "emptyTitle": "No automatic changes in the last 24 hours",
     "emptyBody": "High-confidence ingestions will appear here after they update a draft."
   },
   "wiki": {
