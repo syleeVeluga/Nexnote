@@ -31,30 +31,34 @@ async function enqueueProcessingJobs(
     ingestionMode: IngestionMode;
   },
 ): Promise<void> {
-  const routeJobData: RouteClassifierJobData = {
-    ingestionId: input.ingestionId,
-    workspaceId: input.workspaceId,
-  };
+  if (input.ingestionMode !== "agent") {
+    const routeJobData: RouteClassifierJobData = {
+      ingestionId: input.ingestionId,
+      workspaceId: input.workspaceId,
+    };
 
-  // AGENT-4 only records shadow plans. Keep the classic classifier active for
-  // all modes until AGENT-5 adds mutation execution that can own decisions.
-  await fastify.queues.ingestion.add(JOB_NAMES.ROUTE_CLASSIFIER, routeJobData, {
-    jobId: input.ingestionId,
-    ...DEFAULT_JOB_OPTIONS,
-  });
+    await fastify.queues.ingestion.add(
+      JOB_NAMES.ROUTE_CLASSIFIER,
+      routeJobData,
+      {
+        jobId: input.ingestionId,
+        ...DEFAULT_JOB_OPTIONS,
+      },
+    );
+  }
 
   if (!shouldRunShadowAgent(input.ingestionMode)) return;
 
   const agentJobData: IngestionAgentJobData = {
     ingestionId: input.ingestionId,
     workspaceId: input.workspaceId,
-    mode: "shadow",
+    mode: input.ingestionMode === "agent" ? "agent" : "shadow",
   };
   await fastify.queues["ingestion-agent"].add(
     JOB_NAMES.INGESTION_AGENT,
     agentJobData,
     {
-      jobId: `${input.ingestionId}:agent-shadow`,
+      jobId: `${input.ingestionId}:agent-${agentJobData.mode}`,
       ...DEFAULT_JOB_OPTIONS,
     },
   );
@@ -210,11 +214,13 @@ export async function enqueueIngestion(
           if (prior) {
             await prior.remove().catch(() => undefined);
           }
-          const priorAgent = await fastify.queues["ingestion-agent"].getJob(
-            `${existing.id}:agent-shadow`,
-          );
-          if (priorAgent) {
-            await priorAgent.remove().catch(() => undefined);
+          for (const mode of ["shadow", "agent"] as const) {
+            const priorAgent = await fastify.queues["ingestion-agent"].getJob(
+              `${existing.id}:agent-${mode}`,
+            );
+            if (priorAgent) {
+              await priorAgent.remove().catch(() => undefined);
+            }
           }
           await enqueueProcessingJobs(fastify, {
             ingestionId: existing.id,

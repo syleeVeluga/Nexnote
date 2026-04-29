@@ -10,12 +10,21 @@ import {
   type AIRequest,
   type AIResponse,
   type AIToolDefinition,
+  type AgentMutateToolName,
+  type AgentPlanMutation,
   type IngestionAgentPlan,
   type ModelRunStatus,
+  type NormalizedToolCall,
 } from "@wekiflow/shared";
 import { getAIAdapter, getDefaultProvider } from "../../ai-gateway.js";
 import { createAgentDispatcher } from "./dispatcher.js";
 import {
+  createMutateTools,
+  recordAgentMutationFailure,
+  type CreateMutateToolsInput,
+} from "./tools/mutate.js";
+import {
+  compactAgentMessages,
   packAgentExploreContext,
   packAgentPlanContext,
   readAgentRuntimeLimits,
@@ -25,20 +34,44 @@ import {
 } from "./budgeter.js";
 import type {
   AgentDb,
+  AgentRunState,
   AgentRunTraceStep,
   AgentToolDefinition,
+  AgentToolErrorPayload,
   AgentToolExecution,
 } from "./types.js";
 
-const PROMPT_VERSION = "ingestion-agent-shadow-v1";
+const PROMPT_VERSION = "ingestion-agent-v1";
 
 const EXPLORE_SYSTEM_PROMPT = `You are a read-only exploration agent for WekiFlow's Markdown knowledge wiki.
 Investigate the incoming ingestion with the available read-only tools, then stop calling tools when you have enough context to plan possible wiki updates.
 Never invent page IDs. Only refer to pages that tools returned. Do not propose or execute mutations during exploration.`;
 
-const PLAN_SYSTEM_PROMPT = `You are planning wiki maintenance mutations in shadow mode.
-Use the ingestion and read-only context to propose what the future ingestion agent should do, but do not execute anything.
-Prefer surgical update or append proposals to creating duplicate pages. Keep confidence calibrated.
+const PLAN_SYSTEM_PROMPT = `You are planning wiki maintenance mutations for WekiFlow.
+Use the ingestion and read-only context to propose exact wiki changes.
+Prefer the narrowest safe mutate tool to creating duplicate pages. Keep confidence calibrated.
+
+When you can make an exact edit, return a typed tool plan:
+{
+  "tool": "replace_in_page" | "edit_page_blocks" | "edit_page_section" | "update_page" | "append_to_page" | "create_page" | "noop" | "request_human_review",
+  "args": { ...tool arguments... },
+  "action": "create" | "update" | "append" | "noop" | "needs_review",
+  "targetPageId": "uuid or null",
+  "confidence": 0.0,
+  "reason": "why"
+}
+
+Tool argument contracts:
+- replace_in_page: { pageId, find, replace, occurrence?, confidence, reason }
+- edit_page_blocks: { pageId, ops: [{ blockId, op: "replace"|"insert_after"|"insert_before"|"delete", content? }], confidence, reason }
+- edit_page_section: { pageId, sectionAnchor, op: "replace"|"append"|"prepend"|"delete", content?, confidence, reason }
+- update_page: { pageId, newContentMd, confidence, reason }
+- append_to_page: { pageId, contentMd, sectionHint?, confidence, reason }
+- create_page: { title, contentMd, parentFolderId?, parentPageId?, confidence, reason }
+- noop: { reason, confidence? }
+- request_human_review: { reason, suggestedAction?, suggestedPageIds?, confidence? }
+
+Use update_page only when a narrower tool cannot represent the change. Never invent page IDs or block IDs.
 
 Return only JSON with this exact shape:
 {
@@ -49,10 +82,33 @@ Return only JSON with this exact shape:
       "targetPageId": "uuid or null",
       "confidence": 0.0,
       "reason": "why",
+      "tool": "optional mutate tool name",
+      "args": { "optional": "mutate tool args" },
       "proposedTitle": "required for create",
       "sectionHint": "optional",
       "contentSummary": "optional",
       "evidence": [{ "pageId": "uuid", "note": "short evidence" }]
+    }
+  ],
+  "openQuestions": []
+}`;
+
+const MUTATION_REPAIR_SYSTEM_PROMPT = `You repair one failed WekiFlow mutate tool call.
+Use the tool error and self-correction hints to return a single corrected mutation.
+Do not introduce unrelated page changes. If the error cannot be repaired safely, return request_human_review.
+
+Return only JSON with this shape:
+{
+  "summary": "short repair explanation",
+  "proposedPlan": [
+    {
+      "action": "update" | "append" | "create" | "noop" | "needs_review",
+      "targetPageId": "uuid or null",
+      "confidence": 0.0,
+      "reason": "why this repaired mutation is safe",
+      "tool": "replace_in_page" | "edit_page_blocks" | "edit_page_section" | "update_page" | "append_to_page" | "create_page" | "noop" | "request_human_review",
+      "args": { "corrected": "tool arguments" },
+      "evidence": []
     }
   ],
   "openQuestions": []
@@ -65,6 +121,9 @@ export interface AgentIngestionInput {
   titleHint: string | null;
   normalizedText: string | null;
   rawPayload: unknown;
+  targetFolderId?: string | null;
+  targetParentPageId?: string | null;
+  useReconciliation?: boolean;
 }
 
 export interface AgentModelRunRecord {
@@ -79,22 +138,35 @@ export interface RunIngestionAgentShadowInput {
   db: AgentDb;
   workspaceId: string;
   ingestion: AgentIngestionInput;
+  mode?: "shadow" | "agent";
   agentRunId?: string;
   adapter?: AIAdapter;
   baseProvider?: AIProvider;
   baseModel?: string;
   tools?: Record<string, AgentToolDefinition>;
+  mutateTools?: Record<string, AgentToolDefinition>;
+  mutationQueues?: Pick<
+    CreateMutateToolsInput,
+    "patchQueue" | "extractionQueue" | "searchQueue"
+  >;
   env?: NodeJS.ProcessEnv;
-  recordModelRun?: (record: AgentModelRunRecord) => Promise<void>;
+  recordModelRun?: (
+    record: AgentModelRunRecord,
+  ) => Promise<{ id?: string } | void>;
 }
 
 export interface IngestionAgentShadowResult {
-  status: "shadow";
+  status: "shadow" | "completed";
   planJson: IngestionAgentPlan & {
-    shadow: true;
+    shadow: boolean;
     model: AgentModelSelection;
     budget: AIBudgetMeta;
     parseFailed?: boolean;
+    execution?: {
+      mode: "agent";
+      succeeded: number;
+      failed: number;
+    };
   };
   steps: AgentRunTraceStep[];
   decisionsCount: number;
@@ -288,6 +360,225 @@ function parsePlan(content: string): {
   }
 }
 
+const ACTION_TO_TOOL: Record<
+  NonNullable<AgentPlanMutation["action"]>,
+  AgentMutateToolName
+> = {
+  create: "create_page",
+  update: "update_page",
+  append: "append_to_page",
+  noop: "noop",
+  needs_review: "request_human_review",
+};
+
+function mutationToToolCall(
+  mutation: AgentPlanMutation,
+  index: number,
+  ingestionText: string,
+): NormalizedToolCall {
+  if (mutation.tool) {
+    return {
+      id: `mutation_${index}_${mutation.tool}`,
+      name: mutation.tool,
+      arguments: {
+        ...(mutation.args ?? {}),
+        confidence:
+          (mutation.args?.["confidence"] as unknown) ?? mutation.confidence,
+        reason: (mutation.args?.["reason"] as unknown) ?? mutation.reason,
+      },
+    };
+  }
+
+  const action = mutation.action ?? "needs_review";
+  const name = ACTION_TO_TOOL[action];
+  const common = {
+    confidence: mutation.confidence,
+    reason: mutation.reason,
+  };
+
+  if (action === "create") {
+    return {
+      id: `mutation_${index}_${name}`,
+      name,
+      arguments: {
+        ...common,
+        title: mutation.proposedTitle ?? "Untitled (ingested)",
+        contentMd: ingestionText,
+      },
+    };
+  }
+
+  if (action === "update") {
+    return {
+      id: `mutation_${index}_${name}`,
+      name,
+      arguments: {
+        ...common,
+        pageId: mutation.targetPageId,
+        newContentMd: ingestionText,
+      },
+    };
+  }
+
+  if (action === "append") {
+    return {
+      id: `mutation_${index}_${name}`,
+      name,
+      arguments: {
+        ...common,
+        pageId: mutation.targetPageId,
+        contentMd: ingestionText,
+        sectionHint: mutation.sectionHint,
+      },
+    };
+  }
+
+  if (action === "noop") {
+    return {
+      id: `mutation_${index}_${name}`,
+      name,
+      arguments: common,
+    };
+  }
+
+  return {
+    id: `mutation_${index}_${name}`,
+    name,
+    arguments: {
+      reason: mutation.reason,
+      confidence: mutation.confidence,
+      suggestedAction: undefined,
+      suggestedPageIds: mutation.targetPageId ? [mutation.targetPageId] : [],
+    },
+  };
+}
+
+function resultDecisionId(result: unknown): string | null {
+  if (!result || typeof result !== "object") return null;
+  const id = (result as Record<string, unknown>)["decisionId"];
+  return typeof id === "string" ? id : null;
+}
+
+async function executeMutations(input: {
+  db: AgentDb;
+  workspaceId: string;
+  ingestion: AgentIngestionInput;
+  agentRunId: string;
+  modelRunId: string;
+  ingestionText: string;
+  plan: IngestionAgentPlan;
+  state: AgentRunState;
+  mutateTools?: Record<string, AgentToolDefinition>;
+  mutationQueues?: RunIngestionAgentShadowInput["mutationQueues"];
+  steps: AgentRunTraceStep[];
+  repairMutation?: (failure: {
+    index: number;
+    mutation: AgentPlanMutation;
+    toolCall: NormalizedToolCall;
+    error: AgentToolErrorPayload;
+  }) => Promise<AgentPlanMutation | null>;
+}): Promise<{ succeeded: number; failed: number }> {
+  const mutationInput: CreateMutateToolsInput = {
+    ingestion: input.ingestion,
+    agentRunId: input.agentRunId,
+    modelRunId: input.modelRunId,
+    ...input.mutationQueues,
+  };
+  const tools =
+    input.mutateTools ??
+    createMutateTools(mutationInput as CreateMutateToolsInput);
+  const dispatcher = createAgentDispatcher({
+    db: input.db,
+    workspaceId: input.workspaceId,
+    state: input.state,
+    tools,
+    options: { maxCallsPerTurn: 1 },
+  });
+
+  let succeeded = 0;
+  let failed = 0;
+  for (const [index, mutation] of input.plan.proposedPlan.entries()) {
+    const toolCall = mutationToToolCall(mutation, index, input.ingestionText);
+    const [execution] = await dispatcher.dispatchToolCalls([toolCall]);
+    pushStep(input.steps, "mutation_result", {
+      name: execution.name,
+      toolCallId: execution.toolCallId,
+      ok: execution.ok,
+      result: execution.ok ? compactJson(execution.result, 4_000) : undefined,
+      error: execution.ok ? undefined : execution.error,
+    });
+
+    if (execution.ok) {
+      succeeded += resultDecisionId(execution.result) ? 1 : 0;
+      continue;
+    }
+
+    let finalError = execution.error;
+    if (input.repairMutation) {
+      const repaired = await input.repairMutation({
+        index,
+        mutation,
+        toolCall,
+        error: execution.error,
+      });
+      if (repaired) {
+        const repairedToolCall = mutationToToolCall(
+          repaired,
+          index,
+          input.ingestionText,
+        );
+        const [repairedExecution] = await dispatcher.dispatchToolCalls([
+          repairedToolCall,
+        ]);
+        pushStep(input.steps, "mutation_result", {
+          name: repairedExecution.name,
+          toolCallId: repairedExecution.toolCallId,
+          ok: repairedExecution.ok,
+          repairAttempt: true,
+          result: repairedExecution.ok
+            ? compactJson(repairedExecution.result, 4_000)
+            : undefined,
+          error: repairedExecution.ok ? undefined : repairedExecution.error,
+        });
+        if (repairedExecution.ok) {
+          succeeded += resultDecisionId(repairedExecution.result) ? 1 : 0;
+          continue;
+        }
+        finalError = repairedExecution.error;
+      }
+    }
+
+    failed += 1;
+    if (!input.mutateTools) {
+      const failureDecisionId = await recordAgentMutationFailure(
+        {
+          db: input.db,
+          workspaceId: input.workspaceId,
+          state: dispatcher.state,
+        },
+        mutationInput,
+        {
+          tool: execution.name,
+          message: finalError.message,
+          details: {
+            details: finalError.details,
+            selfCorrection: finalError.selfCorrection,
+          },
+        },
+      );
+      pushStep(input.steps, "mutation_result", {
+        name: "request_human_review",
+        ok: true,
+        result: { decisionId: failureDecisionId, status: "failed" },
+        source: "mutation_failure_fallback",
+      });
+      succeeded += 1;
+    }
+  }
+
+  return { succeeded, failed };
+}
+
 function remainingMs(deadlineMs: number): number {
   return deadlineMs - Date.now();
 }
@@ -342,14 +633,15 @@ function addUsage(
 async function recordModelRun(
   input: RunIngestionAgentShadowInput,
   record: AgentModelRunRecord,
-): Promise<void> {
-  if (!input.recordModelRun) return;
-  await input.recordModelRun(record);
+): Promise<{ id?: string } | void> {
+  if (!input.recordModelRun) return undefined;
+  return input.recordModelRun(record);
 }
 
 export async function runIngestionAgentShadow(
   input: RunIngestionAgentShadowInput,
 ): Promise<IngestionAgentShadowResult> {
+  const mode = input.mode ?? "shadow";
   const limits = readAgentRuntimeLimits(input.env);
   const deadlineMs = Date.now() + limits.timeoutMs;
   const steps: AgentRunTraceStep[] = [];
@@ -390,12 +682,34 @@ export async function runIngestionAgentShadow(
     options: { maxCallsPerTurn: limits.maxCallsPerTurn },
   });
   const toolContextBlocks: AgentContextBlock[] = [];
-  const messages: AIMessage[] = [
+  let messages: AIMessage[] = [
     { role: "system", content: EXPLORE_SYSTEM_PROMPT },
     { role: "user", content: packedExplore.text },
   ];
+  const toolCallsById = new Map<string, NormalizedToolCall>();
 
   for (let i = 0; i < limits.maxSteps; i += 1) {
+    const compacted = compactAgentMessages({
+      provider: exploreModel.provider,
+      model: exploreModel.model,
+      messages,
+      env: input.env,
+    });
+    if (compacted.notices.length > 0) {
+      messages = compacted.messages;
+      for (const toolCallId of compacted.compactedToolCallIds) {
+        const toolCall = toolCallsById.get(toolCallId);
+        if (toolCall) dispatcher.invalidateCacheForToolCall(toolCall);
+      }
+      pushStep(steps, "context_compaction", {
+        phase: "explore",
+        notices: compacted.notices,
+        estimatedInputTokens: compacted.estimatedInputTokens,
+        thresholdTokens: compacted.thresholdTokens,
+        invalidatedToolCallIds: compacted.compactedToolCallIds,
+      });
+    }
+
     const request: AIRequest = {
       provider: exploreModel.provider,
       model: exploreModel.model,
@@ -462,6 +776,9 @@ export async function runIngestionAgentShadow(
     });
 
     if (!response.toolCalls?.length) break;
+    for (const toolCall of response.toolCalls) {
+      toolCallsById.set(toolCall.id, toolCall);
+    }
 
     const executions = await dispatcher.dispatchToolCalls(response.toolCalls);
     messages.push({
@@ -520,6 +837,12 @@ export async function runIngestionAgentShadow(
     blocks: toolContextBlocks,
     env: input.env,
   });
+  if (packed.compactionNotices?.length) {
+    pushStep(steps, "context_compaction", {
+      phase: "plan",
+      notices: packed.compactionNotices,
+    });
+  }
   const planAdapter =
     input.adapter ??
     (planModel.provider === exploreModel.provider
@@ -568,7 +891,7 @@ export async function runIngestionAgentShadow(
 
   addUsage(totals, planResponse);
   const parsed = parsePlan(planResponse.content);
-  await recordModelRun(input, {
+  const planModelRun = await recordModelRun(input, {
     request: planRequest,
     response: planResponse,
     status: parsed.parseFailed ? "failed" : "success",
@@ -592,22 +915,150 @@ export async function runIngestionAgentShadow(
     contentExcerpt: planResponse.content.slice(0, 4_000),
     budget: packed.budgetMeta,
   });
-  pushStep(steps, "shadow_execute_skipped", {
-    reason: "AGENT-4 shadow mode records plan_json only.",
-    proposedMutations: parsed.plan.proposedPlan.length,
+
+  if (mode === "shadow") {
+    pushStep(steps, "shadow_execute_skipped", {
+      reason: "Shadow mode records plan_json only.",
+      proposedMutations: parsed.plan.proposedPlan.length,
+    });
+
+    return {
+      status: "shadow",
+      planJson: {
+        ...parsed.plan,
+        shadow: true,
+        model: planModel,
+        budget: packed.budgetMeta,
+        ...(parsed.parseFailed ? { parseFailed: true } : {}),
+      },
+      steps,
+      decisionsCount: parsed.plan.proposedPlan.length,
+      totalTokens: totals.tokens,
+      totalLatencyMs: totals.latencyMs,
+    };
+  }
+
+  if (!input.agentRunId) {
+    throw new Error("agentRunId is required for ingestion agent execute mode");
+  }
+  if (!planModelRun?.id) {
+    throw new Error("plan modelRunId is required for ingestion agent execute mode");
+  }
+
+  const execution = await executeMutations({
+    db: input.db,
+    workspaceId: input.workspaceId,
+    ingestion: input.ingestion,
+    agentRunId: input.agentRunId,
+    modelRunId: planModelRun.id,
+    ingestionText,
+    plan: parsed.plan,
+    state: dispatcher.state,
+    mutateTools: input.mutateTools,
+    mutationQueues: input.mutationQueues,
+    steps,
+    repairMutation: async (failure) => {
+      if (!failure.error.selfCorrection) return null;
+      const repairRequest: AIRequest = {
+        provider: planModel.provider,
+        model: planModel.model,
+        mode: "agent_plan",
+        promptVersion: PROMPT_VERSION,
+        messages: [
+          { role: "system", content: MUTATION_REPAIR_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: JSON.stringify(
+              {
+                failedMutation: failure.mutation,
+                failedToolCall: failure.toolCall,
+                error: failure.error,
+                instruction:
+                  "Return exactly one corrected proposedPlan item, or request_human_review if the hint is insufficient.",
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+        temperature: 0.1,
+        maxTokens: Math.min(4_096, MODE_OUTPUT_RESERVE.agent_plan),
+        responseFormat: "json",
+        budgetMeta: packed.budgetMeta,
+      };
+
+      let repairResponse: AIResponse;
+      try {
+        repairResponse = await chatBeforeDeadline(
+          planAdapter,
+          repairRequest,
+          deadlineMs,
+          steps,
+          totals,
+        );
+      } catch (err) {
+        await recordModelRun(input, {
+          request: repairRequest,
+          status: "failed",
+          requestMetaJson: {
+            ingestionId: input.ingestion.id,
+            agentRunId: input.agentRunId,
+            phase: "mutation_repair",
+            failedTool: failure.toolCall.name,
+          },
+          responseMetaJson: {
+            error: err instanceof Error ? err.message : String(err),
+          },
+        });
+        return null;
+      }
+
+      addUsage(totals, repairResponse);
+      const repaired = parsePlan(repairResponse.content);
+      await recordModelRun(input, {
+        request: repairRequest,
+        response: repairResponse,
+        status: repaired.parseFailed ? "failed" : "success",
+        requestMetaJson: {
+          ingestionId: input.ingestion.id,
+          agentRunId: input.agentRunId,
+          phase: "mutation_repair",
+          failedTool: failure.toolCall.name,
+        },
+        responseMetaJson: {
+          finishReason: repairResponse.finishReason ?? null,
+          parseFailed: repaired.parseFailed,
+          error: repaired.error,
+        },
+      });
+      pushStep(steps, "plan", {
+        phase: "mutation_repair",
+        parseFailed: repaired.parseFailed,
+        contentExcerpt: repairResponse.content.slice(0, 2_000),
+      });
+
+      return repaired.parseFailed
+        ? null
+        : repaired.plan.proposedPlan[0] ?? null;
+    },
   });
 
   return {
-    status: "shadow",
+    status: "completed",
     planJson: {
       ...parsed.plan,
-      shadow: true,
+      shadow: false,
       model: planModel,
       budget: packed.budgetMeta,
+      execution: {
+        mode: "agent",
+        succeeded: execution.succeeded,
+        failed: execution.failed,
+      },
       ...(parsed.parseFailed ? { parseFailed: true } : {}),
     },
     steps,
-    decisionsCount: parsed.plan.proposedPlan.length,
+    decisionsCount: execution.succeeded,
     totalTokens: totals.tokens,
     totalLatencyMs: totals.latencyMs,
   };

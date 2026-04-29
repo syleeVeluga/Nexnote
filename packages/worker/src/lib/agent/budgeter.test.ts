@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  compactAgentMessages,
   packAgentExploreContext,
   packAgentPlanContext,
   selectAgentModel,
@@ -115,5 +116,82 @@ describe("agent context packing", () => {
       packed.budgetMeta.slotAllocations?.read_1.truncated,
       true,
     );
+  });
+
+  it("compacts oldest tool messages and emits a re-read notice near the threshold", () => {
+    const messages = [
+      { role: "system" as const, content: "Explore carefully." },
+      { role: "user" as const, content: "Incoming content" },
+      {
+        role: "tool" as const,
+        toolName: "read_page",
+        toolCallId: "call_read_1",
+        content: JSON.stringify({
+          ok: true,
+          result: {
+            format: "markdown",
+            page: { id: "page-1", title: "Large Page" },
+            contentMd: "page ".repeat(20_000),
+          },
+        }),
+      },
+    ];
+
+    const compacted = compactAgentMessages({
+      provider: "openai",
+      model: "gpt-5.4",
+      messages,
+      env: {
+        AGENT_INPUT_TOKEN_BUDGET: "5000",
+        AGENT_OUTPUT_TOKEN_BUDGET: "1000",
+      },
+    });
+
+    assert.deepEqual(compacted.compactedToolCallIds, ["call_read_1"]);
+    assert.equal(compacted.notices.length, 1);
+    assert.match(
+      compacted.messages.at(-1)?.content ?? "",
+      /call the relevant read tool again/i,
+    );
+    assert.match(
+      compacted.messages[2].content,
+      /COMPACTED_TOOL_RESULT/,
+    );
+  });
+
+  it("compacts oldest plan context blocks before allocation", () => {
+    const packed = packAgentPlanContext({
+      provider: "openai",
+      model: "gpt-5.4",
+      systemPrompt: "Plan carefully.",
+      ingestionText: "incoming ".repeat(500),
+      sourceName: "test",
+      contentType: "text/markdown",
+      titleHint: "Incoming",
+      blocks: [
+        {
+          key: "read_1",
+          label: "read_page#1",
+          text: JSON.stringify({
+            ok: true,
+            result: {
+              format: "markdown",
+              page: { id: "page-1", title: "Large Page" },
+              contentMd: "page ".repeat(20_000),
+            },
+          }),
+          minTokens: 200,
+          weight: 1,
+        },
+      ],
+      env: {
+        AGENT_INPUT_TOKEN_BUDGET: "5000",
+        AGENT_OUTPUT_TOKEN_BUDGET: "1000",
+      },
+    });
+
+    assert.equal(packed.compactionNotices?.length, 1);
+    assert.match(packed.text, /SYSTEM_NOTICE:context_compaction/);
+    assert.match(packed.text, /COMPACTED_TOOL_RESULT/);
   });
 });

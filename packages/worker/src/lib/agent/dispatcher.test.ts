@@ -5,7 +5,7 @@ import {
   type NormalizedToolCall,
 } from "@wekiflow/shared";
 import { createAgentDispatcher } from "./dispatcher.js";
-import type { AgentDb, AgentToolDefinition } from "./types.js";
+import { AgentToolError, type AgentDb, type AgentToolDefinition } from "./types.js";
 
 const fakeDb = {} as AgentDb;
 
@@ -32,6 +32,9 @@ describe("createAgentDispatcher", () => {
           return {
             data: { input },
             observedPageIds: ["page-1"],
+            observedPageRevisions: [
+              { pageId: "page-1", revisionId: "revision-1" },
+            ],
             observedBlockIds: ["block-1"],
           };
         },
@@ -54,6 +57,10 @@ describe("createAgentDispatcher", () => {
     assert.equal(calls, 1);
     assert.equal(result.ok, true);
     assert.equal(dispatcher.state.seenPageIds.has("page-1"), true);
+    assert.equal(
+      dispatcher.state.observedPageRevisionIds.get("page-1"),
+      "revision-1",
+    );
     assert.equal(dispatcher.state.seenBlockIds.has("block-1"), true);
   });
 
@@ -96,6 +103,67 @@ describe("createAgentDispatcher", () => {
     assert.equal(results[2].ok, false);
     if (!results[2].ok) {
       assert.equal(results[2].error.code, "quota_exceeded");
+    }
+  });
+
+  it("can invalidate cached tool results after context compaction", async () => {
+    let calls = 0;
+    const tools: Record<string, AgentToolDefinition> = {
+      search_pages: {
+        name: "search_pages",
+        description: "test",
+        schema: agentReadToolInputSchemas.search_pages,
+        async execute() {
+          calls += 1;
+          return { data: { calls } };
+        },
+      },
+    };
+    const dispatcher = createAgentDispatcher({
+      db: fakeDb,
+      workspaceId: "workspace-real",
+      tools,
+    });
+    const toolCall = call("call-1", "search_pages", { query: "alpha" });
+
+    await dispatcher.dispatchToolCalls([toolCall]);
+    await dispatcher.dispatchToolCalls([call("call-2", "search_pages", { query: "alpha" })]);
+    dispatcher.invalidateCacheForToolCall(toolCall);
+    await dispatcher.dispatchToolCalls([call("call-3", "search_pages", { query: "alpha" })]);
+
+    assert.equal(calls, 2);
+  });
+
+  it("returns self-correction hints from tool errors", async () => {
+    const tools: Record<string, AgentToolDefinition> = {
+      search_pages: {
+        name: "search_pages",
+        description: "test",
+        schema: agentReadToolInputSchemas.search_pages,
+        async execute() {
+          throw new AgentToolError(
+            "patch_mismatch",
+            "bad find",
+            { find: "x" },
+            { hint: "Use an exact unique substring.", candidates: ["a"] },
+          );
+        },
+      },
+    };
+
+    const dispatcher = createAgentDispatcher({
+      db: fakeDb,
+      workspaceId: "workspace-real",
+      tools,
+    });
+    const [result] = await dispatcher.dispatchToolCalls([
+      call("call-1", "search_pages", { query: "alpha" }),
+    ]);
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.selfCorrection?.hint, "Use an exact unique substring.");
+      assert.deepEqual(result.error.selfCorrection?.candidates, ["a"]);
     }
   });
 

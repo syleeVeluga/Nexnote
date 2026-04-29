@@ -6,6 +6,9 @@ export type AgentDb = ReturnType<typeof getDb>;
 export interface AgentRunState {
   seenPageIds: Set<string>;
   seenBlockIds: Set<string>;
+  observedPageRevisionIds: Map<string, string | null>;
+  createdPageIds: Set<string>;
+  mutatedPageIds: Set<string>;
 }
 
 export interface AgentToolContext {
@@ -17,7 +20,13 @@ export interface AgentToolContext {
 export interface AgentToolResult<T = unknown> {
   data: T;
   observedPageIds?: string[];
+  observedPageRevisions?: Array<{
+    pageId: string;
+    revisionId: string | null;
+  }>;
   observedBlockIds?: string[];
+  createdPageIds?: string[];
+  mutatedPageIds?: string[];
 }
 
 export type AgentToolSchema<Input> = {
@@ -45,10 +54,20 @@ export interface AgentToolErrorPayload {
     | "quota_exceeded"
     | "turn_limit_exceeded"
     | "not_found"
+    | "invalid_target_page"
+    | "invalid_block_id"
+    | "duplicate_mutation"
+    | "patch_mismatch"
+    | "ambiguous_match"
+    | "conflict"
     | "execution_failed";
   message: string;
   recoverable: boolean;
   details?: unknown;
+  selfCorrection?: {
+    hint: string;
+    candidates?: unknown;
+  };
 }
 
 export type AgentToolExecution =
@@ -74,6 +93,7 @@ export interface AgentDispatcherOptions {
 
 export interface AgentDispatcher {
   readonly state: AgentRunState;
+  invalidateCacheForToolCall(toolCall: NormalizedToolCall): void;
   dispatchToolCalls(
     toolCalls: NormalizedToolCall[],
   ): Promise<AgentToolExecution[]>;
@@ -84,8 +104,10 @@ export interface AgentRunTraceStep {
   type:
     | "model_selection"
     | "ai_response"
+    | "context_compaction"
     | "tool_result"
     | "plan"
+    | "mutation_result"
     | "shadow_execute_skipped"
     | "error";
   payload: Record<string, unknown>;
@@ -97,6 +119,7 @@ export class AgentToolError extends Error {
     public readonly code: AgentToolErrorPayload["code"],
     message: string,
     public readonly details?: unknown,
+    public readonly selfCorrection?: AgentToolErrorPayload["selfCorrection"],
   ) {
     super(message);
     this.name = "AgentToolError";
@@ -107,5 +130,8 @@ export function createAgentRunState(): AgentRunState {
   return {
     seenPageIds: new Set<string>(),
     seenBlockIds: new Set<string>(),
+    observedPageRevisionIds: new Map<string, string | null>(),
+    createdPageIds: new Set<string>(),
+    mutatedPageIds: new Set<string>(),
   };
 }

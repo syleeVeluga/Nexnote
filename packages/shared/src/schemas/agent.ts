@@ -11,6 +11,18 @@ export const AGENT_READ_TOOL_NAMES = [
 ] as const;
 export type AgentReadToolName = (typeof AGENT_READ_TOOL_NAMES)[number];
 
+export const AGENT_MUTATE_TOOL_NAMES = [
+  "replace_in_page",
+  "edit_page_blocks",
+  "edit_page_section",
+  "update_page",
+  "append_to_page",
+  "create_page",
+  "noop",
+  "request_human_review",
+] as const;
+export type AgentMutateToolName = (typeof AGENT_MUTATE_TOOL_NAMES)[number];
+
 export const readPageFormatSchema = z.enum(["markdown", "summary", "blocks"]);
 export type ReadPageFormat = z.infer<typeof readPageFormatSchema>;
 
@@ -56,6 +68,131 @@ export const agentReadToolInputSchemas = {
   list_recent_pages: listRecentPagesToolInputSchema,
 } as const;
 
+const confidenceSchema = z.coerce.number().min(0).max(1);
+const mutationReasonSchema = z.string().trim().min(1).max(2_000);
+
+export const replaceInPageToolInputSchema = z.object({
+  pageId: uuidSchema,
+  find: z.string().min(1).max(20_000),
+  replace: z.string().max(20_000),
+  occurrence: z.coerce.number().int().min(1).optional(),
+  confidence: confidenceSchema,
+  reason: mutationReasonSchema,
+});
+export type ReplaceInPageToolInput = z.infer<
+  typeof replaceInPageToolInputSchema
+>;
+
+export const editPageBlockOpSchema = z
+  .object({
+    blockId: z.string().trim().min(1).max(200),
+    op: z.enum(["replace", "insert_after", "insert_before", "delete"]),
+    content: z.string().max(50_000).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.op !== "delete" && !value.content?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["content"],
+        message: "content is required for replace/insert block ops",
+      });
+    }
+  });
+export type EditPageBlockOp = z.infer<typeof editPageBlockOpSchema>;
+
+export const editPageBlocksToolInputSchema = z.object({
+  pageId: uuidSchema,
+  ops: z.array(editPageBlockOpSchema).min(1).max(50),
+  confidence: confidenceSchema,
+  reason: mutationReasonSchema,
+});
+export type EditPageBlocksToolInput = z.infer<
+  typeof editPageBlocksToolInputSchema
+>;
+
+export const editPageSectionToolInputSchema = z
+  .object({
+    pageId: uuidSchema,
+    sectionAnchor: z.string().trim().min(1).max(500),
+    op: z.enum(["replace", "append", "prepend", "delete"]),
+    content: z.string().max(100_000).optional(),
+    confidence: confidenceSchema,
+    reason: mutationReasonSchema,
+  })
+  .superRefine((value, ctx) => {
+    if (value.op !== "delete" && !value.content?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["content"],
+        message: "content is required for replace/append/prepend section ops",
+      });
+    }
+  });
+export type EditPageSectionToolInput = z.infer<
+  typeof editPageSectionToolInputSchema
+>;
+
+export const updatePageToolInputSchema = z.object({
+  pageId: uuidSchema,
+  newContentMd: z.string().min(1).max(500_000),
+  confidence: confidenceSchema,
+  reason: mutationReasonSchema,
+});
+export type UpdatePageToolInput = z.infer<typeof updatePageToolInputSchema>;
+
+export const appendToPageToolInputSchema = z.object({
+  pageId: uuidSchema,
+  contentMd: z.string().min(1).max(250_000),
+  sectionHint: z.string().trim().min(1).max(500).optional(),
+  confidence: confidenceSchema,
+  reason: mutationReasonSchema,
+});
+export type AppendToPageToolInput = z.infer<
+  typeof appendToPageToolInputSchema
+>;
+
+export const createPageToolInputSchema = z
+  .object({
+    title: z.string().trim().min(1).max(500),
+    contentMd: z.string().min(1).max(500_000),
+    parentFolderId: uuidSchema.nullish(),
+    parentPageId: uuidSchema.nullish(),
+    confidence: confidenceSchema,
+    reason: mutationReasonSchema,
+  })
+  .refine((value) => !(value.parentFolderId && value.parentPageId), {
+    message: "parentFolderId and parentPageId are mutually exclusive",
+    path: ["parentPageId"],
+  });
+export type CreatePageToolInput = z.infer<typeof createPageToolInputSchema>;
+
+export const noopToolInputSchema = z.object({
+  reason: mutationReasonSchema,
+  confidence: confidenceSchema.default(1),
+});
+export type NoopToolInput = z.infer<typeof noopToolInputSchema>;
+
+export const requestHumanReviewToolInputSchema = z.object({
+  reason: mutationReasonSchema,
+  suggestedAction: z.enum(INGESTION_ACTIONS).optional(),
+  suggestedPageIds: z.array(uuidSchema).max(20).default([]),
+  confidence: confidenceSchema.default(0),
+});
+export type RequestHumanReviewToolInput = z.infer<
+  typeof requestHumanReviewToolInputSchema
+>;
+
+export const agentMutateToolInputSchemas = {
+  replace_in_page: replaceInPageToolInputSchema,
+  edit_page_blocks: editPageBlocksToolInputSchema,
+  edit_page_section: editPageSectionToolInputSchema,
+  update_page: updatePageToolInputSchema,
+  append_to_page: appendToPageToolInputSchema,
+  create_page: createPageToolInputSchema,
+  noop: noopToolInputSchema,
+  request_human_review: requestHumanReviewToolInputSchema,
+} as const;
+
 export const agentPlanEvidenceSchema = z.object({
   pageId: uuidSchema.optional(),
   note: z.string().trim().min(1).max(1_000),
@@ -64,7 +201,9 @@ export type AgentPlanEvidence = z.infer<typeof agentPlanEvidenceSchema>;
 
 export const agentPlanMutationSchema = z
   .object({
-    action: z.enum(INGESTION_ACTIONS),
+    tool: z.enum(AGENT_MUTATE_TOOL_NAMES).optional(),
+    args: z.record(z.string(), z.unknown()).optional(),
+    action: z.enum(INGESTION_ACTIONS).optional(),
     targetPageId: uuidSchema.nullable().default(null),
     confidence: z.number().min(0).max(1),
     reason: z.string().trim().min(1).max(2_000),
@@ -74,6 +213,13 @@ export const agentPlanMutationSchema = z
     evidence: z.array(agentPlanEvidenceSchema).max(20).default([]),
   })
   .superRefine((value, ctx) => {
+    if (!value.tool && !value.action) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["action"],
+        message: "action is required when tool is omitted",
+      });
+    }
     if (
       (value.action === "update" || value.action === "append") &&
       !value.targetPageId

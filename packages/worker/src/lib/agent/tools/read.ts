@@ -78,6 +78,15 @@ function createPageSummary(row: {
   };
 }
 
+function observedPageRevisions(
+  rows: Array<{ id: string; currentRevisionId: string | null }>,
+) {
+  return rows.map((row) => ({
+    pageId: row.id,
+    revisionId: row.currentRevisionId,
+  }));
+}
+
 function normalizeQueryWords(text: string, maxWords: number): string[] {
   const seen = new Set<string>();
   const words: string[] = [];
@@ -409,6 +418,7 @@ async function searchPages(
   return {
     data: result,
     observedPageIds: result.pages.map((page) => page.id),
+    observedPageRevisions: observedPageRevisions(result.pages),
   };
 }
 
@@ -465,6 +475,9 @@ async function readPage(
     return {
       data: { ...base, format: "summary", summary: summarizeMarkdown(contentMd) },
       observedPageIds: [row.id],
+      observedPageRevisions: [
+        { pageId: row.id, revisionId: row.currentRevisionId },
+      ],
     };
   }
 
@@ -473,6 +486,9 @@ async function readPage(
     return {
       data: { ...base, format: "blocks", blocks },
       observedPageIds: [row.id],
+      observedPageRevisions: [
+        { pageId: row.id, revisionId: row.currentRevisionId },
+      ],
       observedBlockIds: blocks.map((block) => block.id),
     };
   }
@@ -485,6 +501,9 @@ async function readPage(
       contentJson: row.contentJson,
     },
     observedPageIds: [row.id],
+    observedPageRevisions: [
+      { pageId: row.id, revisionId: row.currentRevisionId },
+    ],
   };
 }
 
@@ -572,6 +591,7 @@ async function listFolder(
   return {
     data: result,
     observedPageIds: result.pages.map((page) => page.id),
+    observedPageRevisions: observedPageRevisions(result.pages),
   };
 }
 
@@ -715,6 +735,7 @@ async function findRelatedEntities(
   return {
     data: result,
     observedPageIds: result.pages.map((page) => page.id),
+    observedPageRevisions: observedPageRevisions(result.pages),
   };
 }
 
@@ -761,6 +782,7 @@ async function listRecentPages(
   return {
     data: result,
     observedPageIds: result.pages.map((page) => page.id),
+    observedPageRevisions: observedPageRevisions(result.pages),
   };
 }
 
