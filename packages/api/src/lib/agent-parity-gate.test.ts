@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import {
+  applyAgentParityGateOverrides,
   evaluateAgentParityGate,
   readAgentParityGateCriteria,
   type AgentParityDailyRow,
@@ -94,5 +95,66 @@ describe("readAgentParityGateCriteria", () => {
     assert.equal(parsed.minComparableCount, 50);
     assert.equal(parsed.minActionAgreementRate, 0.95);
     assert.equal(parsed.minTargetPageAgreementRate, 1);
+  });
+});
+
+describe("applyAgentParityGateOverrides", () => {
+  const base = {
+    minObservedDays: 7,
+    minComparableCount: 20,
+    minActionAgreementRate: 0.9,
+    minTargetPageAgreementRate: 0.85,
+  };
+
+  it("returns the base when overrides are nullish", () => {
+    assert.deepEqual(applyAgentParityGateOverrides(base, null), base);
+    assert.deepEqual(applyAgentParityGateOverrides(base, undefined), base);
+  });
+
+  it("falls back per-field when individual overrides are null", () => {
+    const merged = applyAgentParityGateOverrides(base, {
+      minObservedDays: 1,
+      minComparableCount: null,
+      minActionAgreementRate: null,
+      minTargetPageAgreementRate: null,
+    });
+
+    assert.equal(merged.minObservedDays, 1);
+    assert.equal(merged.minComparableCount, 20);
+    assert.equal(merged.minActionAgreementRate, 0.9);
+    assert.equal(merged.minTargetPageAgreementRate, 0.85);
+  });
+
+  it("parses numeric strings (Drizzle pg numeric returns string)", () => {
+    const merged = applyAgentParityGateOverrides(base, {
+      minActionAgreementRate: "0.500",
+      minTargetPageAgreementRate: "0.000",
+    });
+
+    assert.equal(merged.minActionAgreementRate, 0.5);
+    assert.equal(merged.minTargetPageAgreementRate, 0);
+  });
+
+  it("clamps rate overrides into [0, 1]", () => {
+    const merged = applyAgentParityGateOverrides(base, {
+      minActionAgreementRate: 2,
+      minTargetPageAgreementRate: -0.3,
+    });
+
+    assert.equal(merged.minActionAgreementRate, 1);
+    assert.equal(merged.minTargetPageAgreementRate, 0);
+  });
+
+  it("ignores non-finite values", () => {
+    const merged = applyAgentParityGateOverrides(base, {
+      minObservedDays: Number.NaN,
+      minActionAgreementRate: "not-a-number",
+    });
+
+    assert.equal(merged.minObservedDays, base.minObservedDays);
+    assert.equal(
+      merged.minActionAgreementRate,
+      base.minActionAgreementRate,
+    );
   });
 });

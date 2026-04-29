@@ -179,6 +179,10 @@ export interface Workspace {
   agentModelLargeContext: AgentModelPreset | null;
   agentFastThresholdTokens: number | null;
   agentDailyTokenCap: number | null;
+  agentParityMinObservedDays: number | null;
+  agentParityMinComparableCount: number | null;
+  agentParityMinActionAgreementRate: number | null;
+  agentParityMinTargetPageAgreementRate: number | null;
   useReconciliationDefault: boolean;
   ingestionMode: IngestionMode;
   role?: WorkspaceRole;
@@ -220,6 +224,10 @@ export const workspaces = {
       agentModelLargeContext?: AgentModelPreset | null;
       agentFastThresholdTokens?: number | null;
       agentDailyTokenCap?: number | null;
+      agentParityMinObservedDays?: number | null;
+      agentParityMinComparableCount?: number | null;
+      agentParityMinActionAgreementRate?: number | null;
+      agentParityMinTargetPageAgreementRate?: number | null;
       useReconciliationDefault?: boolean;
     },
   ) {

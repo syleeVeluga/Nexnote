@@ -104,6 +104,14 @@ _Phase C · Size M · Blocked by: AGENT-2 (`agent_run_id` FK); usefulness blocke
   - ReviewQueuePage sibling 배지 "(N of M from ingestion {sourceName})" — visible queue rows are grouped client-side by `ingestion.id`.
   - Activity feed `agent_run_completed` 행 — ingestion-agent worker writes one `audit_logs` row per completed/shadow run and `deriveActivitySummary` renders proposed/auto-applied/queued counts.
 
+### AGENT-PARITY-UI · [DONE · 2026-04-30] Workspace-scoped parity gate threshold UI
+
+_Out-of-band hardening · Size S · No sub-doc_
+
+env-only `AGENT_PARITY_GATE_MIN_*` 변수를 워크스페이스별 nullable 컬럼으로 노출 + AI Settings 페이지에 collapsible "승격 기준 (실험용)" 패널 추가. NULL 시 env 값 fallback (backwards-compat). 한국어 라벨 + "실험·테스트 워크스페이스에서만 사용" 경고 + "기본값으로 되돌리기" 버튼. RFC: [`docs/agent-parity-gate-ui-plan.md`](agent-parity-gate-ui-plan.md).
+
+- Done: migration `0018_agent_parity_gate_overrides.sql` adds 4 nullable columns + range CHECK constraints; `applyAgentParityGateOverrides` + `readAgentParityGateCriteriaForWorkspace` enable per-field workspace → env fallback (`PATCH /workspaces/:id` gate check + `/agent-runs/diagnostics` both use it); `updateWorkspaceSchema` + `Workspace` DTO + api-client expose the 4 fields end-to-end; AISettingsPage renders the collapsible Korean-language panel with effective-value microcopy and reset action; unit tests cover NULL fallback / numeric-string parsing / [0,1] clamp.
+
 ### AGENT-8 · [IN PROGRESS · 2026-04-30] Cutover & retire classic
 
 _Phase D · Size S · Blocked by: 2 weeks of clean `agent`-mode operation · No sub-doc_

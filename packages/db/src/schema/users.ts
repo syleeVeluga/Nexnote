@@ -7,6 +7,7 @@ import {
   primaryKey,
   boolean,
   integer,
+  numeric,
   check,
 } from "drizzle-orm/pg-core";
 
@@ -34,6 +35,16 @@ export const workspaces = pgTable(
     agentModelLargeContext: text("agent_model_large_context"),
     agentFastThresholdTokens: integer("agent_fast_threshold_tokens"),
     agentDailyTokenCap: integer("agent_daily_token_cap"),
+    agentParityMinObservedDays: integer("agent_parity_min_observed_days"),
+    agentParityMinComparableCount: integer("agent_parity_min_comparable_count"),
+    agentParityMinActionAgreementRate: numeric(
+      "agent_parity_min_action_agreement_rate",
+      { precision: 4, scale: 3 },
+    ),
+    agentParityMinTargetPageAgreementRate: numeric(
+      "agent_parity_min_target_page_agreement_rate",
+      { precision: 4, scale: 3 },
+    ),
     useReconciliationDefault: boolean("use_reconciliation_default")
       .notNull()
       .default(true),
@@ -61,6 +72,22 @@ export const workspaces = pgTable(
     check(
       "workspaces_agent_daily_token_cap_chk",
       sql`${t.agentDailyTokenCap} IS NULL OR ${t.agentDailyTokenCap} > 0`,
+    ),
+    check(
+      "workspaces_agent_parity_min_observed_days_chk",
+      sql`${t.agentParityMinObservedDays} IS NULL OR (${t.agentParityMinObservedDays} BETWEEN 1 AND 30)`,
+    ),
+    check(
+      "workspaces_agent_parity_min_comparable_count_chk",
+      sql`${t.agentParityMinComparableCount} IS NULL OR (${t.agentParityMinComparableCount} BETWEEN 1 AND 1000)`,
+    ),
+    check(
+      "workspaces_agent_parity_min_action_agreement_rate_chk",
+      sql`${t.agentParityMinActionAgreementRate} IS NULL OR (${t.agentParityMinActionAgreementRate} BETWEEN 0 AND 1)`,
+    ),
+    check(
+      "workspaces_agent_parity_min_target_page_agreement_rate_chk",
+      sql`${t.agentParityMinTargetPageAgreementRate} IS NULL OR (${t.agentParityMinTargetPageAgreementRate} BETWEEN 0 AND 1)`,
     ),
   ],
 );
