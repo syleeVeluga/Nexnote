@@ -21,6 +21,28 @@ export const INGESTION_STATUSES = [
 ] as const;
 export type IngestionStatus = (typeof INGESTION_STATUSES)[number];
 
+export const INGESTION_MODES = ["classic", "shadow", "agent"] as const;
+export type IngestionMode = (typeof INGESTION_MODES)[number];
+
+export const AGENT_RUN_STATUSES = [
+  "running",
+  "completed",
+  "failed",
+  "timeout",
+  "shadow",
+] as const;
+export type AgentRunStatus = (typeof AGENT_RUN_STATUSES)[number];
+
+export const AGENT_LIMITS = {
+  MAX_STEPS: 15,
+  MAX_CALLS_PER_TURN: 5,
+  MAX_MUTATIONS: 20,
+  TIMEOUT_MS: 60_000,
+  INPUT_TOKEN_BUDGET: 800_000,
+  OUTPUT_TOKEN_BUDGET: 60_000,
+  WORKSPACE_DAILY_TOKEN_CAP: 5_000_000,
+} as const;
+
 export const IMPORT_SOURCE_NAMES = {
   MANUAL_UPLOAD: "manual-upload",
   WEB_URL: "web-url",

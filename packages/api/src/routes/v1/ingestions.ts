@@ -522,6 +522,7 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
           targetPageId: ingestionDecisions.targetPageId,
           proposedRevisionId: ingestionDecisions.proposedRevisionId,
           modelRunId: ingestionDecisions.modelRunId,
+          agentRunId: ingestionDecisions.agentRunId,
           action: ingestionDecisions.action,
           status: ingestionDecisions.status,
           proposedPageTitle: ingestionDecisions.proposedPageTitle,

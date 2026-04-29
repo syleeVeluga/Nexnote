@@ -21,6 +21,7 @@ import {
   type EntityAliasDto,
   type IngestionAction,
   type IngestionStatus,
+  type IngestionMode,
   type DecisionStatus,
   type ApiTokenScope,
 } from "@wekiflow/shared";
@@ -168,6 +169,7 @@ export interface Workspace {
   slug: string;
   defaultAiPolicy: string | null;
   useReconciliationDefault: boolean;
+  ingestionMode: IngestionMode;
   role?: WorkspaceRole;
   createdAt: string;
   updatedAt: string;
@@ -198,7 +200,10 @@ export const workspaces = {
   },
   update(
     id: string,
-    data: { name?: string; useReconciliationDefault?: boolean },
+    data: {
+      name?: string;
+      useReconciliationDefault?: boolean;
+    },
   ) {
     return request<Workspace>(`/workspaces/${id}`, {
       method: "PATCH",

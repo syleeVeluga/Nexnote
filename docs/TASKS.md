@@ -38,15 +38,19 @@ Extend [ai-gateway.ts](../packages/worker/src/ai-gateway.ts) `AIRequest`/`AIResp
 
 - Done: shared gateway types now expose optional `tools`, `toolChoice`, tool-result messages, prior assistant tool calls, and response `toolCalls`; OpenAI/Gemini adapters translate provider-native tool formats to deterministic normalized calls; `ai-gateway.test.ts` covers cross-provider conformance.
 
-### AGENT-2 · [HIGH] Schema migration `0015_agent_runs`
+### AGENT-2 · [DONE · 2026-04-29] Schema migration `0015_agent_runs`
 *Phase A · Size S · Blocked by: nothing (parallel with AGENT-1) · No sub-doc*
 
 New `agent_runs` table (`{ ingestion_id, workspace_id, status, plan_json, steps_json, decisions_count, total_tokens, started_at, completed_at }`) + nullable `agent_run_id` FKs on `model_runs` and `ingestion_decisions` + new `workspaces.ingestion_mode TEXT NOT NULL DEFAULT 'classic'`. Backwards-compatible — existing classic rows have NULL FKs.
 
-### AGENT-3 · [HIGH] Read-only tool layer + dispatcher
+- Done: migration `0015_agent_runs.sql` adds `agent_runs`, FK/index wiring, and the `workspaces.ingestion_mode` guard; Drizzle schema and shared constants now expose `agentRuns`, `agentRunId`, `IngestionMode`, `AgentRunStatus`, and agent default limits.
+
+### AGENT-3 · [DONE · 2026-04-29] Read-only tool layer + dispatcher
 *Phase A · Size M · Blocked by: AGENT-1 + AGENT-2 · Sub-doc on entry: `docs/ingestion-agent-step-3-tools-dispatcher.md`*
 
 Five tools (`search_pages`, `read_page`, `list_folder`, `find_related_entities`, `list_recent_pages`) as pure SQL. Dispatcher closes over `workspaceId` (LLM-supplied workspaceId arg is ignored — cross-workspace leak defence), enforces per-tool quotas (search ≤8, read ≤20), dedupes identical args, validates Zod, tracks `seenUUIDs`/`seenBlockIds`.
+
+- Done: shared tool input schemas landed in `packages/shared/src/schemas/agent.ts`; worker read tools live under `packages/worker/src/lib/agent/tools/read.ts`; `createAgentDispatcher()` validates, strips LLM-supplied workspace IDs, dedupes parsed args, enforces quotas/turn limits, and records seen page/block IDs. Tests cover dispatcher safety and markdown block IDs.
 
 ### AGENT-4 · [HIGH] Agent loop in shadow mode
 *Phase B · Size L · Blocked by: AGENT-1 + AGENT-2 + AGENT-3 · Followed by: 1-week parity gate · Sub-doc on entry: `docs/ingestion-agent-step-4-loop-shadow.md`*
