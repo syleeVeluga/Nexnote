@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { z } from "zod";
-import { agentRuns, modelRuns } from "@wekiflow/db";
+import { agentRuns, modelRuns, workspaces } from "@wekiflow/db";
 import {
   AGENT_LIMITS,
   agentTraceChannel,
@@ -320,11 +320,28 @@ const agentRunRoutes: FastifyPluginAsync = async (fastify) => {
           ),
         );
 
+      const [workspaceSettings] = await fastify.db
+        .select({
+          agentProvider: workspaces.agentProvider,
+          agentModelFast: workspaces.agentModelFast,
+          agentModelLargeContext: workspaces.agentModelLargeContext,
+          agentFastThresholdTokens: workspaces.agentFastThresholdTokens,
+          agentDailyTokenCap: workspaces.agentDailyTokenCap,
+        })
+        .from(workspaces)
+        .where(eq(workspaces.id, workspaceId))
+        .limit(1);
+
       const a = aggregateRows[0] ?? {};
       const dailyCap = parsePositiveInt(
         process.env["AGENT_WORKSPACE_DAILY_TOKEN_CAP"],
         AGENT_LIMITS.WORKSPACE_DAILY_TOKEN_CAP,
       );
+      const effectiveDailyCap =
+        workspaceSettings?.agentDailyTokenCap ?? dailyCap;
+      const effectiveFastThreshold =
+        workspaceSettings?.agentFastThresholdTokens ??
+        parsePositiveInt(process.env["AGENT_FAST_THRESHOLD_TOKENS"], 50_000);
       const gateCriteria = readAgentParityGateCriteria();
       const dailyAgreement = await listAgentParityDailyRows(
         fastify.db,
@@ -363,8 +380,36 @@ const agentRunRoutes: FastifyPluginAsync = async (fastify) => {
         },
         dailyTokenUsage: {
           used: Number(tokenRow?.used ?? 0),
-          cap: dailyCap,
-          remaining: Math.max(0, dailyCap - Number(tokenRow?.used ?? 0)),
+          cap: effectiveDailyCap,
+          remaining: Math.max(
+            0,
+            effectiveDailyCap - Number(tokenRow?.used ?? 0),
+          ),
+        },
+        agentSettings: {
+          provider: workspaceSettings?.agentProvider ?? null,
+          modelFast: workspaceSettings?.agentModelFast ?? null,
+          modelLargeContext:
+            workspaceSettings?.agentModelLargeContext ?? null,
+          fastThresholdTokens:
+            workspaceSettings?.agentFastThresholdTokens ?? null,
+          dailyTokenCap: workspaceSettings?.agentDailyTokenCap ?? null,
+          effective: {
+            provider:
+              workspaceSettings?.agentProvider ??
+              process.env["AGENT_PROVIDER"] ??
+              null,
+            modelFast:
+              workspaceSettings?.agentModelFast ??
+              process.env["AGENT_MODEL_FAST"] ??
+              null,
+            modelLargeContext:
+              workspaceSettings?.agentModelLargeContext ??
+              process.env["AGENT_MODEL_LARGE_CONTEXT"] ??
+              null,
+            fastThresholdTokens: effectiveFastThreshold,
+            dailyTokenCap: effectiveDailyCap,
+          },
         },
         dailyAgreement,
         gate,

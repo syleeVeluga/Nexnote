@@ -25,6 +25,8 @@ import {
   type IngestionAction,
   type IngestionStatus,
   type IngestionMode,
+  type AIProvider,
+  type AgentModelPreset,
   type DecisionStatus,
   type ApiTokenScope,
 } from "@wekiflow/shared";
@@ -172,6 +174,11 @@ export interface Workspace {
   slug: string;
   defaultAiPolicy: string | null;
   agentInstructions: string | null;
+  agentProvider: AIProvider | null;
+  agentModelFast: AgentModelPreset | null;
+  agentModelLargeContext: AgentModelPreset | null;
+  agentFastThresholdTokens: number | null;
+  agentDailyTokenCap: number | null;
   useReconciliationDefault: boolean;
   ingestionMode: IngestionMode;
   role?: WorkspaceRole;
@@ -208,6 +215,11 @@ export const workspaces = {
       name?: string;
       ingestionMode?: IngestionMode;
       agentInstructions?: string | null;
+      agentProvider?: AIProvider | null;
+      agentModelFast?: AgentModelPreset | null;
+      agentModelLargeContext?: AgentModelPreset | null;
+      agentFastThresholdTokens?: number | null;
+      agentDailyTokenCap?: number | null;
       useReconciliationDefault?: boolean;
     },
   ) {
@@ -1106,6 +1118,20 @@ export interface AgentDiagnostics {
     used: number;
     cap: number;
     remaining: number;
+  };
+  agentSettings: {
+    provider: AIProvider | null;
+    modelFast: AgentModelPreset | null;
+    modelLargeContext: AgentModelPreset | null;
+    fastThresholdTokens: number | null;
+    dailyTokenCap: number | null;
+    effective: {
+      provider: AIProvider | null;
+      modelFast: string | null;
+      modelLargeContext: string | null;
+      fastThresholdTokens: number;
+      dailyTokenCap: number;
+    };
   };
   recentMismatches: Array<{
     agentRunId: string;

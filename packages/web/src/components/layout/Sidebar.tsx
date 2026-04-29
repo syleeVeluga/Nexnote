@@ -1053,7 +1053,7 @@ export function Sidebar({
               label={t("systemStatus", { defaultValue: t("queueHealth") })}
             />
             <SidebarNavLink
-              to="/system/ai"
+              to="/settings/ai"
               icon={<Bot size={15} />}
               label={t("aiSettings", { defaultValue: "AI Settings" })}
             />

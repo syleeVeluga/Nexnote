@@ -93,8 +93,12 @@ export function App() {
           element={<IngestionDetailPage />}
         />
         <Route path="import" element={<ImportPage />} />
+        <Route path="settings/ai" element={<AISettingsPage />} />
         <Route path="system" element={<SystemStatusPage />} />
-        <Route path="system/ai" element={<AISettingsPage />} />
+        <Route
+          path="system/ai"
+          element={<Navigate to="/settings/ai" replace />}
+        />
         <Route path="system/tokens" element={<ApiTokensPage />} />
         <Route path="admin/queues" element={<QueueHealthPage />} />
         <Route path="trash" element={<TrashPage />} />

@@ -6,6 +6,7 @@ import {
   uuid,
   primaryKey,
   boolean,
+  integer,
   check,
 } from "drizzle-orm/pg-core";
 
@@ -28,6 +29,11 @@ export const workspaces = pgTable(
     slug: text("slug").notNull().unique(),
     defaultAiPolicy: text("default_ai_policy"),
     agentInstructions: text("agent_instructions"),
+    agentProvider: text("agent_provider"),
+    agentModelFast: text("agent_model_fast"),
+    agentModelLargeContext: text("agent_model_large_context"),
+    agentFastThresholdTokens: integer("agent_fast_threshold_tokens"),
+    agentDailyTokenCap: integer("agent_daily_token_cap"),
     useReconciliationDefault: boolean("use_reconciliation_default")
       .notNull()
       .default(true),
@@ -43,6 +49,18 @@ export const workspaces = pgTable(
     check(
       "workspaces_ingestion_mode_chk",
       sql`${t.ingestionMode} IN ('classic','shadow','agent')`,
+    ),
+    check(
+      "workspaces_agent_provider_chk",
+      sql`${t.agentProvider} IS NULL OR ${t.agentProvider} IN ('openai','gemini')`,
+    ),
+    check(
+      "workspaces_agent_fast_threshold_tokens_chk",
+      sql`${t.agentFastThresholdTokens} IS NULL OR ${t.agentFastThresholdTokens} > 0`,
+    ),
+    check(
+      "workspaces_agent_daily_token_cap_chk",
+      sql`${t.agentDailyTokenCap} IS NULL OR ${t.agentDailyTokenCap} > 0`,
     ),
   ],
 );

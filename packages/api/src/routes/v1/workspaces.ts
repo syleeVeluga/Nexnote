@@ -13,6 +13,7 @@ import {
   uuidSchema,
   WORKSPACE_ROLES,
   ERROR_CODES,
+  getAgentModelProvider,
 } from "@wekiflow/shared";
 import {
   sendValidationError,
@@ -65,11 +66,74 @@ function toWorkspaceDto(row: typeof workspaces.$inferSelect) {
     slug: row.slug,
     defaultAiPolicy: row.defaultAiPolicy,
     agentInstructions: row.agentInstructions,
+    agentProvider: row.agentProvider,
+    agentModelFast: row.agentModelFast,
+    agentModelLargeContext: row.agentModelLargeContext,
+    agentFastThresholdTokens: row.agentFastThresholdTokens,
+    agentDailyTokenCap: row.agentDailyTokenCap,
     useReconciliationDefault: row.useReconciliationDefault,
     ingestionMode: row.ingestionMode,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+function valueAfterPatch<T>(
+  patch: object,
+  current: object,
+  key: string,
+): T {
+  const patchRecord = patch as Record<string, unknown>;
+  const currentRecord = current as Record<string, unknown>;
+  return Object.prototype.hasOwnProperty.call(patch, key)
+    ? (patchRecord[key] as T)
+    : (currentRecord[key] as T);
+}
+
+function validateAgentSettingsPatch(
+  fastify: FastifyInstance,
+  currentWorkspace: typeof workspaces.$inferSelect,
+  patch: Partial<typeof workspaces.$inferInsert>,
+) {
+  const merged = {
+    agentProvider: valueAfterPatch<string | null>(
+      patch,
+      currentWorkspace,
+      "agentProvider",
+    ),
+    agentModelFast: valueAfterPatch<string | null>(
+      patch,
+      currentWorkspace,
+      "agentModelFast",
+    ),
+    agentModelLargeContext: valueAfterPatch<string | null>(
+      patch,
+      currentWorkspace,
+      "agentModelLargeContext",
+    ),
+  };
+
+  if (
+    !merged.agentProvider &&
+    (merged.agentModelFast || merged.agentModelLargeContext)
+  ) {
+    throw fastify.httpErrors.badRequest(
+      "agentProvider is required when agent model overrides are set",
+    );
+  }
+
+  for (const [key, model] of [
+    ["agentModelFast", merged.agentModelFast],
+    ["agentModelLargeContext", merged.agentModelLargeContext],
+  ] as const) {
+    if (!model) continue;
+    const provider = getAgentModelProvider(model);
+    if (provider !== merged.agentProvider) {
+      throw fastify.httpErrors.badRequest(
+        `${key} must belong to the configured agentProvider`,
+      );
+    }
+  }
 }
 
 function toMemberDto(
@@ -177,6 +241,11 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
             slug: workspaces.slug,
             defaultAiPolicy: workspaces.defaultAiPolicy,
             agentInstructions: workspaces.agentInstructions,
+            agentProvider: workspaces.agentProvider,
+            agentModelFast: workspaces.agentModelFast,
+            agentModelLargeContext: workspaces.agentModelLargeContext,
+            agentFastThresholdTokens: workspaces.agentFastThresholdTokens,
+            agentDailyTokenCap: workspaces.agentDailyTokenCap,
             useReconciliationDefault: workspaces.useReconciliationDefault,
             ingestionMode: workspaces.ingestionMode,
             createdAt: workspaces.createdAt,
@@ -288,6 +357,8 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
           });
         }
       }
+
+      validateAgentSettingsPatch(fastify, currentWorkspace, workspacePatch);
 
       try {
         const updated = await fastify.db.transaction(async (tx) => {

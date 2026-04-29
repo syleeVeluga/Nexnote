@@ -5,6 +5,7 @@ import {
   allocateBudgets,
   estimateTokens,
   getModelContextBudget,
+  getAgentModelProvider,
   sliceWithinTokenBudget,
   type AIBudgetMeta,
   type AIMessage,
@@ -117,6 +118,16 @@ function defaultModelForProvider(
   return env["OPENAI_MODEL"] ?? AI_MODELS.OPENAI_DEFAULT;
 }
 
+function agentModelOverrideForProvider(
+  model: string | undefined,
+  provider: AIProvider,
+): string | undefined {
+  if (!model) return undefined;
+  const modelProvider = getAgentModelProvider(model);
+  if (modelProvider && modelProvider !== provider) return undefined;
+  return model;
+}
+
 export function selectAgentModel(
   input: {
     estimatedInputTokens?: number;
@@ -139,14 +150,19 @@ export function selectAgentModel(
     "AGENT_FAST_THRESHOLD_TOKENS",
     50_000,
   );
+  const fastModel = agentModelOverrideForProvider(
+    env["AGENT_MODEL_FAST"],
+    provider,
+  );
+  const largeContextModel = agentModelOverrideForProvider(
+    env["AGENT_MODEL_LARGE_CONTEXT"],
+    provider,
+  );
 
-  if (
-    estimatedInputTokens < fastThresholdTokens &&
-    env["AGENT_MODEL_FAST"]
-  ) {
+  if (estimatedInputTokens < fastThresholdTokens && fastModel) {
     return {
       provider,
-      model: env["AGENT_MODEL_FAST"],
+      model: fastModel,
       routing: "fast",
       estimatedInputTokens,
       fastThresholdTokens,
@@ -154,13 +170,10 @@ export function selectAgentModel(
     };
   }
 
-  if (
-    estimatedInputTokens >= fastThresholdTokens &&
-    env["AGENT_MODEL_LARGE_CONTEXT"]
-  ) {
+  if (estimatedInputTokens >= fastThresholdTokens && largeContextModel) {
     return {
       provider,
-      model: env["AGENT_MODEL_LARGE_CONTEXT"],
+      model: largeContextModel,
       routing: "large_context",
       estimatedInputTokens,
       fastThresholdTokens,

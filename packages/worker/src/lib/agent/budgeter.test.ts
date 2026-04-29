@@ -58,6 +58,24 @@ describe("selectAgentModel", () => {
     assert.equal(selected.model, "gemini-3.1-pro");
     assert.equal(selected.routing, "default");
   });
+
+  it("ignores inherited model overrides from a different provider", () => {
+    const selected = selectAgentModel({
+      estimatedInputTokens: 10_000,
+      baseProvider: "openai",
+      baseModel: "gpt-5.4",
+      env: {
+        AGENT_PROVIDER: "gemini",
+        AGENT_MODEL_FAST: "gpt-5.4-mini",
+        GEMINI_MODEL: "gemini-3.1-pro",
+        AGENT_FAST_THRESHOLD_TOKENS: "50000",
+      },
+    });
+
+    assert.equal(selected.provider, "gemini");
+    assert.equal(selected.model, "gemini-3.1-pro");
+    assert.equal(selected.routing, "default");
+  });
 });
 
 describe("agent context packing", () => {
