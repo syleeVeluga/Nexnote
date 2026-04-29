@@ -1018,17 +1018,21 @@ export function Sidebar({
             <IconButton
               className="sidebar-action-button"
               icon={<FilePlus2 size={14} />}
-              label={t("newPage")}
+              label={t("newPageFromSidebar")}
               showLabel
               onClick={onNewPage}
-            />
+            >
+              {t("newPage")}
+            </IconButton>
             <IconButton
               className="sidebar-action-button"
               icon={<FolderPlus size={14} />}
-              label={t("newFolder")}
+              label={t("newFolderFromSidebar")}
               showLabel
               onClick={() => void createFolder(null)}
-            />
+            >
+              {t("newFolder")}
+            </IconButton>
           </div>
         )}
       </div>
@@ -1076,13 +1080,13 @@ export function Sidebar({
           <IconButton
             size="sm"
             icon={<FolderPlus size={13} />}
-            label={t("newFolder")}
+            label={t("addWikiFolder")}
             onClick={() => void createFolder(null)}
           />
           <IconButton
             size="sm"
             icon={<Plus size={13} />}
-            label={t("newPage")}
+            label={t("addWikiPage")}
             onClick={onNewPage}
           />
         </div>
