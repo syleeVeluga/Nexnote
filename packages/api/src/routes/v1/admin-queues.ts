@@ -1,12 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
-import type { Job, Queue } from "bullmq";
 import { z } from "zod";
-import {
-  uuidSchema,
-  ERROR_CODES,
-  QUEUE_KEYS,
-  type QueueKey,
-} from "@wekiflow/shared";
+import { uuidSchema, ERROR_CODES, QUEUE_KEYS } from "@wekiflow/shared";
 import {
   getMemberRole,
   forbidden,
@@ -15,6 +9,13 @@ import {
   workspaceParamsSchema,
 } from "../../lib/workspace-auth.js";
 import { sendValidationError } from "../../lib/reply-helpers.js";
+import {
+  collectQueueSummary,
+  isRuntimeStalled,
+  jobDataWorkspaceId,
+  queueFromFastify,
+  serializeJob,
+} from "../../lib/queue-summary.js";
 
 const queueNameParamSchema = z.object({
   workspaceId: uuidSchema,
@@ -26,109 +27,6 @@ const jobParamSchema = z.object({
   queueName: z.enum(QUEUE_KEYS),
   jobId: z.string().min(1).max(200),
 });
-
-function queueFromFastify(
-  fastify: { queues: Partial<Record<QueueKey, Queue>> },
-  key: QueueKey,
-): Queue | undefined {
-  return fastify.queues[key];
-}
-
-function jobDataWorkspaceId(job: Job): string | null {
-  const data = job.data as { workspaceId?: unknown } | null;
-  return data && typeof data.workspaceId === "string" ? data.workspaceId : null;
-}
-
-function serializeJob(job: Job, viewerWorkspaceId: string) {
-  const data = job.data as Record<string, unknown> | null;
-  const read = (key: string): string | null =>
-    data && typeof data[key] === "string" ? (data[key] as string) : null;
-
-  const jobWorkspaceId = read("workspaceId");
-
-  return {
-    id: job.id ?? null,
-    name: job.name,
-    attemptsMade: job.attemptsMade ?? 0,
-    maxAttempts: job.opts?.attempts ?? null,
-    failedReason: job.failedReason ?? null,
-    stackFirstLine: job.stacktrace?.[0]?.split("\n")[0] ?? null,
-    timestamp: job.timestamp ? new Date(job.timestamp).toISOString() : null,
-    processedOn: job.processedOn
-      ? new Date(job.processedOn).toISOString()
-      : null,
-    finishedOn: job.finishedOn
-      ? new Date(job.finishedOn).toISOString()
-      : null,
-    workspaceId: jobWorkspaceId,
-    ingestionId: read("ingestionId"),
-    pageId: read("pageId"),
-    isCrossWorkspace:
-      jobWorkspaceId !== null && jobWorkspaceId !== viewerWorkspaceId,
-  };
-}
-
-// BullMQ's native "stalled" state only fires when a worker crashes mid-job.
-// For operator visibility we surface any job that's been active longer than
-// this threshold as suspect, independent of BullMQ's own stall detection.
-const STALLED_AGE_MS = 2 * 60 * 1000;
-
-function isStalled(job: Job, now: number): boolean {
-  const started = job.processedOn ?? job.timestamp;
-  return !!started && now - started > STALLED_AGE_MS;
-}
-
-// Hard cap on how many active jobs we sample when computing stalled count.
-// If a queue has more active jobs than this, the count is flagged as capped
-// (`stalledCountCapped: true`) so the UI can show it as an approximation.
-const STALLED_SAMPLE_CAP = 500;
-
-async function collectQueueSummary(queue: Queue) {
-  const [counts, isPaused] = await Promise.all([
-    queue.getJobCounts(
-      "waiting",
-      "active",
-      "completed",
-      "failed",
-      "delayed",
-      "paused",
-    ),
-    queue.isPaused(),
-  ]);
-
-  let stalledCount = 0;
-  let stalledCountCapped = false;
-  const activeCount = counts.active ?? 0;
-  if (activeCount > 0) {
-    const now = Date.now();
-    const pageSize = 100;
-    const cap = Math.min(activeCount, STALLED_SAMPLE_CAP);
-    stalledCountCapped = activeCount > STALLED_SAMPLE_CAP;
-
-    for (let start = 0; start < cap; start += pageSize) {
-      const end = Math.min(start + pageSize - 1, cap - 1);
-      const activeJobs = await queue.getJobs(["active"], start, end);
-      if (activeJobs.length === 0) break;
-      stalledCount += activeJobs.filter((j) => isStalled(j, now)).length;
-      if (activeJobs.length < end - start + 1) break;
-    }
-  }
-
-  return {
-    name: queue.name,
-    counts: {
-      waiting: counts.waiting ?? 0,
-      active: activeCount,
-      completed: counts.completed ?? 0,
-      failed: counts.failed ?? 0,
-      delayed: counts.delayed ?? 0,
-      paused: counts.paused ?? 0,
-      stalled: stalledCount,
-    },
-    stalledCountCapped,
-    isPaused,
-  };
-}
 
 const adminQueueRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
@@ -220,7 +118,7 @@ const adminQueueRoutes: FastifyPluginAsync = async (fastify) => {
 
       const now = Date.now();
       const items = jobs
-        .filter((j) => isStalled(j, now))
+        .filter((j) => isRuntimeStalled(j, now))
         .map((job) => serializeJob(job, workspaceId));
 
       return reply.send({ queue: queueName, items });

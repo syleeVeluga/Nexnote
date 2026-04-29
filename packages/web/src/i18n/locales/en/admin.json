@@ -49,5 +49,79 @@
   "nav": {
     "admin": "Admin",
     "queueHealth": "Queue health"
+  },
+  "systemStatus": {
+    "eyebrow": "System status",
+    "title": "System Status",
+    "subtitle": "Track the knowledge refresh pipeline from incoming signals to search and graph updates.",
+    "overall": "Overall pipeline",
+    "rawQueues": "Queue details",
+    "pipelineTitle": "Refresh pipeline",
+    "recentTitle": "Pending ingestions",
+    "recentSubtitle": "Latest signals still waiting for classification or processing.",
+    "pendingIngestions": "Pending signals",
+    "noPendingIngestions": "No pending ingestions.",
+    "restrictedToAdmins": "System status is restricted to workspace admins.",
+    "status": {
+      "healthy": "Healthy",
+      "busy": "Processing",
+      "paused": "Paused",
+      "degraded": "Needs attention"
+    },
+    "counts": {
+      "waiting": "Waiting",
+      "active": "Active",
+      "completed": "Completed",
+      "failed": "Failed",
+      "delayed": "Delayed",
+      "paused": "Paused",
+      "stalled": "Stalled"
+    },
+    "ingestionStatus": {
+      "pending": "Pending",
+      "processing": "Processing",
+      "completed": "Completed",
+      "failed": "Failed"
+    },
+    "stages": {
+      "receive": {
+        "short": "Receive",
+        "label": "Receive",
+        "description": "Raw external signals are persisted and queued."
+      },
+      "classify": {
+        "short": "Classify",
+        "label": "Classify",
+        "description": "Route decisions select create, update, append, or review."
+      },
+      "integrate": {
+        "short": "Integrate",
+        "label": "Integrate",
+        "description": "Patch generation merges selected signals into drafts."
+      },
+      "reformat": {
+        "short": "Reformat",
+        "label": "Reformat",
+        "description": "Approved cleanup jobs normalize Markdown structure."
+      },
+      "apply": {
+        "short": "Apply",
+        "label": "Apply",
+        "description": "Published snapshots are rendered for readers."
+      },
+      "index": {
+        "short": "Index",
+        "label": "Index",
+        "description": "Search indexes are refreshed after content changes."
+      },
+      "connect": {
+        "short": "Connect",
+        "label": "Connect",
+        "description": "Triples and entity links are extracted for the graph."
+      }
+    },
+    "errors": {
+      "loadFailed": "Failed to load system status."
+    }
   }
 }

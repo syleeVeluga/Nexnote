@@ -9,6 +9,7 @@ import {
   type PageStatus,
   type PageSummaryMeta,
   type DashboardDto as SharedDashboardDto,
+  type SystemPipelineDto as SharedSystemPipelineDto,
   type ActorType,
   type RevisionSource,
   type WorkspaceRole,
@@ -1027,6 +1028,20 @@ export type DashboardDto = SharedDashboardDto;
 export const dashboard = {
   get(workspaceId: string) {
     return request<DashboardDto>(`/workspaces/${workspaceId}/dashboard`);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// System pipeline summary
+// ---------------------------------------------------------------------------
+
+export type SystemPipelineDto = SharedSystemPipelineDto;
+
+export const system = {
+  pipeline(workspaceId: string) {
+    return request<SystemPipelineDto>(
+      `/workspaces/${workspaceId}/system/pipeline`,
+    );
   },
 };
 

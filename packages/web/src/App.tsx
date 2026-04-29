@@ -13,6 +13,7 @@ import { ActivityPage } from "./pages/ActivityPage.js";
 import { IngestionDetailPage } from "./pages/IngestionDetailPage.js";
 import { ImportPage } from "./pages/ImportPage.js";
 import { QueueHealthPage } from "./pages/QueueHealthPage.js";
+import { SystemStatusPage } from "./pages/SystemStatusPage.js";
 import { TrashPage } from "./pages/TrashPage.js";
 import { PublicDocPage } from "./pages/PublicDocPage.js";
 import { PublicDocListPage } from "./pages/PublicDocListPage.js";
@@ -90,6 +91,7 @@ export function App() {
           element={<IngestionDetailPage />}
         />
         <Route path="import" element={<ImportPage />} />
+        <Route path="system" element={<SystemStatusPage />} />
         <Route path="admin/queues" element={<QueueHealthPage />} />
         <Route path="trash" element={<TrashPage />} />
       </Route>

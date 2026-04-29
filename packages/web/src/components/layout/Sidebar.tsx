@@ -1063,9 +1063,9 @@ export function Sidebar({
         />
         {(workspace.role === "owner" || workspace.role === "admin") && (
           <SidebarNavLink
-            to="/admin/queues"
+            to="/system"
             icon={<Settings2 size={15} />}
-            label={t("queueHealth")}
+            label={t("systemStatus", { defaultValue: t("queueHealth") })}
           />
         )}
       </div>
