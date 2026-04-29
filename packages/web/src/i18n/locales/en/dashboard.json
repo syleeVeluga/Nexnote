@@ -1,0 +1,36 @@
+{
+  "eyebrow": "Workspace overview",
+  "greeting": "Good to see you, {{name}}",
+  "description": "Track what AI applied automatically, what needs review, and where wiki content changed recently.",
+  "importAction": "Import",
+  "metrics": {
+    "autoApplied": "Auto-applied",
+    "autoAppliedDetail": "Applied by AI in the last 24 hours",
+    "pending": "Needs review",
+    "pendingDetail": "Suggestions and low-confidence decisions",
+    "pages": "Wiki pages",
+    "pagesDetail": "{{count}} folders in this workspace",
+    "failed": "Failed",
+    "failedDetail": "Classifier or patch jobs needing attention"
+  },
+  "pending": {
+    "title": "Review needed",
+    "emptyTitle": "No pending decisions",
+    "emptyBody": "Suggestions and low-confidence ingestions will appear here."
+  },
+  "autoApplied": {
+    "title": "Recently auto-applied",
+    "emptyTitle": "No automatic changes today",
+    "emptyBody": "High-confidence ingestions will appear here after they update a draft."
+  },
+  "wiki": {
+    "title": "Company wiki",
+    "folders": "Folders",
+    "recentRootPages": "Recent top-level pages",
+    "aiTouched": "Recently AI-authored",
+    "noFolders": "No folders yet.",
+    "noPages": "No top-level pages yet.",
+    "noAiTouched": "No recent AI-authored pages.",
+    "pageCount": "{{count}} page"
+  }
+}

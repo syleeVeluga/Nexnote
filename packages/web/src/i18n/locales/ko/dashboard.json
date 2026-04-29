@@ -1,0 +1,36 @@
+{
+  "eyebrow": "워크스페이스 개요",
+  "greeting": "{{name}}님, 안녕하세요",
+  "description": "AI가 자동 반영한 변경, 검토가 필요한 항목, 최근 바뀐 위키 문서를 한 곳에서 확인합니다.",
+  "importAction": "가져오기",
+  "metrics": {
+    "autoApplied": "자동 반영",
+    "autoAppliedDetail": "최근 24시간 동안 AI가 반영한 변경",
+    "pending": "검토 필요",
+    "pendingDetail": "제안 및 낮은 신뢰도 결정",
+    "pages": "위키 문서",
+    "pagesDetail": "이 워크스페이스의 폴더 {{count}}개",
+    "failed": "실패",
+    "failedDetail": "확인이 필요한 분류 또는 패치 작업"
+  },
+  "pending": {
+    "title": "검토 필요",
+    "emptyTitle": "대기 중인 결정이 없습니다",
+    "emptyBody": "제안이나 낮은 신뢰도의 수집 결과가 여기에 표시됩니다."
+  },
+  "autoApplied": {
+    "title": "최근 자동 반영",
+    "emptyTitle": "오늘 자동 반영된 변경이 없습니다",
+    "emptyBody": "신뢰도가 높은 수집 결과가 초안을 업데이트하면 여기에 표시됩니다."
+  },
+  "wiki": {
+    "title": "회사 위키",
+    "folders": "폴더",
+    "recentRootPages": "최근 최상위 문서",
+    "aiTouched": "최근 AI 작성/수정",
+    "noFolders": "아직 폴더가 없습니다.",
+    "noPages": "아직 최상위 문서가 없습니다.",
+    "noAiTouched": "최근 AI가 작성하거나 수정한 문서가 없습니다.",
+    "pageCount": "문서 {{count}}개"
+  }
+}
