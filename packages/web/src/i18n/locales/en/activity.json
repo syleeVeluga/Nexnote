@@ -46,6 +46,7 @@
     "reformat": "reformatted",
     "acknowledge": "acknowledged",
     "reject": "rejected",
+    "agent_run_completed": "ran ingestion agent for",
     "edit_decision": "edited decision for",
     "workspace.create": "created workspace",
     "workspace.update": "updated workspace",

@@ -51,7 +51,7 @@ const ACTIONS_BY_ENTITY: Record<string, string[]> = {
     "purge",
     "reformat",
   ],
-  ingestion: ["acknowledge", "reject"],
+  ingestion: ["acknowledge", "reject", "agent_run_completed"],
   folder: ["folder.create", "folder.update", "folder.delete"],
   workspace: ["workspace.create", "workspace.update", "member.add"],
   decision: ["edit_decision"],

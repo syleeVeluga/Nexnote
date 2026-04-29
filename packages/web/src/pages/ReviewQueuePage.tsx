@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
@@ -268,6 +268,28 @@ export function ReviewQueuePage() {
   const selectedIdRef = useRef(selectedId);
   const handleApproveRef = useRef(handleApprove);
   const handleRejectRef = useRef(handleReject);
+  const fanoutByDecisionId = useMemo(() => {
+    const groups = new Map<string, DecisionListItem[]>();
+    for (const item of items) {
+      const group = groups.get(item.ingestion.id) ?? [];
+      group.push(item);
+      groups.set(item.ingestion.id, group);
+    }
+
+    const result = new Map<string, { index: number; total: number }>();
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      const sorted = [...group].sort((a, b) => {
+        const timeDelta =
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        return timeDelta !== 0 ? timeDelta : a.id.localeCompare(b.id);
+      });
+      sorted.forEach((item, idx) => {
+        result.set(item.id, { index: idx + 1, total: sorted.length });
+      });
+    }
+    return result;
+  }, [items]);
   itemsRef.current = items;
   selectedIdRef.current = selectedId;
   handleApproveRef.current = handleApprove;
@@ -348,64 +370,85 @@ export function ReviewQueuePage() {
           ) : items.length === 0 ? (
             <div className="review-empty">{t("emptyList")}</div>
           ) : (
-            items.map((item) => (
-              <button
-                key={item.id}
-                className={`review-item${selectedId === item.id ? " selected" : ""}`}
-                onClick={() => setSelectedId(item.id)}
-              >
-                <div className="review-item-top">
-                  <Badge
-                    tone={statusTone(item.status)}
-                    size="sm"
-                    icon={statusIcon(item.status)}
-                    className={`review-badge review-badge-${item.status}`}
-                  >
-                    {t(`badge.${item.status}`, {
-                      defaultValue: item.status,
-                    })}
-                  </Badge>
-                  {item.hasConflict && (
-                    <span
-                      className="review-conflict-chip"
-                      title={t("conflict.tooltip")}
+            items.map((item) => {
+              const fanout = fanoutByDecisionId.get(item.id);
+              return (
+                <button
+                  key={item.id}
+                  className={`review-item${selectedId === item.id ? " selected" : ""}`}
+                  onClick={() => setSelectedId(item.id)}
+                >
+                  <div className="review-item-top">
+                    <Badge
+                      tone={statusTone(item.status)}
+                      size="sm"
+                      icon={statusIcon(item.status)}
+                      className={`review-badge review-badge-${item.status}`}
                     >
-                      <AlertTriangle size={11} aria-hidden="true" />
-                      {t("conflict.chip")}
+                      {t(`badge.${item.status}`, {
+                        defaultValue: item.status,
+                      })}
+                    </Badge>
+                    {item.hasConflict && (
+                      <span
+                        className="review-conflict-chip"
+                        title={t("conflict.tooltip")}
+                      >
+                        <AlertTriangle size={11} aria-hidden="true" />
+                        {t("conflict.chip")}
+                      </span>
+                    )}
+                    <span className="review-confidence">
+                      {Math.round(item.confidence * 100)}%
                     </span>
+                  </div>
+                  <div className="review-item-target">
+                    {item.action === "create"
+                      ? t("newPage", {
+                          title:
+                            item.proposedPageTitle ??
+                            item.ingestion.titleHint ??
+                            t("common:untitled"),
+                        })
+                      : (item.targetPage?.title ??
+                        item.ingestion.titleHint ??
+                        t("common:untitled"))}
+                  </div>
+                  <div className="review-item-meta">
+                    <span className="review-action-chip">
+                      {t(`action.${item.action}`, {
+                        defaultValue: item.action,
+                      })}
+                    </span>
+                    <span className="review-source">
+                      {item.ingestion.sourceName}
+                    </span>
+                    {fanout && (
+                      <span
+                        className="review-fanout-chip"
+                        title={t("fanout.title", {
+                          index: fanout.index,
+                          total: fanout.total,
+                          source: item.ingestion.sourceName,
+                        })}
+                      >
+                        {t("fanout.badge", {
+                          index: fanout.index,
+                          total: fanout.total,
+                          source: item.ingestion.sourceName,
+                        })}
+                      </span>
+                    )}
+                    <span className="review-time">
+                      {timeAgo(item.createdAt)}
+                    </span>
+                  </div>
+                  {item.reason && (
+                    <div className="review-item-reason">{item.reason}</div>
                   )}
-                  <span className="review-confidence">
-                    {Math.round(item.confidence * 100)}%
-                  </span>
-                </div>
-                <div className="review-item-target">
-                  {item.action === "create"
-                    ? t("newPage", {
-                        title:
-                          item.proposedPageTitle ??
-                          item.ingestion.titleHint ??
-                          t("common:untitled"),
-                      })
-                    : (item.targetPage?.title ??
-                      item.ingestion.titleHint ??
-                      t("common:untitled"))}
-                </div>
-                <div className="review-item-meta">
-                  <span className="review-action-chip">
-                    {t(`action.${item.action}`, {
-                      defaultValue: item.action,
-                    })}
-                  </span>
-                  <span className="review-source">
-                    {item.ingestion.sourceName}
-                  </span>
-                  <span className="review-time">{timeAgo(item.createdAt)}</span>
-                </div>
-                {item.reason && (
-                  <div className="review-item-reason">{item.reason}</div>
-                )}
-              </button>
-            ))
+                </button>
+              );
+            })
           )}
         </div>
 

@@ -1,10 +1,7 @@
 import { z } from "zod";
 import { uuidSchema } from "./common.js";
 import { pageDtoSchema } from "./page.js";
-import {
-  DECISION_STATUSES,
-  INGESTION_ACTIONS,
-} from "../constants/index.js";
+import { DECISION_STATUSES, INGESTION_ACTIONS } from "../constants/index.js";
 
 export const dashboardFolderSchema = z.object({
   id: uuidSchema,
@@ -32,6 +29,7 @@ export const dashboardDecisionListItemSchema = z.object({
   hasConflict: z.boolean().optional(),
   createdAt: z.string().datetime(),
   ingestion: z.object({
+    id: uuidSchema,
     sourceName: z.string(),
     titleHint: z.string().nullable(),
     receivedAt: z.string().datetime(),

@@ -45,6 +45,7 @@
     "reformat": "재구성",
     "acknowledge": "확인 처리",
     "reject": "거부",
+    "agent_run_completed": "ingestion agent 실행",
     "edit_decision": "결정 수정",
     "workspace.create": "워크스페이스 생성",
     "workspace.update": "워크스페이스 업데이트",
