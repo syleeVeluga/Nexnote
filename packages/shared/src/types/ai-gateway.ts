@@ -19,6 +19,20 @@ export interface AIBudgetMeta {
   >;
 }
 
+export type AIToolChoice = "auto" | "required" | "none";
+
+export interface AIToolDefinition {
+  name: string;
+  description?: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface NormalizedToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
 /** Common request envelope for all AI calls */
 export interface AIRequest {
   provider: AIProvider;
@@ -28,18 +42,24 @@ export interface AIRequest {
   messages: AIMessage[];
   temperature?: number;
   maxTokens?: number;
-  responseFormat?: "json";
+  responseFormat?: "json" | "text";
+  tools?: AIToolDefinition[];
+  toolChoice?: AIToolChoice;
   budgetMeta?: AIBudgetMeta;
 }
 
 export interface AIMessage {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  toolCallId?: string;
+  toolName?: string;
+  toolCalls?: NormalizedToolCall[];
 }
 
 /** Common response envelope from AI calls */
 export interface AIResponse {
   content: string;
+  toolCalls?: NormalizedToolCall[];
   tokenInput: number;
   tokenOutput: number;
   latencyMs: number;

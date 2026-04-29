@@ -31,10 +31,12 @@ The single-shot route-classifier always creates new pages because (a) only top-3
 
 **Phasing (RFC `## Implementation order` 참조):** Phase A foundation (AGENT-1/2/3 — 1과 2 병렬, 3은 둘 다 차단) → Phase B shadow validation (AGENT-4 + 1주 parity gate) → Phase C go-live (AGENT-5/6/7 병렬) → Phase D cleanup (AGENT-8). 무거운 단계 (AGENT-1/3/4/5) 는 진입 시점에 `docs/ingestion-agent-step-N-<scope>.md` sub-doc 신규 생성, 가벼운 단계 (AGENT-2/6/7/8) 는 sub-doc 없이 PR description + RFC 갱신만.
 
-### AGENT-1 · [HIGH] AI gateway tool-calling extension
+### AGENT-1 · [DONE · 2026-04-29] AI gateway tool-calling extension
 *Phase A · Size M · Blocked by: nothing (entry point) · Sub-doc on entry: `docs/ingestion-agent-step-1-gateway.md`*
 
 Extend [ai-gateway.ts](../packages/worker/src/ai-gateway.ts) `AIRequest`/`AIResponse` with normalized `tools` / `toolCalls` fields. OpenAI `tool_calls`/`tool` role ↔ Gemini `functionCall`/`functionResponse` translated at adapter boundary. Conformance test: same fixture must produce identical `NormalizedToolCall[]` from both adapters. **Prerequisite for everything else.**
+
+- Done: shared gateway types now expose optional `tools`, `toolChoice`, tool-result messages, prior assistant tool calls, and response `toolCalls`; OpenAI/Gemini adapters translate provider-native tool formats to deterministic normalized calls; `ai-gateway.test.ts` covers cross-provider conformance.
 
 ### AGENT-2 · [HIGH] Schema migration `0015_agent_runs`
 *Phase A · Size S · Blocked by: nothing (parallel with AGENT-1) · No sub-doc*
