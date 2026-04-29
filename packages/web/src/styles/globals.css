@@ -15,17 +15,15 @@ body,
 }
 
 body {
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, sans-serif;
-  color: #0f172a;
-  background: #f8fafc;
+  font-family: var(--wf-font-sans);
+  color: var(--wf-color-ink);
+  background: var(--wf-color-bg-warm);
   font-size: 14px;
   line-height: 1.5;
 }
 
 a {
-  color: #334155;
+  color: var(--wf-color-ink-subtle);
   text-decoration: none;
 }
 
@@ -36,17 +34,17 @@ a:hover {
 button {
   cursor: pointer;
   font: inherit;
-  border: 1px solid #e2e8f0;
-  background: #f1f5f9;
-  color: #0f172a;
+  border: 1px solid var(--wf-color-border);
+  background: var(--wf-color-bg-warm);
+  color: var(--wf-color-ink);
   padding: 6px 12px;
-  border-radius: 6px;
+  border-radius: var(--wf-radius-md);
   font-size: 13px;
   transition: background 0.15s;
 }
 
 button:hover {
-  background: #e2e8f0;
+  background: var(--wf-color-bg-soft);
 }
 
 button:disabled {
@@ -55,35 +53,35 @@ button:disabled {
 }
 
 .btn-primary {
-  background: #334155;
+  background: var(--wf-color-blue);
   color: #fff;
-  border-color: #334155;
+  border-color: var(--wf-color-blue);
 }
 
 .btn-primary:hover {
-  background: #1e293b;
-  border-color: #1e293b;
+  background: var(--wf-color-blue-hover);
+  border-color: var(--wf-color-blue-hover);
   color: #fff;
 }
 
 input,
 textarea {
   font: inherit;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  border: 1px solid var(--wf-color-border);
+  border-radius: var(--wf-radius-md);
   padding: 8px 12px;
   font-size: 14px;
   width: 100%;
   outline: none;
-  background: #fff;
-  color: #0f172a;
+  background: var(--wf-color-surface);
+  color: var(--wf-color-ink);
   transition: border-color 0.15s;
 }
 
 input:focus,
 textarea:focus {
-  border-color: #334155;
-  box-shadow: 0 0 0 3px rgba(51, 65, 85, 0.15);
+  border-color: var(--wf-color-blue);
+  box-shadow: 0 0 0 3px rgba(0, 117, 222, 0.14);
 }
 
 label {
@@ -92,7 +90,7 @@ label {
   gap: 4px;
   font-weight: 500;
   font-size: 13px;
-  color: #0f172a;
+  color: var(--wf-color-ink);
 }
 
 /* ── Loading ── */

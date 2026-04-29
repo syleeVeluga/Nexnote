@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { PanelLeftOpen } from "lucide-react";
 import { useAuth } from "../../hooks/use-auth.js";
 import { useWorkspace } from "../../hooks/use-workspace.js";
 import { workspaces as wsApi } from "../../lib/api-client.js";
 import { slugify } from "@wekiflow/shared";
 import { Sidebar } from "./Sidebar.js";
+import { IconButton } from "../ui/IconButton.js";
 
 export function WorkspaceLayout() {
   const { t } = useTranslation("common");
@@ -74,15 +76,13 @@ export function WorkspaceLayout() {
         className={`main-content${sidebarOpen ? "" : " sidebar-toggle-visible"}`}
       >
         {!sidebarOpen && (
-          <button
+          <IconButton
             className="sidebar-expand-btn"
+            icon={<PanelLeftOpen size={16} />}
+            label={t("openSidebar")}
+            showLabel
             onClick={() => setSidebarOpen(true)}
-            title={t("pagesSectionTitle")}
-            aria-label={t("pagesSectionTitle")}
-          >
-            <span aria-hidden="true">|||</span>
-            <span>{t("pagesSectionTitle")}</span>
-          </button>
+          />
         )}
         <Outlet />
       </main>
