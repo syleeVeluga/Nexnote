@@ -1,9 +1,9 @@
 # WekiFlow — Task Backlog
 
-> **Snapshot:** 2026-04-24
+> **Snapshot:** 2026-04-30
 > **North-star goal:** External signals flow in continuously; the wiki stays automatically up-to-date under human supervision. AI classifies/merges/deduplicates; humans review/correct/approve.
 >
-> **Status of the core loop** — see [CLAUDE.md](../CLAUDE.md#current-implementation-status-snapshot-2026-04-24-docs-reviewed). The ingest/classify/apply path works, the review/provenance/activity surfaces are now usable, and the remaining trust gaps are conflict breadth, triple contradictions, API-token management, and sidebar/digest surfacing.
+> **Status of the core loop** — see [CLAUDE.md](../CLAUDE.md#current-implementation-status-snapshot-2026-04-24-docs-reviewed). The ingest/classify/apply path works, AGENT-1~6 + AGENT-4.5 (tool-calling ingestion agent backend, parity gate, mutate tier 1·2·3, settings UI) have landed, and remaining trust gaps are AGENT-7 fan-out review polish, conflict breadth (concurrent ingestions / triple contradictions), API-token management, and sidebar/digest surfacing.
 
 Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH] / [MED] / [LOW]** marks urgency toward the goal.
 
@@ -22,6 +22,8 @@ Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH]
 > **Post-S6 updates observed (2026-04-24):** soft-delete/trash/purge flows (`0006`), archived original ingestion storage (`0007`), predicate display-label cache/backfill (`0008`/`0009`), graph filters + confidence visual encoding + node evidence inspector, reviewed AI content reformatting via the `reformat` queue, pipeline integration tests, and Playwright smoke tests are in the codebase. Still not present: persisted chunk tables/workers, 3D graph toggle, CI, broad route-level API coverage, and Yjs/Hocuspocus.
 >
 > **Doc reorg + Ingestion Agent RFC (2026-04-29):** all product/design/RFC docs moved from repo root into [`docs/`](.); orchestrator guides (`AGENTS.md`, `CLAUDE.md`) stay at root and got a Documentation map. The single-shot Classify stage is slated to be replaced by a tool-calling ingestion agent — see new epic **AGENT-1..AGENT-8** below. RFC: [`docs/ingestion-agent-plan.md`](ingestion-agent-plan.md).
+>
+> **Ingestion agent through AGENT-4.5/5/6 landed (2026-04-29 → 2026-04-30):** AGENT-1 (gateway tool-calling normalization), AGENT-2 (`agent_runs` schema + `workspaces.ingestion_mode`), AGENT-3 (read-only dispatcher), AGENT-4 (shadow loop + budgeter), **AGENT-4.5** (parity SQL view + diagnostics API + AISettingsPage dashboard, daily token cap enforcement, dedupe system-message hint, Redis pub/sub SSE live trace, `workspaces.agent_instructions` + system prompt prepend), **AGENT-5** (mutate tier 1·2·3 direct revisions + update_page/append_to_page fallback + create_page/noop/request_human_review, oldest-first 80% context compaction with cache invalidation, mutate self-correction repair turn), **AGENT-6** (`/settings/ai` mode toggle + workspace-scoped model picker + token cap + parity dashboard with server-side promotion gate). AGENT-7 partially landed: AgentTracePanel post-hoc + SSE live; sibling badge + activity row remain. Production 'agent' promotion is now blocked by 5 finishing gaps: `read_page` auto blocks fallback (P0), mutate execute integration test (P0), ReviewQueuePage sibling badge (P1), Activity feed agent_run row (P1), AISettingsPage model diagnostic strip (P2). See [`docs/ingestion-agent-plan.md`](ingestion-agent-plan.md) §Remaining gaps.
 
 ---
 
@@ -62,7 +64,7 @@ _Phase B · Size L · Blocked by: AGENT-1 + AGENT-2 + AGENT-3 · Followed by: 1-
 Explore→plan→execute orchestrator. Shadow mode: agent runs alongside the classic classifier, writes only to `agent_runs.plan_json`; classic still owns `ingestion_decisions`. **One-week parity dashboard** (action match-rate, target-page match-rate) before any workspace flips to `agent`. Token budgeter (800k input / 60k output, model routing fast vs Opus-1M/Gemini-1M/gpt-5.4-pro), adaptive read truncation.
 
 - Done: `ingestionAgentPlanSchema` and `agent_plan` model-run mode landed; `budgeter.ts` handles env-backed limits, fast/large model routing, and plan-context packing; `loop.ts` runs read-only tool exploration then writes a structured shadow plan; `ingestion-agent` BullMQ worker records `agent_runs.plan_json` / `steps_json` / linked `model_runs`; enqueue runs classic classifier plus a separate `ingestion-agent` queue in `shadow` mode. Classic remains the decision owner in `shadow`; `agent` mode ownership lands in AGENT-5.
-- Gate active: `PATCH /workspaces/:id` now blocks promotion to `agent` until shadow parity has enough observed days/comparable ingestions and meets action/target agreement thresholds. `/system/ai` shows the same gate status and disables Agent promotion until it passes. Thresholds are env-tunable via `AGENT_PARITY_GATE_MIN_*`.
+- Gate active: `PATCH /workspaces/:id` now blocks promotion to `agent` until shadow parity has enough observed days/comparable ingestions and meets action/target agreement thresholds. `/settings/ai` shows the same gate status and disables Agent promotion until it passes. Thresholds are env-tunable via `AGENT_PARITY_GATE_MIN_*`.
 
 ### AGENT-4.5 · [DONE · 2026-04-30] Shadow hardening before parity gate
 
@@ -78,23 +80,31 @@ _Phase C · Size L · Rollout still gated by: parity observation + AGENT-6/7 UI 
 
 `replace_in_page` (find/replace, exact-N match enforce), `edit_page_blocks` (markdown block ops via stable block parser), `edit_page_section` (heading anchor), plus fallback `update_page` / `append_to_page` / `create_page` / `noop` / `request_human_review`. Tier-1/2/3 build the new revision directly without re-calling the LLM (cost + intent preservation). Per-page mutation lock within a run prevents AI-vs-AI race. Plan validator: "if proposed `update_page` keeps ≥70% of existing content, reject and force decompose to `edit_page_blocks`."
 
-- Done: shared mutate schemas landed; `tools/mutate.ts` creates fan-out `ingestion_decisions` with `agent_run_id`; direct patch tiers create proposed/current revisions with provenance, diffs, audit logs, and triple/search enqueue; `update_page` / `append_to_page` hand off high-confidence fallback work to patch-generator with agent-supplied content; enqueue now runs classic+agent in `shadow`, but agent-only in `agent` mode. Added Claude Code-style context compaction (80% threshold, oldest-first summaries, re-read notice + cache invalidation) and mutate self-correction hints with one repair turn. Tests cover patch primitives, compaction, dispatcher cache invalidation, and agent-mode repair execution. Remaining AGENT-5 hardening: 70% full-rewrite self-correct and broader DB integration coverage.
+- Done: shared mutate schemas landed; `tools/mutate.ts` creates fan-out `ingestion_decisions` with `agent_run_id`; direct patch tiers create proposed/current revisions with provenance, diffs, audit logs, and triple/search enqueue; `update_page` / `append_to_page` hand off high-confidence fallback work to patch-generator with agent-supplied content; enqueue now runs classic+agent in `shadow`, but agent-only in `agent` mode. Added Claude Code-style context compaction (80% threshold, oldest-first summaries, re-read notice + cache invalidation) and mutate self-correction hints with one repair turn. Tests cover patch primitives, compaction, dispatcher cache invalidation, and agent-mode repair execution.
+- 잔여 hardening (production 'agent' 승격 차단): (a) **`read_page` 큰 본문 자동 `blocks` 폴백 (P0)** — 단일 거대 페이지가 한 턴 input cap을 잠식하는 것을 막아야 함. `tools/read.ts:415-489` `readPage` + 신규 `budgeter.ts` 헬퍼. (b) **mutate execute 통합 테스트 (P0)** — agent 모드 happy/conflict/repair end-to-end. 신규 `loop.execute.test.ts`. (c) Plan validator 70% full-rewrite self-correct (P2 — RFC §AGENT-5 spec).
 
-### AGENT-6 · [MED] Workspace toggle + `/settings/ai` UI
+### AGENT-6 · [DONE · 2026-04-30] Workspace toggle + `/settings/ai` UI
 
 _Phase C · Size S · Blocked by: AGENT-2 (column exists); usefulness blocked by AGENT-5 · No sub-doc_
 
 `workspaces.ingestion_mode` switch (classic / shadow / agent), model picker, daily token cap. Default classic; flip internal workspaces to shadow first.
 
-- Partial: `/system/ai` lets owners/admins switch classic/shadow/agent, edit workspace `agent_instructions`, inspect parity/token diagnostics, and start the shadow parity gate. Agent promotion is now server-gated until parity passes. Model picker remains future work.
+- Done: `/settings/ai` lets owners/admins switch classic/shadow/agent, edit workspace `agent_instructions`, inspect parity/token diagnostics, configure workspace-scoped agent provider/fast model/large-context model/fast-threshold, and set a workspace daily token cap. `/system/ai` redirects to the settings route. Agent promotion is server-gated until parity passes; unset model/cap values inherit deployment env defaults.
 
-### AGENT-7 · [MED] UI fan-out for multiple decisions per ingestion
+### AGENT-7 · [PARTIAL · 2026-04-30 · MED] UI fan-out for multiple decisions per ingestion
 
 _Phase C · Size M · Blocked by: AGENT-2 (`agent_run_id` FK); usefulness blocked by AGENT-4 · No sub-doc_
 
 [IngestionDetailPage](../packages/web/src/pages/IngestionDetailPage.tsx) renders decision[] (currently single), [ReviewQueuePage](../packages/web/src/pages/ReviewQueuePage.tsx) sibling badge "(2 of 7 from ingestion X)", new `AgentTracePanel` visualises `agent_runs.steps_json` (thought / tool_call / tool_result timeline). v1 keeps each sibling decision independently approve/rejectable — no bulk approve.
 
-- Partial: `AgentTracePanel` renders post-hoc `steps_json` and live SSE updates on `/ingestions/:ingestionId`. Sibling badges/review fan-out polish remain open.
+- Done:
+  - `AgentTracePanel` (post-hoc `steps_json` + Redis pub/sub SSE live updates) on `/ingestions/:ingestionId`
+  - IngestionDetailPage renders `decisions[]` (다중 fan-out) — single-decision 가정 깨짐
+  - `/workspaces/:id/agent-runs/:runId` GET + `/events` SSE endpoint (workspace member-only)
+- 잔여:
+  - **ReviewQueuePage sibling 배지 "(N of M from ingestion {sourceName})" (P1)** — `decisions.list`가 이미 `ingestion: { id, sourceName }` 반환하므로 client-side group-by `useMemo`만 추가하면 됨. backend 변경 없음.
+  - **Activity feed agent_run 완료 행 (P1)** — `audit_logs`에 `action='agent_run_completed'` row 1개 추가 + `deriveActivitySummary` 확장 ("Agent ran for ingestion X — N mutations proposed (M auto-applied, K queued)"). 스키마 변경 없음.
+  - **AISettingsPage 모델 진단 strip (P2)** — `/diagnostics` 응답에 `currentModels` (env-resolved fast/large_context) 추가, AISettingsPage에 read-only 표시. workspace-level model override는 이미 AGENT-6에서 시행 중이므로 여기에 미러링.
 
 ### AGENT-8 · [MED] Cutover & retire classic
 
