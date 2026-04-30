@@ -24,6 +24,7 @@ import {
   resetTestState,
 } from "../support/services.ts";
 import { waitFor } from "../support/wait.ts";
+import { markPagePublishedIfSnapshotLive } from "../../packages/worker/src/workers/publish-renderer.ts";
 
 describe("pipeline nightly", { concurrency: false }, () => {
   let stack: IntegrationStack;
@@ -318,7 +319,7 @@ describe("pipeline nightly", { concurrency: false }, () => {
       publishedCount: number;
       skippedCount: number;
       failedCount: number;
-      snapshots: Array<{ pageId: string; publicPath: string }>;
+      snapshots: Array<{ id: string; pageId: string; publicPath: string }>;
     };
 
     assert.equal(publishBody.scope, "subtree");
@@ -331,6 +332,10 @@ describe("pipeline nightly", { concurrency: false }, () => {
       new Set(publishBody.snapshots.map((snapshot) => snapshot.pageId)),
       new Set([parentBody.page.id, childBody.page.id]),
     );
+    const parentSnapshot = publishBody.snapshots.find(
+      (snapshot) => snapshot.pageId === parentBody.page.id,
+    );
+    assert.ok(parentSnapshot);
 
     const parentSnapshots = await db
       .select()
@@ -405,6 +410,75 @@ describe("pipeline nightly", { concurrency: false }, () => {
       `/docs/${auth.workspaceSlug}/publish-child`,
     );
     assert.deepEqual(childDocsBody.children, []);
+
+    const unpublishParentResponse = await stack.app.inject({
+      method: "POST",
+      url: `/api/v1/workspaces/${auth.workspaceId}/pages/${parentBody.page.id}/unpublish`,
+      headers: authHeaders(auth.token),
+      payload: {},
+    });
+    assert.equal(unpublishParentResponse.statusCode, 200);
+    assert.deepEqual(unpublishParentResponse.json(), { unpublishedCount: 1 });
+
+    const [unpublishedParent] = await db
+      .select({
+        status: pages.status,
+        latestPublishedSnapshotId: pages.latestPublishedSnapshotId,
+      })
+      .from(pages)
+      .where(eq(pages.id, parentBody.page.id))
+      .limit(1);
+    assert.equal(unpublishedParent.status, "draft");
+    assert.equal(unpublishedParent.latestPublishedSnapshotId, null);
+
+    const unpublishedParentDocsResponse = await stack.app.inject({
+      method: "GET",
+      url: `/api/v1/docs/${auth.workspaceSlug}/publish-parent`,
+    });
+    assert.equal(unpublishedParentDocsResponse.statusCode, 404);
+
+    await markPagePublishedIfSnapshotLive({
+      db,
+      snapshotId: parentSnapshot.id,
+      pageId: parentBody.page.id,
+    });
+    const [parentAfterStaleRender] = await db
+      .select({
+        status: pages.status,
+        latestPublishedSnapshotId: pages.latestPublishedSnapshotId,
+      })
+      .from(pages)
+      .where(eq(pages.id, parentBody.page.id))
+      .limit(1);
+    assert.equal(parentAfterStaleRender.status, "draft");
+    assert.equal(parentAfterStaleRender.latestPublishedSnapshotId, null);
+
+    const archiveChildResponse = await stack.app.inject({
+      method: "PATCH",
+      url: `/api/v1/workspaces/${auth.workspaceId}/pages/${childBody.page.id}`,
+      headers: authHeaders(auth.token),
+      payload: { status: "archived" },
+    });
+    assert.equal(archiveChildResponse.statusCode, 200);
+
+    const unpublishChildResponse = await stack.app.inject({
+      method: "POST",
+      url: `/api/v1/workspaces/${auth.workspaceId}/pages/${childBody.page.id}/unpublish`,
+      headers: authHeaders(auth.token),
+      payload: {},
+    });
+    assert.equal(unpublishChildResponse.statusCode, 200);
+
+    const [unpublishedChild] = await db
+      .select({
+        status: pages.status,
+        latestPublishedSnapshotId: pages.latestPublishedSnapshotId,
+      })
+      .from(pages)
+      .where(eq(pages.id, childBody.page.id))
+      .limit(1);
+    assert.equal(unpublishedChild.status, "archived");
+    assert.equal(unpublishedChild.latestPublishedSnapshotId, null);
 
     const siblingDocsResponse = await stack.app.inject({
       method: "GET",

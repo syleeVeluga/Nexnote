@@ -12,7 +12,8 @@ import { createRedisConnection } from "../connection.js";
 import { QUEUE_NAMES } from "../queues.js";
 import { createJobLogger } from "../logger.js";
 import { getDb } from "@wekiflow/db/client";
-import { publishedSnapshots, pages } from "@wekiflow/db";
+import type { Database } from "@wekiflow/db/client";
+import { publishedSnapshots } from "@wekiflow/db";
 import { slugify } from "@wekiflow/shared";
 import type {
   PublishRendererJobData,
@@ -107,6 +108,30 @@ async function renderMarkdown(md: string): Promise<{ html: string; toc: TocEntry
   return { html, toc };
 }
 
+export async function markPagePublishedIfSnapshotLive(input: {
+  db: Database;
+  snapshotId: string;
+  pageId: string;
+}): Promise<void> {
+  const { db, snapshotId, pageId } = input;
+
+  await db.execute(sql`
+    UPDATE "pages"
+    SET
+      "latest_published_snapshot_id" = ${snapshotId},
+      "status" = 'published',
+      "updated_at" = now()
+    WHERE "id" = ${pageId}
+      AND EXISTS (
+        SELECT 1
+        FROM "published_snapshots"
+        WHERE "id" = ${snapshotId}
+          AND "page_id" = ${pageId}
+          AND "is_live" = true
+      )
+  `);
+}
+
 // ---------------------------------------------------------------------------
 // Worker
 // ---------------------------------------------------------------------------
@@ -143,14 +168,7 @@ export function createPublishRendererWorker(): Worker {
         .set({ snapshotHtml: html, tocJson: toc })
         .where(eq(publishedSnapshots.id, snapshotId));
 
-      await db
-        .update(pages)
-        .set({
-          latestPublishedSnapshotId: snapshotId,
-          status: "published",
-          updatedAt: sql`now()`,
-        })
-        .where(eq(pages.id, pageId));
+      await markPagePublishedIfSnapshotLive({ db, snapshotId, pageId });
 
       await job.updateProgress(100);
 

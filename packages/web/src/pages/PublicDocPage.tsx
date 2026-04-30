@@ -8,7 +8,7 @@ import {
 } from "../lib/api-client.js";
 import "../styles/docs.css";
 
-function TocSidebar({ toc }: { toc: TocEntry[] }) {
+function TocLinks({ toc }: { toc: TocEntry[] }) {
   const { t } = useTranslation("docs");
 
   if (toc.length === 0) return null;
@@ -61,6 +61,23 @@ function ChildDocLinks({ docs }: { docs: PublicDoc["children"] }) {
         ))}
       </ul>
     </section>
+  );
+}
+
+function DocSidebar({
+  toc,
+  childDocs,
+}: {
+  toc: TocEntry[];
+  childDocs: PublicDoc["children"];
+}) {
+  if (toc.length === 0 && childDocs.length === 0) return null;
+
+  return (
+    <aside className="doc-sidebar">
+      <TocLinks toc={toc} />
+      <ChildDocLinks docs={childDocs} />
+    </aside>
   );
 }
 
@@ -129,7 +146,7 @@ export function PublicDocPage() {
       </header>
 
       <div className="doc-layout">
-        {doc.toc && doc.toc.length > 0 && <TocSidebar toc={doc.toc} />}
+        <DocSidebar toc={doc.toc ?? []} childDocs={doc.children} />
 
         <article className="doc-content">
           <h1 className="doc-title">{doc.title}</h1>
@@ -146,7 +163,6 @@ export function PublicDocPage() {
             className="doc-body"
             dangerouslySetInnerHTML={{ __html: doc.html }}
           />
-          <ChildDocLinks docs={doc.children} />
         </article>
       </div>
     </div>

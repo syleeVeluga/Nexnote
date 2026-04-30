@@ -1661,7 +1661,11 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
 
         await tx
           .update(pages)
-          .set({ latestPublishedSnapshotId: null, updatedAt: sql`now()` })
+          .set({
+            latestPublishedSnapshotId: null,
+            status: sql`CASE WHEN ${pages.status} = 'archived' THEN 'archived' ELSE 'draft' END`,
+            updatedAt: sql`now()`,
+          })
           .where(eq(pages.id, pageId));
 
         await tx.insert(auditLogs).values({

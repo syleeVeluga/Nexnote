@@ -1057,6 +1057,25 @@ label {
   opacity: 0.5;
 }
 
+.btn-unpublish {
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  background: #fff;
+  color: #475569;
+  border-color: #cbd5e1;
+}
+
+.btn-unpublish:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.btn-unpublish:disabled {
+  opacity: 0.5;
+}
+
 /* ── Publish success banner ── */
 .publish-banner {
   display: flex;

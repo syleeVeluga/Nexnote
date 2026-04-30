@@ -14,6 +14,7 @@ const pagesMock = vi.hoisted(() => ({
   get: vi.fn(),
   list: vi.fn(),
   publish: vi.fn(),
+  unpublish: vi.fn(),
   createRevision: vi.fn(),
   reformat: vi.fn(),
 }));
@@ -52,6 +53,11 @@ vi.mock("react-i18next", () => ({
         publishConfirm: "Are you sure you want to publish this page?",
         published: "Published",
         publishing: "Publishing...",
+        unpublish: "Unpublish",
+        unpublishConfirm:
+          "Unpublish this page? The page will stay editable, but its public URL will stop resolving.",
+        unpublishSuccess: "Page unpublished successfully",
+        unpublishing: "Unpublishing...",
         publishScopeLabel: "Publish scope",
         publishScopeSelf: "This page only",
         publishScopeSubtree: "This page + descendants ({{count}} total)",
@@ -221,6 +227,8 @@ describe("PageEditorPage publishing", () => {
       skipped: [],
       failed: [],
     });
+
+    pagesMock.unpublish.mockResolvedValue({ unpublishedCount: 1 });
   });
 
   it("labels subtree scope as total pages and shows every published snapshot link", async () => {
@@ -261,5 +269,75 @@ describe("PageEditorPage publishing", () => {
     expect(
       screen.getByText("Publish queued: 2/2 pages, 0 skipped, 0 failed"),
     ).toBeInTheDocument();
+  });
+
+  it("unpublishes a live page without deleting it", async () => {
+    pagesMock.get.mockResolvedValueOnce({
+      page: {
+        id: "page-parent",
+        workspaceId: "workspace-1",
+        parentPageId: null,
+        parentFolderId: null,
+        title: "Publish Parent",
+        slug: "publish-parent",
+        status: "published",
+        sortOrder: 0,
+        currentRevisionId: "revision-parent",
+        lastAiUpdatedAt: null,
+        lastHumanEditedAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        latestRevisionActorType: "user",
+        latestRevisionSource: "editor",
+        latestRevisionCreatedAt: "2026-01-01T00:00:00.000Z",
+        latestRevisionSourceIngestionId: null,
+        latestRevisionSourceDecisionId: null,
+        publishedAt: "2026-01-01T00:00:00.000Z",
+        isLivePublished: true,
+      },
+      currentRevision: {
+        id: "revision-parent",
+        pageId: "page-parent",
+        baseRevisionId: null,
+        actorUserId: "user-1",
+        modelRunId: null,
+        actorType: "user",
+        source: "editor",
+        contentMd: "# Publish Parent",
+        contentJson: null,
+        revisionNote: null,
+        sourceIngestionId: null,
+        sourceDecisionId: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+
+    renderPageEditor();
+
+    await screen.findByText("Publish Parent");
+    fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
+
+    const confirmBanner = await screen.findByText(
+      "Unpublish this page? The page will stay editable, but its public URL will stop resolving.",
+    );
+    fireEvent.click(
+      within(
+        confirmBanner.closest(".publish-banner-confirm") as HTMLElement,
+      ).getByRole("button", { name: "Unpublish" }),
+    );
+
+    await waitFor(() =>
+      expect(pagesMock.unpublish).toHaveBeenCalledWith(
+        "workspace-1",
+        "page-parent",
+      ),
+    );
+
+    expect(
+      await screen.findByText("Page unpublished successfully"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Unpublish" }),
+    ).not.toBeInTheDocument();
   });
 });

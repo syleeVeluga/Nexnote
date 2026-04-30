@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PublicDocPage } from "./PublicDocPage.js";
@@ -76,10 +76,10 @@ describe("PublicDocPage", () => {
 
     await screen.findByRole("heading", { name: "Publish Parent" });
 
-    expect(screen.getByText("Child Pages")).toBeInTheDocument();
-    expect(screen.getByText("Publish Child").closest("a")).toHaveAttribute(
-      "href",
-      "/docs/workspace/publish-child",
-    );
+    const sidebar = screen.getByRole("complementary");
+    expect(within(sidebar).getByText("Child Pages")).toBeInTheDocument();
+    expect(
+      within(sidebar).getByText("Publish Child").closest("a"),
+    ).toHaveAttribute("href", "/docs/workspace/publish-child");
   });
 });

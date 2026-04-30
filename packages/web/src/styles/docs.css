@@ -46,7 +46,7 @@
   text-decoration: underline;
 }
 
-/* ── Layout with TOC ── */
+/* ── Layout with sidebar ── */
 .doc-layout {
   max-width: 960px;
   margin: 0 auto;
@@ -55,8 +55,8 @@
   padding: 32px 24px;
 }
 
-/* ── TOC Sidebar ── */
-.doc-toc {
+/* ── Docs Sidebar ── */
+.doc-sidebar {
   width: 220px;
   min-width: 220px;
   position: sticky;
@@ -64,6 +64,9 @@
   align-self: flex-start;
   max-height: calc(100vh - 120px);
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 .doc-toc-title {
@@ -249,37 +252,47 @@
 }
 
 .doc-child-pages {
-  margin-top: 32px;
-  padding-top: 20px;
+  padding-top: 16px;
   border-top: 1px solid #e2e8f0;
 }
 
+.doc-child-pages:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
 .doc-child-pages-title {
-  font-size: 18px;
+  font-size: 12px;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   color: #0f172a;
-  margin: 0 0 12px;
+  margin: 0 0 8px;
 }
 
 .doc-child-pages-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-top: 1px solid #e2e8f0;
 }
 
 .doc-child-pages-item {
-  border-bottom: 1px solid #e2e8f0;
+  margin: 0;
 }
 
 .doc-child-pages-link {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 0;
+  display: block;
+  padding: 5px 0 6px 8px;
+  border-left: 2px solid transparent;
   color: inherit;
   text-decoration: none;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.doc-child-pages-link:hover {
+  border-left-color: #2563eb;
 }
 
 .doc-child-pages-link:hover .doc-child-pages-link-title {
@@ -287,18 +300,20 @@
 }
 
 .doc-child-pages-link-title {
-  min-width: 0;
-  font-size: 15px;
+  display: block;
+  font-size: 13px;
   font-weight: 500;
   color: #0f172a;
+  line-height: 1.35;
 }
 
 .doc-child-pages-link-meta {
-  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: 11px;
   color: #64748b;
 }
 
@@ -390,7 +405,7 @@
     flex-direction: column;
   }
 
-  .doc-toc {
+  .doc-sidebar {
     width: 100%;
     min-width: auto;
     position: static;
@@ -401,8 +416,6 @@
   }
 
   .doc-child-pages-link {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 4px;
+    padding-right: 8px;
   }
 }

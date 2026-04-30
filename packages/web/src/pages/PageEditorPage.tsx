@@ -78,6 +78,7 @@ export function PageEditorPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [unpublishing, setUnpublishing] = useState(false);
   const [publishScope, setPublishScope] = useState<PublishScope>("self");
   const [descendantCount, setDescendantCount] = useState(0);
   const [descendantCountLoading, setDescendantCountLoading] = useState(false);
@@ -92,6 +93,12 @@ export function PageEditorPage() {
         skippedCount: number;
         failedCount: number;
       }
+    | { status: "error"; message?: string }
+    | { status: "confirm" }
+    | null
+  >(null);
+  const [unpublishResult, setUnpublishResult] = useState<
+    | { status: "success"; unpublishedCount: number }
     | { status: "error"; message?: string }
     | { status: "confirm" }
     | null
@@ -232,7 +239,13 @@ export function PageEditorPage() {
   }, [workspace, pageId]);
 
   const handlePublishClick = useCallback(() => {
+    setUnpublishResult(null);
     setPublishResult({ status: "confirm" });
+  }, []);
+
+  const handleUnpublishClick = useCallback(() => {
+    setPublishResult(null);
+    setUnpublishResult({ status: "confirm" });
   }, []);
 
   const handleReformatClick = useCallback(async () => {
@@ -276,7 +289,17 @@ export function PageEditorPage() {
         failedCount: res.failedCount,
       });
       if (res.snapshots.some((snapshot) => snapshot.pageId === pageId)) {
-        setPage((p) => (p ? { ...p, status: "published" } : p));
+        setPage((p) =>
+          p
+            ? {
+                ...p,
+                status: "published",
+                isLivePublished: true,
+                publishedAt:
+                  res.snapshot?.publishedAt ?? new Date().toISOString(),
+              }
+            : p,
+        );
       }
     } catch (err) {
       setPublishResult({
@@ -288,10 +311,42 @@ export function PageEditorPage() {
     }
   }, [workspace, pageId, publishing, publishScope]);
 
+  const handleUnpublishConfirm = useCallback(async () => {
+    if (!workspace || !pageId || unpublishing) return;
+
+    setUnpublishResult(null);
+    setUnpublishing(true);
+    try {
+      const res = await pagesApi.unpublish(workspace.id, pageId);
+      setPage((p) =>
+        p
+          ? {
+              ...p,
+              status: "draft",
+              isLivePublished: false,
+              publishedAt: null,
+            }
+          : p,
+      );
+      setUnpublishResult({
+        status: "success",
+        unpublishedCount: res.unpublishedCount,
+      });
+    } catch (err) {
+      setUnpublishResult({
+        status: "error",
+        message: err instanceof ApiError ? err.message : undefined,
+      });
+    } finally {
+      setUnpublishing(false);
+    }
+  }, [workspace, pageId, unpublishing]);
+
   saveRef.current = save;
 
   const subtreePageCount = descendantCount + 1;
   const subtreeTooLarge = subtreePageCount > PUBLISH_SUBTREE_PAGE_LIMIT;
+  const isPageLivePublished = Boolean(page?.isLivePublished);
 
   useEffect(() => {
     if (publishScope === "subtree" && subtreeTooLarge) {
@@ -388,7 +443,7 @@ export function PageEditorPage() {
                   setPublishScope(event.target.value as PublishScope);
                   setPublishResult(null);
                 }}
-                disabled={publishing || dirty}
+                disabled={publishing || unpublishing || dirty}
                 aria-label={t("publishScopeLabel")}
               >
                 <option value="self">{t("publishScopeSelf")}</option>
@@ -407,6 +462,7 @@ export function PageEditorPage() {
                 onClick={handlePublishClick}
                 disabled={
                   publishing ||
+                  unpublishing ||
                   dirty ||
                   (publishScope === "subtree" &&
                     (descendantCountLoading || subtreeTooLarge))
@@ -423,6 +479,15 @@ export function PageEditorPage() {
               >
                 {publishing ? t("publishing") : t("publish")}
               </button>
+              {isPageLivePublished && (
+                <button
+                  className="btn-unpublish"
+                  onClick={handleUnpublishClick}
+                  disabled={publishing || unpublishing}
+                >
+                  {unpublishing ? t("unpublishing") : t("unpublish")}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -481,6 +546,24 @@ export function PageEditorPage() {
           </div>
         )}
 
+        {unpublishResult?.status === "confirm" && (
+          <div className="publish-banner publish-banner-confirm">
+            <span>{t("unpublishConfirm")}</span>
+            <button
+              className="btn-primary btn-sm"
+              onClick={handleUnpublishConfirm}
+            >
+              {t("unpublish")}
+            </button>
+            <button
+              className="btn-sm"
+              onClick={() => setUnpublishResult(null)}
+            >
+              {t("common:cancel")}
+            </button>
+          </div>
+        )}
+
         {publishResult?.status === "success" && (
           <div className="publish-banner">
             <span>
@@ -529,6 +612,18 @@ export function PageEditorPage() {
           </div>
         )}
 
+        {unpublishResult?.status === "success" && (
+          <div className="publish-banner">
+            <span>{t("unpublishSuccess")}</span>
+            <button
+              className="btn-close-panel"
+              onClick={() => setUnpublishResult(null)}
+            >
+              &times;
+            </button>
+          </div>
+        )}
+
         {publishResult?.status === "error" && (
           <div className="publish-banner publish-banner-error">
             <span>
@@ -541,6 +636,24 @@ export function PageEditorPage() {
             <button
               className="btn-close-panel"
               onClick={() => setPublishResult(null)}
+            >
+              &times;
+            </button>
+          </div>
+        )}
+
+        {unpublishResult?.status === "error" && (
+          <div className="publish-banner publish-banner-error">
+            <span>
+              {unpublishResult.message
+                ? t("unpublishFailedWithReason", {
+                    reason: unpublishResult.message,
+                  })
+                : t("unpublishFailed")}
+            </span>
+            <button
+              className="btn-close-panel"
+              onClick={() => setUnpublishResult(null)}
             >
               &times;
             </button>
