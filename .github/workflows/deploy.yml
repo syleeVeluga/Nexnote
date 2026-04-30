@@ -245,6 +245,12 @@ jobs:
             parkjinhun@${VM_IP} '
               set -euo pipefail
               cd /opt/wekiflow
+              df -h / || true
+              docker system df || true
+              docker builder prune -af || true
+              docker system prune -af || true
+              sudo journalctl --vacuum-time=3d || true
+              df -h / || true
               if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
                 git stash push --include-untracked -m "pre-deploy-$(date -u +%Y%m%dT%H%M%SZ)"
               fi
@@ -271,5 +277,6 @@ jobs:
 
               docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --remove-orphans
               docker compose -f docker-compose.prod.yml --env-file .env.prod ps
-              docker image prune -f || true
+              docker builder prune -af || true
+              docker image prune -af || true
             '
