@@ -1,17 +1,17 @@
 {
-  "title": "Review Queue",
-  "subtitle": "Approve or reject AI-proposed changes",
+  "title": "New Knowledge",
+  "subtitle": "Review newly learned knowledge and roll back anything the AI applied automatically.",
   "tabs": {
+    "all": "All",
     "suggested": "Suggested",
     "needs_review": "Needs review",
-    "failed": "Failed",
-    "recent": "Recent"
+    "failed": "Failed"
   },
   "badge": {
     "suggested": "suggested",
     "needs_review": "needs review",
     "failed": "failed",
-    "auto_applied": "auto-applied",
+    "auto_applied": "AI auto-applied",
     "approved": "approved",
     "rejected": "rejected",
     "undone": "undone",

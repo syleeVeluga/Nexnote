@@ -1,19 +1,20 @@
 {
-  "title": "검토 대기열",
-  "subtitle": "AI가 제안한 변경사항을 승인하거나 거절하세요",
+  "title": "신규 지식",
+  "subtitle": "챗봇이 새로 배울 내용이에요. AI가 자동 처리한 것도 언제든 되돌릴 수 있어요.",
   "tabs": {
+    "all": "전체",
     "suggested": "제안됨",
     "needs_review": "검토 필요",
-    "failed": "실패",
-    "recent": "최근"
+    "failed": "처리 실패"
   },
   "badge": {
     "suggested": "제안",
     "needs_review": "검토",
     "failed": "실패",
-    "auto_applied": "자동 적용",
+    "auto_applied": "AI 자동 반영",
     "approved": "승인됨",
     "rejected": "거절됨",
+    "undone": "되돌림",
     "noop": "무시"
   },
   "action": {
@@ -62,7 +63,7 @@
     "approveWarning": "승인하면 사람의 수정 위에 새로운 AI 리비전이 생성됩니다. 수신 내용이 더 이상 관련 없다면 거절하고 재분류하세요."
   },
   "detail": {
-    "backToReview": "검토 대기열로 돌아가기",
+    "backToReview": "신규 지식으로 돌아가기",
     "viewFullDetail": "전체 인제스션 상세 보기",
     "payload": "인제스션 페이로드",
     "decisions": "결정",

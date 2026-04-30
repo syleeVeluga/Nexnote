@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { registerUser } from "../support/e2e-helpers.ts";
 
 test(
-  "registers suggested content and approves it from the review queue",
+  "registers suggested content and approves it from new knowledge",
   { tag: "@smoke" },
   async ({ page }) => {
     await registerUser(page, "review");
@@ -28,9 +28,9 @@ test(
     await suggestedItem.click();
 
     await page.getByRole("button", { name: "Approve" }).click();
-    await expect(page.getByText("No items in this tab")).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(
+      page.locator(".review-detail").getByText("approved", { exact: true }),
+    ).toBeVisible({ timeout: 15_000 });
 
     await page.goto("/wiki");
     await expect(

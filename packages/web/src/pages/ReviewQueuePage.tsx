@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
-  Clock3,
   Inbox,
   RotateCcw,
   Send,
@@ -28,7 +27,7 @@ import { Badge, type BadgeTone } from "../components/ui/Badge.js";
 import { PageShell } from "../components/ui/PageShell.js";
 import { SegmentedTabs } from "../components/ui/SegmentedTabs.js";
 
-type TabKey = "all" | "needs_review" | "failed" | "recent";
+type TabKey = "all" | "needs_review" | "failed";
 
 interface TabConfig {
   key: TabKey;
@@ -36,20 +35,34 @@ interface TabConfig {
   sinceDays?: number;
 }
 
+const PENDING_STATUSES: DecisionStatus[] = [
+  "suggested",
+  "needs_review",
+  "failed",
+];
+const RECENT_DONE_STATUSES: DecisionStatus[] = [
+  "auto_applied",
+  "approved",
+  "rejected",
+  "undone",
+];
+const RECENT_DONE_DAYS = 7;
+type DecisionListResponse = Awaited<ReturnType<typeof decisionsApi.list>>;
+type DecisionCountsResponse = Awaited<ReturnType<typeof decisionsApi.counts>>;
+
 const TABS: TabConfig[] = [
-  { key: "all", statuses: ["suggested", "needs_review", "failed"] },
+  { key: "all", statuses: PENDING_STATUSES },
   { key: "needs_review", statuses: ["needs_review"] },
   { key: "failed", statuses: ["failed"] },
-  {
-    key: "recent",
-    statuses: ["auto_applied", "approved", "rejected", "undone"],
-    sinceDays: 7,
-  },
 ];
 
-function tabCount(key: TabKey, counts: DecisionCounts | null) {
-  if (!counts || key === "recent") return undefined;
-  if (key === "all") return counts.pending;
+function tabCount(
+  key: TabKey,
+  counts: DecisionCounts | null,
+  allTotal: number | null,
+) {
+  if (!counts) return undefined;
+  if (key === "all") return allTotal ?? counts.pending;
   return counts[key];
 }
 
@@ -61,8 +74,6 @@ function tabIcon(key: TabKey) {
       return <AlertTriangle size={14} />;
     case "failed":
       return <XCircle size={14} />;
-    case "recent":
-      return <Clock3 size={14} />;
   }
 }
 
@@ -116,6 +127,7 @@ export function ReviewQueuePage() {
   const [detail, setDetail] = useState<DecisionDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [counts, setCounts] = useState<DecisionCounts | null>(null);
+  const [allTotal, setAllTotal] = useState<number | null>(null);
   const refreshSeqRef = useRef(0);
 
   const tabConfig = TABS.find((tab) => tab.key === activeTab) ?? TABS[0];
@@ -123,22 +135,69 @@ export function ReviewQueuePage() {
 
   const refresh = useCallback(
     async (options?: { broadcastCounts?: boolean }) => {
-      if (!workspaceId) return;
+      if (!workspaceId) return [];
       const seq = refreshSeqRef.current + 1;
       refreshSeqRef.current = seq;
       setLoading(true);
       try {
-        const [listRes, countsRes] = await Promise.all([
-          decisionsApi.list(workspaceId, {
-            status: tabConfig.statuses,
-            sinceDays: tabConfig.sinceDays,
-            limit: 50,
-          }),
-          decisionsApi.counts(workspaceId),
-        ]);
-        if (seq !== refreshSeqRef.current) return;
+        let listRes: DecisionListResponse;
+        let countsRes: DecisionCountsResponse;
+        let nextAllTotal: number;
+
+        if (activeTab === "all") {
+          const [pendingRes, recentDoneRes, nextCountsRes] = await Promise.all([
+            decisionsApi.list(workspaceId, {
+              status: PENDING_STATUSES,
+              limit: 50,
+            }),
+            decisionsApi.list(workspaceId, {
+              status: RECENT_DONE_STATUSES,
+              sinceDays: RECENT_DONE_DAYS,
+              limit: 50,
+            }),
+            decisionsApi.counts(workspaceId),
+          ]);
+
+          listRes = {
+            ...pendingRes,
+            data: [...pendingRes.data, ...recentDoneRes.data]
+              .sort(
+                (a, b) =>
+                  new Date(b.createdAt).getTime() -
+                  new Date(a.createdAt).getTime(),
+              )
+              .slice(0, 50),
+            total: pendingRes.total + recentDoneRes.total,
+          };
+          countsRes = nextCountsRes;
+          nextAllTotal = listRes.total;
+        } else {
+          const [nextListRes, nextCountsRes, recentDoneTotal] =
+            await Promise.all([
+              decisionsApi.list(workspaceId, {
+                status: tabConfig.statuses,
+                sinceDays: tabConfig.sinceDays,
+                limit: 50,
+              }),
+              decisionsApi.counts(workspaceId),
+              decisionsApi
+                .list(workspaceId, {
+                  status: RECENT_DONE_STATUSES,
+                  sinceDays: RECENT_DONE_DAYS,
+                  limit: 1,
+                })
+                .then((res) => res.total),
+            ]);
+
+          listRes = nextListRes;
+          countsRes = nextCountsRes;
+          nextAllTotal = countsRes.counts.pending + recentDoneTotal;
+        }
+
+        if (seq !== refreshSeqRef.current) return [];
         setItems(listRes.data);
         setCounts(countsRes.counts);
+        setAllTotal(nextAllTotal);
         if (options?.broadcastCounts) {
           dispatchDecisionCountsUpdated({
             workspaceId,
@@ -151,17 +210,19 @@ export function ReviewQueuePage() {
             ? prev
             : listRes.data[0].id;
         });
+        return listRes.data;
       } catch {
-        if (seq !== refreshSeqRef.current) return;
+        if (seq !== refreshSeqRef.current) return [];
         setItems([]);
         setCounts(null);
+        return [];
       } finally {
         if (seq === refreshSeqRef.current) {
           setLoading(false);
         }
       }
     },
-    [workspaceId, tabConfig],
+    [activeTab, workspaceId, tabConfig],
   );
 
   useEffect(() => {
@@ -226,25 +287,39 @@ export function ReviewQueuePage() {
 
   const handleApprove = useCallback(async () => {
     if (!workspaceId || !selectedId) return;
+    const decisionId = selectedId;
     try {
-      await decisionsApi.approve(workspaceId, selectedId);
-      await refresh({ broadcastCounts: true });
+      await decisionsApi.approve(workspaceId, decisionId);
+      const refreshedItems = await refresh({ broadcastCounts: true });
+      if (
+        activeTab === "all" &&
+        refreshedItems.some((item) => item.id === decisionId)
+      ) {
+        await loadDetail(decisionId);
+      }
     } catch (err) {
       window.alert(err instanceof Error ? err.message : t("actionFailed"));
     }
-  }, [workspaceId, selectedId, refresh, t]);
+  }, [workspaceId, selectedId, refresh, activeTab, loadDetail, t]);
 
   const handleReject = useCallback(
     async (reason?: string) => {
       if (!workspaceId || !selectedId) return;
+      const decisionId = selectedId;
       try {
-        await decisionsApi.reject(workspaceId, selectedId, reason);
-        await refresh({ broadcastCounts: true });
+        await decisionsApi.reject(workspaceId, decisionId, reason);
+        const refreshedItems = await refresh({ broadcastCounts: true });
+        if (
+          activeTab === "all" &&
+          refreshedItems.some((item) => item.id === decisionId)
+        ) {
+          await loadDetail(decisionId);
+        }
       } catch (err) {
         window.alert(err instanceof Error ? err.message : t("actionFailed"));
       }
     },
-    [workspaceId, selectedId, refresh, t],
+    [workspaceId, selectedId, refresh, activeTab, loadDetail, t],
   );
 
   const handleUndo = useCallback(async () => {
@@ -351,14 +426,12 @@ export function ReviewQueuePage() {
           label: t(`tabs.${tab.key}`, {
             defaultValue:
               tab.key === "all"
-                ? "All"
+                ? "전체"
                 : tab.key === "needs_review"
                   ? t("tabs.needs_review")
-                  : tab.key === "failed"
-                    ? t("tabs.failed")
-                    : t("tabs.recent"),
+                  : t("tabs.failed"),
           }),
-          count: tabCount(tab.key, counts),
+          count: tabCount(tab.key, counts, allTotal),
           icon: tabIcon(tab.key),
         }))}
       />
