@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
@@ -105,10 +109,10 @@ jobs:
         run: echo "tag=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build & push API
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile.api
@@ -118,7 +122,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build & push Worker
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile.worker
@@ -128,7 +132,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build & push Web
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile.web
@@ -143,6 +147,7 @@ jobs:
     needs: [preflight, build-push]
     if: needs.preflight.outputs.should_deploy == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v5
@@ -178,6 +183,8 @@ jobs:
           SLACK_WEKIFLOW_USER_ID: ${{ vars.SLACK_WEKIFLOW_USER_ID }}
           IMAGE_TAG: ${{ needs.build-push.outputs.image_tag }}
         run: |
+          set -euo pipefail
+
           # SSH 키 설정
           mkdir -p ~/.ssh
           echo "${{ secrets.GCE_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
@@ -219,16 +226,24 @@ jobs:
           sed -i 's/^[[:space:]]*//' /tmp/env.prod
 
           scp -i ~/.ssh/deploy_key \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=4 \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             /tmp/env.prod parkjinhun@${VM_IP}:/opt/wekiflow/.env.prod
 
           # 배포 실행
-          ssh -i ~/.ssh/deploy_key \
+          timeout 35m ssh -i ~/.ssh/deploy_key \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=4 \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             parkjinhun@${VM_IP} '
-              set -e
+              set -euo pipefail
               cd /opt/wekiflow
               if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
                 git stash push --include-untracked -m "pre-deploy-$(date -u +%Y%m%dT%H%M%SZ)"
@@ -236,6 +251,7 @@ jobs:
               git pull --ff-only origin main
               gcloud auth configure-docker asia-northeast3-docker.pkg.dev --quiet
               docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+              docker compose -f docker-compose.prod.yml --env-file .env.prod stop api worker 2>/dev/null || true
 
               # certbot 설치 및 인증서 최초 발급 (이미 있으면 갱신 시도만)
               if ! command -v certbot &>/dev/null; then
@@ -254,5 +270,6 @@ jobs:
               fi
 
               docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --remove-orphans
+              docker compose -f docker-compose.prod.yml --env-file .env.prod ps
               docker image prune -f || true
             '
