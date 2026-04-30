@@ -82,6 +82,7 @@ import {
   type PageParent,
 } from "../../lib/reorder.js";
 import {
+  collectDescendantPageIds,
   softDeleteSubtree,
   restoreSubtree,
   purgeSubtree,
@@ -248,6 +249,188 @@ async function insertRevisionDiff(
       diffOpsJson: diff.diffOpsJson,
       changedBlocks: diff.changedBlocks,
     });
+  }
+}
+
+const PUBLISH_SUBTREE_MAX_PAGES = 100;
+
+type PublishScope = "self" | "subtree";
+
+interface PublishIssue {
+  pageId: string;
+  title: string | null;
+  reason: string;
+}
+
+interface PublishSnapshotSummary {
+  id: string;
+  pageId: string;
+  versionNo: number;
+  publicPath: string;
+  title: string;
+  isLive: boolean;
+  publishedAt: string;
+}
+
+interface PublishTargetRow {
+  id: string;
+  title: string;
+  slug: string;
+  currentRevisionId: string | null;
+  workspaceSlug: string;
+}
+
+type PublishTargetResult =
+  | {
+      status: "published";
+      snapshot: PublishSnapshotSummary;
+      revisionId: string;
+    }
+  | { status: "skipped"; issue: PublishIssue }
+  | { status: "failed"; issue: PublishIssue };
+
+function toIso(value: Date | string): string {
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
+}
+
+function mapPublishSnapshot(snapshot: {
+  id: string;
+  pageId: string;
+  versionNo: number;
+  publicPath: string;
+  title: string;
+  isLive: boolean;
+  publishedAt: Date | string;
+}): PublishSnapshotSummary {
+  return {
+    id: snapshot.id,
+    pageId: snapshot.pageId,
+    versionNo: snapshot.versionNo,
+    publicPath: snapshot.publicPath,
+    title: snapshot.title,
+    isLive: snapshot.isLive,
+    publishedAt: toIso(snapshot.publishedAt),
+  };
+}
+
+async function publishTargetPage(input: {
+  db: AnyDb;
+  workspaceId: string;
+  userId: string;
+  page: PublishTargetRow;
+  revisionId?: string;
+}): Promise<PublishTargetResult> {
+  const { db, workspaceId, userId, page } = input;
+  const revisionId = input.revisionId ?? page.currentRevisionId;
+
+  if (!revisionId) {
+    return {
+      status: "skipped",
+      issue: { pageId: page.id, title: page.title, reason: "no_revision" },
+    };
+  }
+
+  const [revision] = await db
+    .select({
+      id: pageRevisions.id,
+      contentMd: pageRevisions.contentMd,
+      pageId: pageRevisions.pageId,
+    })
+    .from(pageRevisions)
+    .where(
+      and(
+        eq(pageRevisions.id, revisionId),
+        eq(pageRevisions.pageId, page.id),
+      ),
+    )
+    .limit(1);
+
+  if (!revision) {
+    return {
+      status: "failed",
+      issue: {
+        pageId: page.id,
+        title: page.title,
+        reason: "revision_not_found",
+      },
+    };
+  }
+
+  const publicPath = `/docs/${page.workspaceSlug}/${page.slug}`;
+
+  try {
+    const snapshot = await db.transaction(async (tx: AnyDb) => {
+      const [maxVersion] = await tx
+        .select({
+          max: sql<number>`coalesce(max(${publishedSnapshots.versionNo}), 0)`,
+        })
+        .from(publishedSnapshots)
+        .where(eq(publishedSnapshots.pageId, page.id));
+
+      const nextVersion = Number(maxVersion.max) + 1;
+
+      await tx
+        .update(publishedSnapshots)
+        .set({ isLive: false })
+        .where(
+          and(
+            eq(publishedSnapshots.pageId, page.id),
+            eq(publishedSnapshots.isLive, true),
+          ),
+        );
+
+      const [created] = await tx
+        .insert(publishedSnapshots)
+        .values({
+          workspaceId,
+          pageId: page.id,
+          sourceRevisionId: revisionId,
+          publishedByUserId: userId,
+          versionNo: nextVersion,
+          publicPath,
+          title: page.title,
+          snapshotMd: revision.contentMd,
+          snapshotHtml: "",
+          isLive: true,
+        })
+        .returning();
+
+      await tx.insert(auditLogs).values({
+        workspaceId,
+        userId,
+        entityType: "published_snapshot",
+        entityId: created.id,
+        action: "publish",
+        afterJson: {
+          pageId: page.id,
+          revisionId,
+          versionNo: nextVersion,
+          publicPath,
+        },
+      });
+
+      return created;
+    });
+
+    return {
+      status: "published",
+      snapshot: mapPublishSnapshot(snapshot),
+      revisionId,
+    };
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      return {
+        status: "failed",
+        issue: {
+          pageId: page.id,
+          title: page.title,
+          reason: "publish_conflict",
+        },
+      };
+    }
+    throw err;
   }
 }
 
@@ -1715,6 +1898,12 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         return sendValidationError(reply, bodyResult.error.issues);
       }
 
+      const scope: PublishScope =
+        bodyResult.data.scope === "subtree" ||
+        bodyResult.data.includeDescendants === true
+          ? "subtree"
+          : "self";
+
       const [pageRow] = await fastify.db
         .select({
           id: pages.id,
@@ -1745,12 +1934,8 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      const [revision] = await fastify.db
-        .select({
-          id: pageRevisions.id,
-          contentMd: pageRevisions.contentMd,
-          pageId: pageRevisions.pageId,
-        })
+      const [rootRevision] = await fastify.db
+        .select({ id: pageRevisions.id })
         .from(pageRevisions)
         .where(
           and(
@@ -1760,7 +1945,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         )
         .limit(1);
 
-      if (!revision) {
+      if (!rootRevision) {
         return reply.code(404).send({
           error: "Revision not found",
           code: ERROR_CODES.REVISION_NOT_FOUND,
@@ -1768,93 +1953,153 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const userId = request.user.sub;
-      const publicPath = `/docs/${pageRow.workspaceSlug}/${pageRow.slug}`;
 
-      try {
-        const result = await fastify.db.transaction(async (tx) => {
-          const [maxVersion] = await tx
-            .select({ max: sql<number>`coalesce(max(${publishedSnapshots.versionNo}), 0)` })
-            .from(publishedSnapshots)
-            .where(eq(publishedSnapshots.pageId, pageId));
-
-          const nextVersion = Number(maxVersion.max) + 1;
-
-          await tx
-            .update(publishedSnapshots)
-            .set({ isLive: false })
-            .where(
-              and(
-                eq(publishedSnapshots.pageId, pageId),
-                eq(publishedSnapshots.isLive, true),
-              ),
-            );
-
-          // HTML is empty here — the publish-renderer worker fills it asynchronously
-          const [snapshot] = await tx
-            .insert(publishedSnapshots)
-            .values({
-              workspaceId,
-              pageId,
-              sourceRevisionId: revisionId,
-              publishedByUserId: userId,
-              versionNo: nextVersion,
-              publicPath,
-              title: pageRow.title,
-              snapshotMd: revision.contentMd,
-              snapshotHtml: "",
-              isLive: true,
-            })
-            .returning();
-
-          await tx.insert(auditLogs).values({
-            workspaceId,
-            userId,
-            entityType: "published_snapshot",
-            entityId: snapshot.id,
-            action: "publish",
-            afterJson: {
-              pageId,
-              revisionId,
-              versionNo: nextVersion,
-              publicPath,
-            },
-          });
-
-          return snapshot;
+      if (scope === "self") {
+        const result = await publishTargetPage({
+          db: fastify.db,
+          workspaceId,
+          userId,
+          page: pageRow,
+          revisionId,
         });
 
-        const jobData: PublishRendererJobData = {
-          snapshotId: result.id,
-          pageId,
-          revisionId,
-          workspaceId,
-        };
+        if (result.status === "skipped") {
+          return reply.code(400).send({
+            error: "No revision to publish — page has no content",
+            code: ERROR_CODES.NO_REVISION,
+          });
+        }
+
+        if (result.status === "failed") {
+          if (result.issue.reason === "publish_conflict") {
+            return reply.code(409).send({
+              error: "A live snapshot already exists (concurrent publish)",
+              code: ERROR_CODES.PUBLISH_CONFLICT,
+            });
+          }
+          return reply.code(404).send({
+            error: "Revision not found",
+            code: ERROR_CODES.REVISION_NOT_FOUND,
+          });
+        }
+
         await fastify.queues.publish.add(
           JOB_NAMES.PUBLISH_RENDERER,
-          jobData,
+          {
+            snapshotId: result.snapshot.id,
+            pageId,
+            revisionId: result.revisionId,
+            workspaceId,
+          } satisfies PublishRendererJobData,
           DEFAULT_JOB_OPTIONS,
         );
 
         return reply.code(202).send({
-          snapshot: {
-            id: result.id,
-            pageId: result.pageId,
-            versionNo: result.versionNo,
-            publicPath: result.publicPath,
-            title: result.title,
-            isLive: result.isLive,
-            publishedAt: result.publishedAt.toISOString(),
+          snapshot: result.snapshot,
+          snapshots: [result.snapshot],
+          scope,
+          total: 1,
+          publishedCount: 1,
+          skippedCount: 0,
+          failedCount: 0,
+          skipped: [],
+          failed: [],
+        });
+      }
+
+      const subtreeIds = await collectDescendantPageIds(
+        fastify.db,
+        workspaceId,
+        pageId,
+      );
+
+      if (subtreeIds.length > PUBLISH_SUBTREE_MAX_PAGES) {
+        return reply.code(422).send({
+          error: `Cannot publish more than ${PUBLISH_SUBTREE_MAX_PAGES} pages at once`,
+          code: ERROR_CODES.PUBLISH_SCOPE_TOO_LARGE,
+          details: {
+            limit: PUBLISH_SUBTREE_MAX_PAGES,
+            requestedCount: subtreeIds.length,
           },
         });
-      } catch (err) {
-        if (isUniqueViolation(err)) {
-          return reply.code(409).send({
-            error: "A live snapshot already exists (concurrent publish)",
-            code: ERROR_CODES.PUBLISH_CONFLICT,
-          });
-        }
-        throw err;
       }
+
+      const subtreeRows = await fastify.db
+        .select({
+          id: pages.id,
+          title: pages.title,
+          slug: pages.slug,
+          currentRevisionId: pages.currentRevisionId,
+          workspaceSlug: workspaces.slug,
+        })
+        .from(pages)
+        .innerJoin(workspaces, eq(pages.workspaceId, workspaces.id))
+        .where(
+          and(
+            eq(pages.workspaceId, workspaceId),
+            inArray(pages.id, subtreeIds),
+            notDeleted(),
+          ),
+        );
+      const rowsById = new Map(subtreeRows.map((row) => [row.id, row]));
+      const targets = subtreeIds
+        .map((id) => rowsById.get(id))
+        .filter((row): row is PublishTargetRow => Boolean(row));
+
+      const snapshots: PublishSnapshotSummary[] = [];
+      const skipped: PublishIssue[] = [];
+      const failed: PublishIssue[] = [];
+      const publishedJobs: Array<{
+        snapshot: PublishSnapshotSummary;
+        revisionId: string;
+      }> = [];
+
+      for (const target of targets) {
+        const result = await publishTargetPage({
+          db: fastify.db,
+          workspaceId,
+          userId,
+          page: target,
+          revisionId: target.id === pageId ? revisionId : undefined,
+        });
+
+        if (result.status === "published") {
+          snapshots.push(result.snapshot);
+          publishedJobs.push({
+            snapshot: result.snapshot,
+            revisionId: result.revisionId,
+          });
+        } else if (result.status === "skipped") {
+          skipped.push(result.issue);
+        } else {
+          failed.push(result.issue);
+        }
+      }
+
+      for (const item of publishedJobs) {
+        await fastify.queues.publish.add(
+          JOB_NAMES.PUBLISH_RENDERER,
+          {
+            snapshotId: item.snapshot.id,
+            pageId: item.snapshot.pageId,
+            revisionId: item.revisionId,
+            workspaceId,
+          } satisfies PublishRendererJobData,
+          DEFAULT_JOB_OPTIONS,
+        );
+      }
+
+      return reply.code(202).send({
+        snapshot: snapshots[0] ?? null,
+        snapshots,
+        scope,
+        total: targets.length,
+        publishedCount: snapshots.length,
+        skippedCount: skipped.length,
+        failedCount: failed.length,
+        skipped,
+        failed,
+      });
     },
   );
 

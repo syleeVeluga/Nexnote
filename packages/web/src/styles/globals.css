@@ -937,6 +937,28 @@ label {
   font-weight: 500;
 }
 
+.publish-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.publish-scope-select {
+  height: 30px;
+  max-width: 180px;
+  padding: 0 28px 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.publish-scope-select:disabled {
+  opacity: 0.6;
+}
+
 .editor-area {
   flex: 1;
   overflow: auto;
