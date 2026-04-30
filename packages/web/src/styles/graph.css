@@ -144,11 +144,22 @@
   background: #f8fafc;
 }
 
+.graph-chip.graph-chip-entity:hover {
+  border-color: var(--graph-chip-border, #cbd5e1);
+  background: var(--graph-chip-bg-hover, #f8fafc);
+}
+
 .graph-chip.active {
   border-color: #93c5fd;
   background: #eff6ff;
   color: #1d4ed8;
   font-weight: 600;
+}
+
+.graph-chip.graph-chip-entity.active {
+  border-color: var(--graph-chip-border, #93c5fd);
+  background: var(--graph-chip-bg, #eff6ff);
+  color: var(--graph-chip-color, #1d4ed8);
 }
 
 .graph-chip-swatch {
@@ -165,6 +176,10 @@
   padding: 1px 6px;
   font-size: 11px;
   color: inherit;
+}
+
+.graph-chip.graph-chip-entity.active .graph-chip-count {
+  background: var(--graph-chip-count-bg, rgba(148, 163, 184, 0.16));
 }
 
 .graph-meta-bar {

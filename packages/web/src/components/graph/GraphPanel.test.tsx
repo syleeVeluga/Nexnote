@@ -232,6 +232,29 @@ describe("GraphPanel", () => {
     expect(screen.getByRole("button", { name: /작성함/i })).toBeInTheDocument();
   });
 
+  it("uses entity node colors for active entity filter chips", async () => {
+    render(
+      <GraphPanel
+        workspaceId="workspace-1"
+        pageId="page-1"
+        onClose={() => {}}
+        onNavigateToPage={() => {}}
+      />,
+    );
+
+    await screen.findByTestId("force-graph-2d");
+
+    expect(screen.getByRole("button", { name: /person/i })).toHaveStyle({
+      "--graph-chip-color": "#4f46e5",
+    });
+    expect(screen.getByRole("button", { name: /organization/i })).toHaveStyle({
+      "--graph-chip-color": "#059669",
+    });
+    expect(screen.getByRole("button", { name: /concept/i })).toHaveStyle({
+      "--graph-chip-color": "#d97706",
+    });
+  });
+
   it("normalizes regional English locales before calling the graph API", async () => {
     resolvedLanguage = "en-US";
 

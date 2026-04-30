@@ -5,6 +5,7 @@ import {
   useRef,
   useMemo,
 } from "react";
+import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import ForceGraph2D from "react-force-graph-2d";
 import type { NodeObject, LinkObject } from "react-force-graph-2d";
@@ -55,6 +56,26 @@ type GLink = LinkObject<
     confidence: number;
   }
 >;
+
+type EntityChipStyle = CSSProperties & {
+  "--graph-chip-color": string;
+  "--graph-chip-bg": string;
+  "--graph-chip-bg-hover": string;
+  "--graph-chip-border": string;
+  "--graph-chip-count-bg": string;
+};
+
+function getEntityChipStyle(type: string): EntityChipStyle {
+  const color = getNodeColor(type);
+
+  return {
+    "--graph-chip-color": color,
+    "--graph-chip-bg": `${color}14`,
+    "--graph-chip-bg-hover": `${color}1f`,
+    "--graph-chip-border": `${color}4d`,
+    "--graph-chip-count-bg": `${color}1a`,
+  };
+}
 
 export function GraphPanel({
   workspaceId,
@@ -496,7 +517,8 @@ export function GraphPanel({
               {filterCandidates.entityTypes.map((item) => (
                 <button
                   key={item.value}
-                  className={`graph-chip${activeEntityTypes.includes(item.value) ? " active" : ""}`}
+                  className={`graph-chip graph-chip-entity${activeEntityTypes.includes(item.value) ? " active" : ""}`}
+                  style={getEntityChipStyle(item.value)}
                   onClick={() => toggleEntityType(item.value)}
                   aria-pressed={activeEntityTypes.includes(item.value)}
                 >
