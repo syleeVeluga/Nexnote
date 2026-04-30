@@ -27,7 +27,9 @@ export function SynthesisPage() {
       setPrompt("");
       setSourceText("");
       setTitleHint("");
-      setMessage("AI 생성 제안을 만들고 있습니다. 완료되면 검토 대기열에 표시됩니다.");
+      setMessage(
+        "AI 생성 제안을 만들고 있습니다. 완료되면 신규 지식에 표시됩니다.",
+      );
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "요청에 실패했습니다.");
     } finally {
@@ -47,8 +49,11 @@ export function SynthesisPage() {
             결과는 승인 전까지 일반 페이지 목록에 섞이지 않습니다.
           </p>
         </div>
-        <button className="btn btn-secondary" onClick={() => navigate("/review")}>
-          검토 대기열
+        <button
+          className="btn btn-secondary"
+          onClick={() => navigate("/review")}
+        >
+          신규 지식
         </button>
       </div>
 

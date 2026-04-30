@@ -430,7 +430,7 @@ export function PageEditorPage() {
           <div className="publish-banner">
             <span>
               {reformatResult.status === "queued"
-                ? "AI가 재구성 중입니다. 잠시 후 검토 대기열 → 제안됨 탭에서 확인하세요."
+                ? "AI가 재구성 중입니다. 잠시 후 신규 지식 → 전체 탭에서 확인하세요."
                 : "이미 검토 대기 중인 재구성 요청이 있습니다."}
             </span>
             <button
