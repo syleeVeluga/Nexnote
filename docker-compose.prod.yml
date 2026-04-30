@@ -70,10 +70,12 @@ services:
     command: ["node", "packages/db/dist/migrate.js"]
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      MIGRATION_LOCK_TIMEOUT_MS: ${MIGRATION_LOCK_TIMEOUT_MS:-10000}
+      MIGRATION_STATEMENT_TIMEOUT_MS: ${MIGRATION_STATEMENT_TIMEOUT_MS:-300000}
     depends_on:
       postgres:
         condition: service_healthy
-    restart: on-failure
+    restart: "no"
 
   api:
     image: ${IMAGE_REGISTRY}/wekiflow-api:${IMAGE_TAG:-latest}
