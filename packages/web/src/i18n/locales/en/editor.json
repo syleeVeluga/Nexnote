@@ -52,7 +52,7 @@
   "publishFailed": "Failed to publish",
   "publishConfirm": "Are you sure you want to publish this page?",
   "viewPublished": "View published page",
-  "graph": "Knowledge Graph",
+  "graph": "Relationships",
   "graphDepth": "Traversal Range",
   "graphConfidence": "Relationship Confidence",
   "graphEntityTypes": "Entity Types",

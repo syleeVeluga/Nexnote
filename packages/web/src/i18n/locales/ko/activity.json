@@ -1,6 +1,6 @@
 {
-  "title": "활동",
-  "subtitle": "AI, 검토자, 시스템이 최근에 수행한 변경 내역",
+  "title": "편집 기록",
+  "subtitle": "AI, 검토자, 시스템이 최근에 수행한 문서 변경 내역",
   "filters": {
     "actor": {
       "label": "수행자",
@@ -57,8 +57,8 @@
   "fallbackEntity": "{{type}}",
   "untitled": "제목 없음",
   "fromIngestion": "인제스트 '{{source}}' 에서",
-  "empty": "아직 활동 내역이 없습니다",
-  "emptyFiltered": "필터 조건에 해당하는 활동이 없습니다",
+  "empty": "아직 편집 기록이 없습니다",
+  "emptyFiltered": "필터 조건에 해당하는 편집 기록이 없습니다",
   "loading": "불러오는 중...",
   "loadMore": "더 보기",
   "total": "{{count}}건"

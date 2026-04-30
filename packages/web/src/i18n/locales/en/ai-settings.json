@@ -1,0 +1,130 @@
+{
+  "title": "AI Settings",
+  "eyebrow": "Ingestion agent",
+  "description": "Tune workspace-level agent behavior and watch shadow parity before promotion.",
+  "restrictedDescription": "Only workspace owners and admins can change ingestion agent settings.",
+  "restrictedRole": "Insufficient workspace role.",
+  "saved": "Saved",
+  "tokens": "tokens",
+  "actions": {
+    "refreshDiagnostics": "Refresh diagnostics",
+    "save": "Save",
+    "saving": "Saving...",
+    "resetDefaults": "Reset to defaults"
+  },
+  "modes": {
+    "classic": "Classic",
+    "shadow": "Shadow",
+    "agent": "Agent"
+  },
+  "providers": {
+    "inherit": "Inherit",
+    "openai": "OpenAI",
+    "gemini": "Gemini"
+  },
+  "values": {
+    "notApplicable": "n/a",
+    "default": "default",
+    "unconfigured": "unconfigured",
+    "none": "none"
+  },
+  "sources": {
+    "workspace": "workspace",
+    "env": "env",
+    "mock": "mock",
+    "default": "default",
+    "unconfigured": "unconfigured",
+    "unset": "unset"
+  },
+  "errors": {
+    "loadDiagnostics": "Failed to load diagnostics",
+    "shadowParityNotPassed": "Shadow parity has not passed yet.",
+    "positiveInteger": "{{field}} must be a positive integer.",
+    "integerRange": "{{field}} must be an integer between {{min}} and {{max}}.",
+    "percentRange": "{{field}} must be a number between 0 and 100.",
+    "invalidSettings": "Invalid agent settings",
+    "saveSettings": "Failed to save settings"
+  },
+  "panels": {
+    "workspaceMode": {
+      "title": "Workspace mode",
+      "description": "Classic owns production until shadow parity is acceptable."
+    },
+    "dailyTokenCap": {
+      "title": "Daily token cap",
+      "description": "Agent plan calls stop once the workspace reaches the cap.",
+      "usageAria": "Daily token usage"
+    }
+  },
+  "fields": {
+    "dailyTokenCap": "Daily token cap",
+    "capOverride": "Cap override",
+    "observedDays": "Observed days",
+    "minComparableCount": "Minimum comparable count",
+    "actionAgreement": "Action agreement",
+    "targetAgreement": "Target page agreement",
+    "provider": "Provider",
+    "fastModel": "Fast model",
+    "largeContextModel": "Large-context model",
+    "fastThreshold": "Fast threshold"
+  },
+  "parity": {
+    "title": "Promotion criteria (experimental)",
+    "description": "Adjust the validation strength required before AI can switch to production mode.",
+    "warning": "Lowering these values can auto-apply AI decisions that have not been sufficiently validated. Use only in experiment or test workspaces. Leave blank to use system defaults (7 days / 20 items / 90% / 85%).",
+    "daysSuffix": "days",
+    "countSuffix": "items",
+    "effective": "Current:",
+    "daysValue": "{{count}} days",
+    "countValue": "{{count}} items",
+    "workspaceOverride": "(workspace override)",
+    "systemDefault": "(system default)",
+    "observedDaysHelp": "How many days to observe before promotion review (default 7 days, between 1 and 30).",
+    "comparableCountHelp": "How many ingestion decisions to compare before promotion (default 20, between 1 and 1000).",
+    "actionAgreementHelp": "The rate where AI and the classic classifier choose the same action type (create/update/append, etc.; default 90%).",
+    "targetAgreementHelp": "The rate where AI and the classic classifier choose the same target page (default 85%)."
+  },
+  "modelRouting": {
+    "title": "Model routing",
+    "description": "Provider, fast model, large-context model, and threshold.",
+    "provider": "Provider",
+    "base": "Base",
+    "fast": "Fast",
+    "large": "Large",
+    "threshold": "Threshold",
+    "effective": "Effective"
+  },
+  "instructions": {
+    "title": "Agent instructions",
+    "description": "Prepended to every explore and plan turn for this workspace.",
+    "placeholder": "Engineering RFCs always live under /docs/engineering/rfcs/.\nSlack #incidents sources update existing incident pages; do not create new ones.\n\"PdM\" means product manager.",
+    "characterCount": "{{value}} / 20,000"
+  },
+  "shadowParity": {
+    "title": "Shadow parity",
+    "description": "Agreement compares the latest agent plan to classic decisions.",
+    "metrics": {
+      "comparable": "Comparable",
+      "action": "Action",
+      "target": "Target",
+      "full": "Full"
+    },
+    "status": {
+      "passed": "Gate passed",
+      "blocked": "Below threshold",
+      "collecting": "Collecting",
+      "not_started": "Not started"
+    },
+    "reason": {
+      "passed": "Shadow parity meets the promotion threshold.",
+      "blocked": "Shadow parity is below the promotion threshold.",
+      "collecting": "Shadow parity is still collecting enough comparison data.",
+      "not_started": "Shadow parity has not collected comparable ingestions yet."
+    },
+    "gateSummary": "{{observedDays}}/{{minObservedDays}} days, {{comparableCount}}/{{minComparableCount}} comparable ingestions, action {{actionRate}}, target {{targetRate}}",
+    "dailyComparable": "{{count}} comparable",
+    "dailyAgreement": "action {{actionRate}} / target {{targetRate}}",
+    "loadingDiagnostics": "Loading diagnostics...",
+    "noMismatches": "No mismatches."
+  }
+}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import {
   Bot,
@@ -31,35 +32,27 @@ const INGESTION_MODES: IngestionMode[] = ["classic", "shadow", "agent"];
 const AGENT_PROVIDERS: AIProvider[] = ["openai", "gemini"];
 type ProviderChoice = AIProvider | "inherit";
 
-function percent(value: number | null): string {
-  if (value == null) return "n/a";
+function percent(value: number | null, fallback = "n/a"): string {
+  if (value == null) return fallback;
   return `${Math.round(value * 100)}%`;
 }
 
-function modeLabel(mode: IngestionMode): string {
-  if (mode === "classic") return "Classic";
-  if (mode === "shadow") return "Shadow";
-  return "Agent";
-}
-
-function providerLabel(provider: ProviderChoice): string {
-  if (provider === "inherit") return "Inherit";
-  return provider === "openai" ? "OpenAI" : "Gemini";
-}
-
-function parseOptionalInteger(value: string, label: string): number | null {
+function parseOptionalInteger(
+  value: string,
+  errorMessage: string,
+): number | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   const parsed = Number(trimmed);
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${label} must be a positive integer.`);
+    throw new Error(errorMessage);
   }
   return parsed;
 }
 
 function parseOptionalIntegerInRange(
   value: string,
-  label: string,
+  errorMessage: string,
   min: number,
   max: number,
 ): number | null {
@@ -67,17 +60,20 @@ function parseOptionalIntegerInRange(
   if (!trimmed) return null;
   const parsed = Number(trimmed);
   if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
-    throw new Error(`${label}는 ${min}~${max} 사이의 정수여야 합니다.`);
+    throw new Error(errorMessage);
   }
   return parsed;
 }
 
-function parseOptionalPercent(value: string, label: string): number | null {
+function parseOptionalPercent(
+  value: string,
+  errorMessage: string,
+): number | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   const parsed = Number(trimmed);
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
-    throw new Error(`${label}는 0~100 사이의 숫자여야 합니다.`);
+    throw new Error(errorMessage);
   }
   return Math.round(parsed * 10) / 1000;
 }
@@ -87,13 +83,6 @@ function rateInputFromValue(value: number | null): string {
   return String(Math.round(value * 1000) / 10);
 }
 
-function gateLabel(status: AgentDiagnostics["gate"]["status"]): string {
-  if (status === "passed") return "Gate passed";
-  if (status === "blocked") return "Below threshold";
-  if (status === "collecting") return "Collecting";
-  return "Not started";
-}
-
 function gateTone(status: AgentDiagnostics["gate"]["status"]): BadgeTone {
   if (status === "passed") return "green";
   if (status === "blocked") return "red";
@@ -101,13 +90,8 @@ function gateTone(status: AgentDiagnostics["gate"]["status"]): BadgeTone {
   return "warm";
 }
 
-function sourceLabel(source: string | null | undefined): string {
-  if (!source || source === "unset") return "unset";
-  if (source === "unconfigured") return "unconfigured";
-  return source;
-}
-
 export function AISettingsPage() {
+  const { t } = useTranslation(["aiSettings", "common"]);
   const { current, refresh } = useWorkspace();
   const [mode, setMode] = useState<IngestionMode>("classic");
   const [instructions, setInstructions] = useState("");
@@ -135,6 +119,35 @@ export function AISettingsPage() {
   const canManage = current?.role === "owner" || current?.role === "admin";
   const gate = diagnostics?.gate ?? null;
   const currentModels = diagnostics?.currentModels ?? null;
+  const percentLabel = useCallback(
+    (value: number | null) => percent(value, t("values.notApplicable")),
+    [t],
+  );
+
+  function modeLabel(modeValue: IngestionMode): string {
+    return t(`modes.${modeValue}`);
+  }
+
+  function providerLabel(provider: ProviderChoice): string {
+    if (provider === "inherit") return t("providers.inherit");
+    return t(`providers.${provider}`);
+  }
+
+  function sourceLabel(source: string | null | undefined): string {
+    const key = source ?? "unset";
+    return t(`sources.${key}`, { defaultValue: key });
+  }
+
+  function fallbackValue(
+    value: string | null | undefined,
+    fallback: "default" | "unconfigured",
+  ): string {
+    return value ?? t(`values.${fallback}`);
+  }
+
+  function gateReasonLabel(gateStatus: AgentDiagnostics["gate"]): string {
+    return t(`shadowParity.reason.${gateStatus.status}`);
+  }
 
   useEffect(() => {
     if (!current) return;
@@ -192,12 +205,12 @@ export function AISettingsPage() {
       setDiagnostics(res);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load diagnostics",
+        err instanceof Error ? err.message : t("errors.loadDiagnostics"),
       );
     } finally {
       setLoadingDiagnostics(false);
     }
-  }, [canManage, workspaceId]);
+  }, [canManage, t, workspaceId]);
 
   useEffect(() => {
     void loadDiagnostics();
@@ -221,7 +234,7 @@ export function AISettingsPage() {
       current?.ingestionMode !== "agent" &&
       !gate?.canPromote
     ) {
-      setError(gate?.reason ?? "Shadow parity has not passed yet.");
+      setError(gate?.reason ?? t("errors.shadowParityNotPassed"));
       return;
     }
     let fastThresholdTokens: number | null;
@@ -233,31 +246,44 @@ export function AISettingsPage() {
     try {
       fastThresholdTokens = parseOptionalInteger(
         fastThresholdInput,
-        "Fast threshold",
+        t("errors.positiveInteger", { field: t("fields.fastThreshold") }),
       );
-      dailyTokenCap = parseOptionalInteger(dailyCapInput, "Daily token cap");
+      dailyTokenCap = parseOptionalInteger(
+        dailyCapInput,
+        t("errors.positiveInteger", { field: t("fields.dailyTokenCap") }),
+      );
       parityMinObservedDays = parseOptionalIntegerInRange(
         parityDaysInput,
-        "관찰 기간",
+        t("errors.integerRange", {
+          field: t("fields.observedDays"),
+          min: 1,
+          max: 30,
+        }),
         1,
         30,
       );
       parityMinComparableCount = parseOptionalIntegerInRange(
         parityCountInput,
-        "최소 비교 건수",
+        t("errors.integerRange", {
+          field: t("fields.minComparableCount"),
+          min: 1,
+          max: 1000,
+        }),
         1,
         1000,
       );
       parityMinActionAgreementRate = parseOptionalPercent(
         parityActionRateInput,
-        "결정 종류 일치율",
+        t("errors.percentRange", { field: t("fields.actionAgreement") }),
       );
       parityMinTargetPageAgreementRate = parseOptionalPercent(
         parityTargetRateInput,
-        "대상 페이지 일치율",
+        t("errors.percentRange", { field: t("fields.targetAgreement") }),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Invalid agent settings");
+      setError(
+        err instanceof Error ? err.message : t("errors.invalidSettings"),
+      );
       return;
     }
     setSaving(true);
@@ -282,7 +308,7 @@ export function AISettingsPage() {
       setSaved(true);
       window.setTimeout(() => setSaved(false), 1800);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save settings");
+      setError(err instanceof Error ? err.message : t("errors.saveSettings"));
     } finally {
       setSaving(false);
     }
@@ -300,12 +326,12 @@ export function AISettingsPage() {
     return (
       <PageShell
         className="ai-settings-page"
-        title="AI Settings"
-        description="Only workspace owners and admins can change ingestion agent settings."
+        title={t("title")}
+        description={t("restrictedDescription")}
       >
         <div className="system-empty system-empty-restricted">
           <ShieldAlert size={16} aria-hidden="true" />
-          <span>Insufficient workspace role.</span>
+          <span>{t("restrictedRole")}</span>
         </div>
       </PageShell>
     );
@@ -314,15 +340,15 @@ export function AISettingsPage() {
   return (
     <PageShell
       className="ai-settings-page"
-      eyebrow="Ingestion agent"
-      title="AI Settings"
-      description="Tune workspace-level agent behavior and watch shadow parity before promotion."
+      eyebrow={t("eyebrow")}
+      title={t("title")}
+      description={t("description")}
       actions={
         <>
-          {saved && <Badge tone="green">Saved</Badge>}
+          {saved && <Badge tone="green">{t("saved")}</Badge>}
           <IconButton
             icon={<RefreshCw size={15} />}
-            label="Refresh diagnostics"
+            label={t("actions.refreshDiagnostics")}
             showLabel
             tone="quiet"
             onClick={() => void loadDiagnostics()}
@@ -330,7 +356,7 @@ export function AISettingsPage() {
           />
           <IconButton
             icon={<Save size={15} />}
-            label={saving ? "Saving..." : "Save"}
+            label={saving ? t("actions.saving") : t("actions.save")}
             showLabel
             tone="primary"
             onClick={() => void save()}
@@ -348,8 +374,8 @@ export function AISettingsPage() {
               <Settings2 size={17} />
             </span>
             <div>
-              <h2>Workspace mode</h2>
-              <p>Classic owns production until shadow parity is acceptable.</p>
+              <h2>{t("panels.workspaceMode.title")}</h2>
+              <p>{t("panels.workspaceMode.description")}</p>
             </div>
           </header>
           <div className="ai-mode-control">
@@ -365,7 +391,7 @@ export function AISettingsPage() {
                   className={mode === item ? "active" : ""}
                   onClick={() => setMode(item)}
                   disabled={disabled}
-                  title={disabled ? gate?.reason : undefined}
+                  title={disabled && gate ? gateReasonLabel(gate) : undefined}
                 >
                   {modeLabel(item)}
                 </button>
@@ -380,8 +406,8 @@ export function AISettingsPage() {
               <Gauge size={17} />
             </span>
             <div>
-              <h2>Daily token cap</h2>
-              <p>Agent plan calls stop once the workspace reaches the cap.</p>
+              <h2>{t("panels.dailyTokenCap.title")}</h2>
+              <p>{t("panels.dailyTokenCap.description")}</p>
             </div>
           </header>
           <div className="ai-token-meter">
@@ -391,15 +417,18 @@ export function AISettingsPage() {
               </strong>
               <span>
                 / {(diagnostics?.dailyTokenUsage.cap ?? 0).toLocaleString()}{" "}
-                tokens
+                {t("tokens")}
               </span>
             </div>
-            <div className="ai-token-bar" aria-label="Daily token usage">
+            <div
+              className="ai-token-bar"
+              aria-label={t("panels.dailyTokenCap.usageAria")}
+            >
               <span style={{ width: `${tokenPercent}%` }} />
             </div>
           </div>
           <label className="ai-settings-field">
-            <span>Cap override</span>
+            <span>{t("fields.capOverride")}</span>
             <input
               type="number"
               min={10_000}
@@ -430,10 +459,8 @@ export function AISettingsPage() {
             <SlidersHorizontal size={17} />
           </span>
           <div>
-            <h2>승격 기준 (실험용)</h2>
-            <p>
-              AI가 운영 모드로 전환되기까지 필요한 검증 강도를 조정합니다.
-            </p>
+            <h2>{t("parity.title")}</h2>
+            <p>{t("parity.description")}</p>
           </div>
           <ChevronDown
             size={16}
@@ -446,17 +473,12 @@ export function AISettingsPage() {
           <>
             <div className="ai-parity-overrides-warning">
               <ShieldAlert size={14} aria-hidden="true" />
-              <span>
-                이 값을 낮추면 충분히 검증되지 않은 AI 결정이 워크스페이스에
-                자동 반영될 수 있습니다. 실험·테스트 워크스페이스에서만
-                사용하세요. 비워두면 시스템 기본값(7일 / 20건 / 90% / 85%)이
-                적용됩니다.
-              </span>
+              <span>{t("parity.warning")}</span>
             </div>
 
             <div className="ai-settings-fields">
               <label className="ai-settings-field">
-                <span>관찰 기간</span>
+                <span>{t("fields.observedDays")}</span>
                 <div className="ai-parity-input-row">
                   <input
                     type="number"
@@ -466,26 +488,28 @@ export function AISettingsPage() {
                     inputMode="numeric"
                     value={parityDaysInput}
                     placeholder={String(gate?.criteria.minObservedDays ?? 7)}
-                    onChange={(event) =>
-                      setParityDaysInput(event.target.value)
-                    }
+                    onChange={(event) => setParityDaysInput(event.target.value)}
                   />
-                  <span className="ai-parity-input-suffix">일</span>
+                  <span className="ai-parity-input-suffix">
+                    {t("parity.daysSuffix")}
+                  </span>
                 </div>
-                <small>
-                  며칠 동안 관찰한 뒤 승격 검토 (기본 7일, 1~30 사이).
-                </small>
+                <small>{t("parity.observedDaysHelp")}</small>
                 <small className="ai-parity-effective">
-                  현재 적용:{" "}
-                  <strong>{gate?.criteria.minObservedDays ?? 7}일</strong>{" "}
+                  {t("parity.effective")}{" "}
+                  <strong>
+                    {t("parity.daysValue", {
+                      count: gate?.criteria.minObservedDays ?? 7,
+                    })}
+                  </strong>{" "}
                   {current.agentParityMinObservedDays != null
-                    ? "(이 워크스페이스 override)"
-                    : "(시스템 기본값)"}
+                    ? t("parity.workspaceOverride")
+                    : t("parity.systemDefault")}
                 </small>
               </label>
 
               <label className="ai-settings-field">
-                <span>최소 비교 건수</span>
+                <span>{t("fields.minComparableCount")}</span>
                 <div className="ai-parity-input-row">
                   <input
                     type="number"
@@ -494,28 +518,33 @@ export function AISettingsPage() {
                     step={1}
                     inputMode="numeric"
                     value={parityCountInput}
-                    placeholder={String(gate?.criteria.minComparableCount ?? 20)}
+                    placeholder={String(
+                      gate?.criteria.minComparableCount ?? 20,
+                    )}
                     onChange={(event) =>
                       setParityCountInput(event.target.value)
                     }
                   />
-                  <span className="ai-parity-input-suffix">건</span>
+                  <span className="ai-parity-input-suffix">
+                    {t("parity.countSuffix")}
+                  </span>
                 </div>
-                <small>
-                  이 만큼의 ingestion 결정을 비교한 뒤 승격 (기본 20건,
-                  1~1000).
-                </small>
+                <small>{t("parity.comparableCountHelp")}</small>
                 <small className="ai-parity-effective">
-                  현재 적용:{" "}
-                  <strong>{gate?.criteria.minComparableCount ?? 20}건</strong>{" "}
+                  {t("parity.effective")}{" "}
+                  <strong>
+                    {t("parity.countValue", {
+                      count: gate?.criteria.minComparableCount ?? 20,
+                    })}
+                  </strong>{" "}
                   {current.agentParityMinComparableCount != null
-                    ? "(이 워크스페이스 override)"
-                    : "(시스템 기본값)"}
+                    ? t("parity.workspaceOverride")
+                    : t("parity.systemDefault")}
                 </small>
               </label>
 
               <label className="ai-settings-field">
-                <span>결정 종류 일치율</span>
+                <span>{t("fields.actionAgreement")}</span>
                 <div className="ai-parity-input-row">
                   <input
                     type="number"
@@ -535,23 +564,20 @@ export function AISettingsPage() {
                   />
                   <span className="ai-parity-input-suffix">%</span>
                 </div>
-                <small>
-                  AI와 기존 분류기가 같은 종류(생성/갱신/추가 등)로 판단한 비율
-                  (기본 90%).
-                </small>
+                <small>{t("parity.actionAgreementHelp")}</small>
                 <small className="ai-parity-effective">
-                  현재 적용:{" "}
+                  {t("parity.effective")}{" "}
                   <strong>
-                    {percent(gate?.criteria.minActionAgreementRate ?? 0.9)}
+                    {percentLabel(gate?.criteria.minActionAgreementRate ?? 0.9)}
                   </strong>{" "}
                   {current.agentParityMinActionAgreementRate != null
-                    ? "(이 워크스페이스 override)"
-                    : "(시스템 기본값)"}
+                    ? t("parity.workspaceOverride")
+                    : t("parity.systemDefault")}
                 </small>
               </label>
 
               <label className="ai-settings-field">
-                <span>대상 페이지 일치율</span>
+                <span>{t("fields.targetAgreement")}</span>
                 <div className="ai-parity-input-row">
                   <input
                     type="number"
@@ -572,19 +598,17 @@ export function AISettingsPage() {
                   />
                   <span className="ai-parity-input-suffix">%</span>
                 </div>
-                <small>
-                  AI와 기존 분류기가 같은 페이지를 선택한 비율 (기본 85%).
-                </small>
+                <small>{t("parity.targetAgreementHelp")}</small>
                 <small className="ai-parity-effective">
-                  현재 적용:{" "}
+                  {t("parity.effective")}{" "}
                   <strong>
-                    {percent(
+                    {percentLabel(
                       gate?.criteria.minTargetPageAgreementRate ?? 0.85,
                     )}
                   </strong>{" "}
                   {current.agentParityMinTargetPageAgreementRate != null
-                    ? "(이 워크스페이스 override)"
-                    : "(시스템 기본값)"}
+                    ? t("parity.workspaceOverride")
+                    : t("parity.systemDefault")}
                 </small>
               </label>
             </div>
@@ -592,7 +616,7 @@ export function AISettingsPage() {
             <div className="ai-parity-overrides-actions">
               <IconButton
                 icon={<RotateCcw size={14} />}
-                label="기본값으로 되돌리기"
+                label={t("actions.resetDefaults")}
                 showLabel
                 tone="quiet"
                 onClick={() => {
@@ -613,14 +637,14 @@ export function AISettingsPage() {
             <Bot size={17} />
           </span>
           <div>
-            <h2>Model routing</h2>
-            <p>Provider, fast model, large-context model, and threshold.</p>
+            <h2>{t("modelRouting.title")}</h2>
+            <p>{t("modelRouting.description")}</p>
           </div>
         </header>
 
         <div className="ai-settings-fields">
           <label className="ai-settings-field">
-            <span>Provider</span>
+            <span>{t("fields.provider")}</span>
             <select
               value={agentProvider}
               onChange={(event) =>
@@ -637,7 +661,7 @@ export function AISettingsPage() {
           </label>
 
           <label className="ai-settings-field">
-            <span>Fast model</span>
+            <span>{t("fields.fastModel")}</span>
             <select
               value={agentModelFast}
               onChange={(event) =>
@@ -645,7 +669,7 @@ export function AISettingsPage() {
               }
               disabled={agentProvider === "inherit"}
             >
-              <option value="">Inherit</option>
+              <option value="">{t("providers.inherit")}</option>
               {modelOptions.map((model) => (
                 <option key={model} value={model}>
                   {model}
@@ -655,7 +679,7 @@ export function AISettingsPage() {
           </label>
 
           <label className="ai-settings-field">
-            <span>Large-context model</span>
+            <span>{t("fields.largeContextModel")}</span>
             <select
               value={agentModelLargeContext}
               onChange={(event) =>
@@ -665,7 +689,7 @@ export function AISettingsPage() {
               }
               disabled={agentProvider === "inherit"}
             >
-              <option value="">Inherit</option>
+              <option value="">{t("providers.inherit")}</option>
               {modelOptions.map((model) => (
                 <option key={model} value={model}>
                   {model}
@@ -675,7 +699,7 @@ export function AISettingsPage() {
           </label>
 
           <label className="ai-settings-field">
-            <span>Fast threshold</span>
+            <span>{t("fields.fastThreshold")}</span>
             <input
               type="number"
               min={1_000}
@@ -692,39 +716,48 @@ export function AISettingsPage() {
 
         <div className="ai-model-diagnostics">
           <ModelRoute
-            label="Provider"
-            value={currentModels?.provider ?? "unconfigured"}
-            source={currentModels?.providerSource}
+            label={t("modelRouting.provider")}
+            value={
+              currentModels?.provider
+                ? providerLabel(currentModels.provider)
+                : t("values.unconfigured")
+            }
+            source={sourceLabel(currentModels?.providerSource)}
           />
           <ModelRoute
-            label="Base"
-            value={currentModels?.baseModel ?? "unconfigured"}
-            source={currentModels?.baseModelSource}
+            label={t("modelRouting.base")}
+            value={fallbackValue(currentModels?.baseModel, "unconfigured")}
+            source={sourceLabel(currentModels?.baseModelSource)}
           />
           <ModelRoute
-            label="Fast"
-            value={currentModels?.fastModel ?? "default"}
-            source={currentModels?.fastModelSource}
+            label={t("modelRouting.fast")}
+            value={fallbackValue(currentModels?.fastModel, "default")}
+            source={sourceLabel(currentModels?.fastModelSource)}
           />
           <ModelRoute
-            label="Large"
-            value={currentModels?.largeContextModel ?? "default"}
-            source={currentModels?.largeContextModelSource}
+            label={t("modelRouting.large")}
+            value={fallbackValue(currentModels?.largeContextModel, "default")}
+            source={sourceLabel(currentModels?.largeContextModelSource)}
           />
           <ModelRoute
-            label="Threshold"
+            label={t("modelRouting.threshold")}
             value={(currentModels?.fastThresholdTokens ?? 0).toLocaleString()}
-            source={currentModels?.fastThresholdSource}
+            source={sourceLabel(currentModels?.fastThresholdSource)}
           />
         </div>
 
         <div className="ai-effective-settings">
-          <span>Effective</span>
+          <span>{t("modelRouting.effective")}</span>
           <code>
-            {diagnostics?.agentSettings.effective.provider ?? "default"} /{" "}
-            {diagnostics?.agentSettings.effective.modelFast ?? "default"} /{" "}
+            {diagnostics?.agentSettings.effective.provider
+              ? providerLabel(diagnostics.agentSettings.effective.provider)
+              : t("values.default")}{" "}
+            /{" "}
+            {diagnostics?.agentSettings.effective.modelFast ??
+              t("values.default")}{" "}
+            /{" "}
             {diagnostics?.agentSettings.effective.modelLargeContext ??
-              "default"}
+              t("values.default")}
           </code>
         </div>
       </section>
@@ -735,8 +768,8 @@ export function AISettingsPage() {
             <Bot size={17} />
           </span>
           <div>
-            <h2>Agent instructions</h2>
-            <p>Prepended to every explore and plan turn for this workspace.</p>
+            <h2>{t("instructions.title")}</h2>
+            <p>{t("instructions.description")}</p>
           </div>
         </header>
         <textarea
@@ -744,11 +777,13 @@ export function AISettingsPage() {
           onChange={(event) => setInstructions(event.target.value)}
           rows={9}
           maxLength={20_000}
-          placeholder={`Engineering RFCs always live under /docs/engineering/rfcs/.
-Slack #incidents sources update existing incident pages; do not create new ones.
-"PdM" means product manager.`}
+          placeholder={t("instructions.placeholder")}
         />
-        <footer>{instructions.length.toLocaleString()} / 20,000</footer>
+        <footer>
+          {t("instructions.characterCount", {
+            value: instructions.length.toLocaleString(),
+          })}
+        </footer>
       </section>
 
       <section className="ai-settings-panel">
@@ -757,31 +792,33 @@ Slack #incidents sources update existing incident pages; do not create new ones.
             <Gauge size={17} />
           </span>
           <div>
-            <h2>Shadow parity</h2>
-            <p>
-              Agreement compares the latest agent plan to classic decisions.
-            </p>
+            <h2>{t("shadowParity.title")}</h2>
+            <p>{t("shadowParity.description")}</p>
           </div>
         </header>
 
         <div className="ai-parity-grid">
           <Metric
-            label="Comparable"
+            label={t("shadowParity.metrics.comparable")}
             value={diagnostics?.agreement.comparableCount ?? 0}
           />
           <Metric
-            label="Action"
-            value={percent(diagnostics?.agreement.actionAgreementRate ?? null)}
+            label={t("shadowParity.metrics.action")}
+            value={percentLabel(
+              diagnostics?.agreement.actionAgreementRate ?? null,
+            )}
           />
           <Metric
-            label="Target"
-            value={percent(
+            label={t("shadowParity.metrics.target")}
+            value={percentLabel(
               diagnostics?.agreement.targetPageAgreementRate ?? null,
             )}
           />
           <Metric
-            label="Full"
-            value={percent(diagnostics?.agreement.fullAgreementRate ?? null)}
+            label={t("shadowParity.metrics.full")}
+            value={percentLabel(
+              diagnostics?.agreement.fullAgreementRate ?? null,
+            )}
           />
         </div>
 
@@ -789,15 +826,19 @@ Slack #incidents sources update existing incident pages; do not create new ones.
           <div className={`ai-gate-status ai-gate-status-${gate.status}`}>
             <div>
               <Badge tone={gateTone(gate.status)} size="sm">
-                {gateLabel(gate.status)}
+                {t(`shadowParity.status.${gate.status}`)}
               </Badge>
-              <strong>{gate.reason}</strong>
+              <strong>{gateReasonLabel(gate)}</strong>
             </div>
             <span>
-              {gate.observedDays}/{gate.criteria.minObservedDays} days,{" "}
-              {gate.comparableCount}/{gate.criteria.minComparableCount}{" "}
-              comparable ingestions, action {percent(gate.actionAgreementRate)}{" "}
-              target {percent(gate.targetPageAgreementRate)}
+              {t("shadowParity.gateSummary", {
+                observedDays: gate.observedDays,
+                minObservedDays: gate.criteria.minObservedDays,
+                comparableCount: gate.comparableCount,
+                minComparableCount: gate.criteria.minComparableCount,
+                actionRate: percentLabel(gate.actionAgreementRate),
+                targetRate: percentLabel(gate.targetPageAgreementRate),
+              })}
             </span>
           </div>
         )}
@@ -807,10 +848,16 @@ Slack #incidents sources update existing incident pages; do not create new ones.
             {diagnostics.dailyAgreement.map((item) => (
               <div key={item.day} className="ai-daily-parity-row">
                 <strong>{item.day}</strong>
-                <span>{item.comparableCount} comparable</span>
+                <span>
+                  {t("shadowParity.dailyComparable", {
+                    count: item.comparableCount,
+                  })}
+                </span>
                 <code>
-                  action {percent(item.actionAgreementRate)} / target{" "}
-                  {percent(item.targetPageAgreementRate)}
+                  {t("shadowParity.dailyAgreement", {
+                    actionRate: percentLabel(item.actionAgreementRate),
+                    targetRate: percentLabel(item.targetPageAgreementRate),
+                  })}
                 </code>
               </div>
             ))}
@@ -830,16 +877,18 @@ Slack #incidents sources update existing incident pages; do not create new ones.
                   <small>{new Date(item.startedAt).toLocaleString()}</small>
                 </span>
                 <code>
-                  {item.classicAction ?? "none"}
+                  {item.classicAction ?? t("values.none")}
                   {" -> "}
-                  {item.agentAction ?? "none"}
+                  {item.agentAction ?? t("values.none")}
                 </code>
               </Link>
             ))}
           </div>
         ) : (
           <div className="system-empty">
-            {loadingDiagnostics ? "Loading diagnostics..." : "No mismatches."}
+            {loadingDiagnostics
+              ? t("shadowParity.loadingDiagnostics")
+              : t("shadowParity.noMismatches")}
           </div>
         )}
       </section>
@@ -869,7 +918,7 @@ function ModelRoute({
     <div className="ai-model-route">
       <small>{label}</small>
       <strong>{value}</strong>
-      <span>{sourceLabel(source)}</span>
+      <span>{source}</span>
     </div>
   );
 }
