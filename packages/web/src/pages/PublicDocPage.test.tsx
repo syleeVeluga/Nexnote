@@ -115,4 +115,39 @@ describe("PublicDocPage", () => {
       "/docs/workspace/publish-parent",
     );
   });
+
+  it("does not repeat the page title when the body starts with the same h1", async () => {
+    docsMock.get.mockResolvedValueOnce({
+      id: "snapshot-parent",
+      pageId: "page-parent",
+      title: "Publish Parent",
+      html: '<h1 id="publish-parent">Publish Parent</h1><h2 id="details">Details</h2><p>Parent body.</p>',
+      markdown: "# Publish Parent\n\n## Details\n\nParent body.",
+      toc: [
+        { id: "publish-parent", text: "Publish Parent", level: 1 },
+        { id: "details", text: "Details", level: 2 },
+      ],
+      versionNo: 1,
+      publicPath: "/docs/workspace/publish-parent",
+      publishedAt: "2026-01-01T00:00:00.000Z",
+      workspace: { name: "Workspace", slug: "workspace" },
+      parent: null,
+      children: [],
+    });
+
+    renderPublicDoc();
+
+    await screen.findByRole("heading", { name: "Publish Parent", level: 1 });
+    expect(
+      screen.getAllByRole("heading", { name: "Publish Parent", level: 1 }),
+    ).toHaveLength(1);
+
+    const sidebar = screen.getByRole("complementary");
+    expect(
+      within(sidebar).queryByRole("link", { name: "Publish Parent" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(sidebar).getByRole("link", { name: "Details" }),
+    ).toHaveAttribute("href", "#details");
+  });
 });

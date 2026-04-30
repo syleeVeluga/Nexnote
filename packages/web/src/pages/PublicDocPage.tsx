@@ -64,6 +64,51 @@ function ChildDocLinks({ docs }: { docs: PublicDoc["children"] }) {
   );
 }
 
+function normalizeHeadingText(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+}
+
+function textMatchesTitle(text: string, title: string): boolean {
+  return normalizeHeadingText(text) === normalizeHeadingText(title);
+}
+
+function stripLeadingTitleHeading(html: string, title: string): string {
+  if (typeof DOMParser === "undefined") return html;
+
+  const parsed = new DOMParser().parseFromString(
+    `<div data-doc-root>${html}</div>`,
+    "text/html",
+  );
+  const root = parsed.querySelector("[data-doc-root]");
+  if (!root) return html;
+
+  const firstContentNode = Array.from(root.childNodes).find((node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return (node.textContent ?? "").trim().length > 0;
+    }
+    return node.nodeType === Node.ELEMENT_NODE;
+  });
+
+  if (
+    firstContentNode instanceof HTMLElement &&
+    firstContentNode.tagName.toLowerCase() === "h1" &&
+    textMatchesTitle(firstContentNode.textContent ?? "", title)
+  ) {
+    firstContentNode.remove();
+    return root.innerHTML;
+  }
+
+  return html;
+}
+
+function stripLeadingTitleToc(toc: TocEntry[], title: string): TocEntry[] {
+  const [first, ...rest] = toc;
+  if (first?.level === 1 && textMatchesTitle(first.text, title)) {
+    return rest;
+  }
+  return toc;
+}
+
 function DocSidebar({
   toc,
   childDocs,
@@ -133,6 +178,9 @@ export function PublicDocPage() {
     );
   }
 
+  const displayToc = stripLeadingTitleToc(doc.toc ?? [], doc.title);
+  const displayHtml = stripLeadingTitleHeading(doc.html, doc.title);
+
   return (
     <div className="doc-page">
       <header className="doc-header">
@@ -154,7 +202,7 @@ export function PublicDocPage() {
       </header>
 
       <div className="doc-layout">
-        <DocSidebar toc={doc.toc ?? []} childDocs={doc.children} />
+        <DocSidebar toc={displayToc} childDocs={doc.children} />
 
         <article className="doc-content">
           <h1 className="doc-title">{doc.title}</h1>
@@ -169,7 +217,7 @@ export function PublicDocPage() {
           </div>
           <div
             className="doc-body"
-            dangerouslySetInnerHTML={{ __html: doc.html }}
+            dangerouslySetInnerHTML={{ __html: displayHtml }}
           />
         </article>
       </div>
