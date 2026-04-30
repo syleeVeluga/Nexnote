@@ -3,6 +3,8 @@ import { uuidSchema } from "./common.js";
 
 export const publishPageSchema = z.object({
   revisionId: uuidSchema.optional(),
+  includeDescendants: z.boolean().optional(),
+  scope: z.enum(["self", "subtree"]).optional(),
 });
 
 export const publicDocParamsSchema = z.object({

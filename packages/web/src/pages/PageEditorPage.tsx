@@ -3,8 +3,10 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../hooks/use-workspace.js";
 import {
+  ApiError,
   pages as pagesApi,
   type Page,
+  type PublishScope,
   type Revision,
   type PublishedSnapshotSummary,
 } from "../lib/api-client.js";
@@ -17,6 +19,48 @@ import { GraphPanel } from "../components/graph/GraphPanel.js";
 import { FreshnessBadge } from "../components/editor/FreshnessBadge.js";
 
 type EditorMode = "block" | "source";
+const PUBLISH_SUBTREE_PAGE_LIMIT = 100;
+
+async function countDescendantPages(
+  workspaceId: string,
+  rootPageId: string,
+): Promise<number> {
+  const seen = new Set<string>([rootPageId]);
+  const queue = [rootPageId];
+  let count = 0;
+
+  for (
+    let index = 0;
+    index < queue.length && count < PUBLISH_SUBTREE_PAGE_LIMIT;
+    index += 1
+  ) {
+    const parentPageId = queue[index];
+    let offset = 0;
+
+    while (count < PUBLISH_SUBTREE_PAGE_LIMIT) {
+      const res = await pagesApi.list(workspaceId, {
+        parentPageId,
+        limit: 500,
+        offset,
+      });
+
+      for (const child of res.data) {
+        if (seen.has(child.id)) continue;
+        seen.add(child.id);
+        queue.push(child.id);
+        count += 1;
+        if (count >= PUBLISH_SUBTREE_PAGE_LIMIT) break;
+      }
+
+      if (res.data.length === 0 || offset + res.data.length >= res.total) {
+        break;
+      }
+      offset += res.data.length;
+    }
+  }
+
+  return count;
+}
 
 export function PageEditorPage() {
   const { t } = useTranslation(["editor", "common"]);
@@ -34,9 +78,20 @@ export function PageEditorPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [publishScope, setPublishScope] = useState<PublishScope>("self");
+  const [descendantCount, setDescendantCount] = useState(0);
+  const [descendantCountLoading, setDescendantCountLoading] = useState(false);
   const [publishResult, setPublishResult] = useState<
-    | { status: "success"; snapshot: PublishedSnapshotSummary }
-    | { status: "error" }
+    | {
+        status: "success";
+        snapshot: PublishedSnapshotSummary | null;
+        scope: PublishScope;
+        total: number;
+        publishedCount: number;
+        skippedCount: number;
+        failedCount: number;
+      }
+    | { status: "error"; message?: string }
     | { status: "confirm" }
     | null
   >(null);
@@ -76,6 +131,28 @@ export function PageEditorPage() {
       cancelled = true;
     };
   }, [workspace, pageId, navigate]);
+
+  useEffect(() => {
+    if (!workspace || !pageId) return;
+    let cancelled = false;
+
+    setDescendantCount(0);
+    setDescendantCountLoading(true);
+    countDescendantPages(workspace.id, pageId)
+      .then((count) => {
+        if (!cancelled) setDescendantCount(count);
+      })
+      .catch(() => {
+        if (!cancelled) setDescendantCount(0);
+      })
+      .finally(() => {
+        if (!cancelled) setDescendantCountLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace, pageId]);
 
   const scheduleAutosave = useCallback(() => {
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
@@ -164,7 +241,10 @@ export function PageEditorPage() {
     try {
       const res = await pagesApi.reformat(workspace.id, pageId);
       if (res.status === "already_pending") {
-        setReformatResult({ status: "already_pending", decisionId: res.decisionId ?? "" });
+        setReformatResult({
+          status: "already_pending",
+          decisionId: res.decisionId ?? "",
+        });
       } else {
         setReformatResult({ status: "queued" });
       }
@@ -181,17 +261,41 @@ export function PageEditorPage() {
     setPublishResult(null);
     setPublishing(true);
     try {
-      const res = await pagesApi.publish(workspace.id, pageId);
-      setPublishResult({ status: "success", snapshot: res.snapshot });
-      setPage((p) => (p ? { ...p, status: "published" } : p));
-    } catch {
-      setPublishResult({ status: "error" });
+      const res = await pagesApi.publish(workspace.id, pageId, {
+        scope: publishScope,
+      });
+      setPublishResult({
+        status: "success",
+        snapshot: res.snapshot,
+        scope: res.scope,
+        total: res.total,
+        publishedCount: res.publishedCount,
+        skippedCount: res.skippedCount,
+        failedCount: res.failedCount,
+      });
+      if (res.snapshots.some((snapshot) => snapshot.pageId === pageId)) {
+        setPage((p) => (p ? { ...p, status: "published" } : p));
+      }
+    } catch (err) {
+      setPublishResult({
+        status: "error",
+        message: err instanceof ApiError ? err.message : undefined,
+      });
     } finally {
       setPublishing(false);
     }
-  }, [workspace, pageId, publishing]);
+  }, [workspace, pageId, publishing, publishScope]);
 
   saveRef.current = save;
+
+  const subtreePageCount = descendantCount + 1;
+  const subtreeTooLarge = subtreePageCount > PUBLISH_SUBTREE_PAGE_LIMIT;
+
+  useEffect(() => {
+    if (publishScope === "subtree" && subtreeTooLarge) {
+      setPublishScope("self");
+    }
+  }, [publishScope, subtreeTooLarge]);
 
   // Cancel pending autosave on unmount
   useEffect(() => {
@@ -274,18 +378,55 @@ export function PageEditorPage() {
             >
               {reformatting ? "분석 중..." : "재구성"}
             </button>
-            <button
-              className="btn-publish"
-              onClick={handlePublishClick}
-              disabled={publishing || dirty}
-              title={dirty ? t("save") : undefined}
-            >
-              {publishing ? t("publishing") : t("publish")}
-            </button>
+            <div className="publish-controls">
+              <select
+                className="publish-scope-select"
+                value={publishScope}
+                onChange={(event) => {
+                  setPublishScope(event.target.value as PublishScope);
+                  setPublishResult(null);
+                }}
+                disabled={publishing || dirty}
+                aria-label={t("publishScopeLabel")}
+              >
+                <option value="self">{t("publishScopeSelf")}</option>
+                <option value="subtree" disabled={subtreeTooLarge}>
+                  {descendantCountLoading
+                    ? t("publishScopeSubtreeLoading")
+                    : subtreeTooLarge
+                      ? t("publishScopeSubtreeTooLarge", {
+                          limit: PUBLISH_SUBTREE_PAGE_LIMIT,
+                        })
+                      : t("publishScopeSubtree", { count: subtreePageCount })}
+                </option>
+              </select>
+              <button
+                className="btn-publish"
+                onClick={handlePublishClick}
+                disabled={
+                  publishing ||
+                  dirty ||
+                  (publishScope === "subtree" &&
+                    (descendantCountLoading || subtreeTooLarge))
+                }
+                title={
+                  dirty
+                    ? t("save")
+                    : publishScope === "subtree" && subtreeTooLarge
+                      ? t("publishScopeTooLargeTitle", {
+                          limit: PUBLISH_SUBTREE_PAGE_LIMIT,
+                        })
+                      : undefined
+                }
+              >
+                {publishing ? t("publishing") : t("publish")}
+              </button>
+            </div>
           </div>
         </div>
 
-        {(reformatResult?.status === "queued" || reformatResult?.status === "already_pending") && (
+        {(reformatResult?.status === "queued" ||
+          reformatResult?.status === "already_pending") && (
           <div className="publish-banner">
             <span>
               {reformatResult.status === "queued"
@@ -298,7 +439,10 @@ export function PageEditorPage() {
             >
               제안됨 탭 열기
             </button>
-            <button className="btn-close-panel" onClick={() => setReformatResult(null)}>
+            <button
+              className="btn-close-panel"
+              onClick={() => setReformatResult(null)}
+            >
               &times;
             </button>
           </div>
@@ -307,7 +451,10 @@ export function PageEditorPage() {
         {reformatResult?.status === "error" && (
           <div className="publish-banner publish-banner-error">
             <span>재구성 요청에 실패했습니다. 다시 시도해주세요.</span>
-            <button className="btn-close-panel" onClick={() => setReformatResult(null)}>
+            <button
+              className="btn-close-panel"
+              onClick={() => setReformatResult(null)}
+            >
               &times;
             </button>
           </div>
@@ -315,7 +462,11 @@ export function PageEditorPage() {
 
         {publishResult?.status === "confirm" && (
           <div className="publish-banner publish-banner-confirm">
-            <span>{t("publishConfirm")}</span>
+            <span>
+              {publishScope === "subtree"
+                ? t("publishSubtreeConfirm", { count: subtreePageCount })
+                : t("publishConfirm")}
+            </span>
             <button
               className="btn-primary btn-sm"
               onClick={handlePublishConfirm}
@@ -330,15 +481,26 @@ export function PageEditorPage() {
 
         {publishResult?.status === "success" && (
           <div className="publish-banner">
-            <span>{t("publishSuccess")}</span>
-            <a
-              href={publishResult.snapshot.publicPath}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="publish-banner-link"
-            >
-              {t("viewPublished")}
-            </a>
+            <span>
+              {publishResult.scope === "subtree"
+                ? t("publishSubtreeSuccess", {
+                    published: publishResult.publishedCount,
+                    total: publishResult.total,
+                    skipped: publishResult.skippedCount,
+                    failed: publishResult.failedCount,
+                  })
+                : t("publishSuccess")}
+            </span>
+            {publishResult.snapshot && (
+              <a
+                href={publishResult.snapshot.publicPath}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="publish-banner-link"
+              >
+                {t("viewPublished")}
+              </a>
+            )}
             <button
               className="btn-close-panel"
               onClick={() => setPublishResult(null)}
@@ -350,7 +512,13 @@ export function PageEditorPage() {
 
         {publishResult?.status === "error" && (
           <div className="publish-banner publish-banner-error">
-            <span>{t("publishFailed")}</span>
+            <span>
+              {publishResult.message
+                ? t("publishFailedWithReason", {
+                    reason: publishResult.message,
+                  })
+                : t("publishFailed")}
+            </span>
             <button
               className="btn-close-panel"
               onClick={() => setPublishResult(null)}

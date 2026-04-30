@@ -354,6 +354,26 @@ export interface CompareResultDto {
   changedBlocks: number;
 }
 
+export type PublishScope = "self" | "subtree";
+
+export interface PublishIssue {
+  pageId: string;
+  title: string | null;
+  reason: string;
+}
+
+export interface PublishPageResult {
+  snapshot: PublishedSnapshotSummary | null;
+  snapshots: PublishedSnapshotSummary[];
+  scope: PublishScope;
+  total: number;
+  publishedCount: number;
+  skippedCount: number;
+  failedCount: number;
+  skipped: PublishIssue[];
+  failed: PublishIssue[];
+}
+
 // Re-export shared types for consumers importing from api-client
 export type {
   GraphNode,
@@ -574,8 +594,16 @@ export const pages = {
     );
   },
 
-  publish(workspaceId: string, pageId: string, data?: { revisionId?: string }) {
-    return request<{ snapshot: PublishedSnapshotSummary }>(
+  publish(
+    workspaceId: string,
+    pageId: string,
+    data?: {
+      revisionId?: string;
+      includeDescendants?: boolean;
+      scope?: PublishScope;
+    },
+  ) {
+    return request<PublishPageResult>(
       `/workspaces/${workspaceId}/pages/${pageId}/publish`,
       { method: "POST", body: JSON.stringify(data ?? {}) },
     );
