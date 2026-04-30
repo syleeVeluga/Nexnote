@@ -147,7 +147,7 @@ beforeEach(() => {
 });
 
 describe("GraphPanel", () => {
-  it("refetches when depth and minConfidence change", async () => {
+  it("refetches when depth changes and hides confidence controls", async () => {
     render(
       <GraphPanel
         workspaceId="workspace-1"
@@ -177,18 +177,10 @@ describe("GraphPanel", () => {
       }),
     );
 
-    fireEvent.change(screen.getByRole("slider", { name: "Relationship Confidence" }), {
-      target: { value: "0.6" },
-    });
-
-    await waitFor(() =>
-      expect(graphMock).toHaveBeenLastCalledWith("workspace-1", "page-1", {
-        depth: 2,
-        limit: 800,
-        minConfidence: 0.6,
-        locale: "ko",
-      }),
-    );
+    expect(
+      screen.queryByRole("slider", { name: "Relationship Confidence" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Relationship Confidence")).not.toBeInTheDocument();
   });
 
   it("shows the filtered empty state when all entity types are disabled", async () => {

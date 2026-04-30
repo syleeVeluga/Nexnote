@@ -33,6 +33,7 @@ interface GraphPanelProps {
 const DEFAULT_PANEL_WIDTH = 760;
 const MIN_PANEL_WIDTH = 280;
 const MAX_PANEL_WIDTH_RATIO = 0.8;
+const MIN_GRAPH_CONFIDENCE = 0;
 
 type GNode = NodeObject<{
   id: string;
@@ -86,7 +87,6 @@ export function GraphPanel({
   const { t, i18n } = useTranslation(["editor", "common"]);
   const locale = resolveSupportedLocale(i18n.resolvedLanguage ?? i18n.language);
   const [depth, setDepth] = useState<1 | 2>(1);
-  const [minConfidence, setMinConfidence] = useState(0);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [hoveredEntityId, setHoveredEntityId] = useState<string | null>(null);
@@ -179,7 +179,7 @@ export function GraphPanel({
       .graph(workspaceId, pageId, {
         depth,
         limit: depth === 1 ? 400 : 800,
-        minConfidence,
+        minConfidence: MIN_GRAPH_CONFIDENCE,
         locale,
       })
       .then((res) => setGraphData(res))
@@ -188,7 +188,7 @@ export function GraphPanel({
         setGraphData(null);
       })
       .finally(() => setLoading(false));
-  }, [workspaceId, pageId, depth, minConfidence, locale, t]);
+  }, [workspaceId, pageId, depth, locale, t]);
 
   const filterCandidates = useMemo(
     () =>
@@ -232,9 +232,9 @@ export function GraphPanel({
     () => ({
       activeEntityTypes,
       activePredicates,
-      minConfidence,
+      minConfidence: MIN_GRAPH_CONFIDENCE,
     }),
-    [activeEntityTypes, activePredicates, minConfidence],
+    [activeEntityTypes, activePredicates],
   );
 
   const visibleGraph = useMemo(
@@ -493,21 +493,6 @@ export function GraphPanel({
           >
             2
           </button>
-          <span className="graph-controls-sep" />
-          <span className="graph-controls-label">{t("graphConfidence")}:</span>
-          <label className="graph-range-control">
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={minConfidence}
-              onChange={(e) => setMinConfidence(Number(e.target.value))}
-              aria-label={t("graphConfidence")}
-            />
-            <span className="graph-range-value">{minConfidence.toFixed(1)}</span>
-          </label>
-          <span className="graph-controls-sep" />
         </div>
 
         <div className="graph-filter-groups">
