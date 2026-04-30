@@ -6,6 +6,7 @@ import {
   getEntityRelations,
   getFocusedNeighborhood,
 } from "./graph-helpers.js";
+import { getNodeColor, NODE_COLORS } from "./graph-colors.js";
 import {
   getPredicateDisplayLabel,
   humanizePredicate,
@@ -152,6 +153,22 @@ describe("getEntityRelations", () => {
       "informs",
     ]);
     expect(relations.incoming[0]?.entity.label).toBe("Strategy");
+  });
+});
+
+describe("graph node colors", () => {
+  it("maps extracted entity object types to distinct graph colors", () => {
+    expect(getNodeColor("person")).toBe(NODE_COLORS.person);
+    expect(getNodeColor("organization")).toBe(NODE_COLORS.organization);
+    expect(getNodeColor("product")).toBe(NODE_COLORS.product);
+    expect(getNodeColor("document")).toBe(NODE_COLORS.document);
+    expect(getNodeColor("system")).toBe(NODE_COLORS.system);
+  });
+
+  it("normalizes unknown or blank entity types to the fallback color", () => {
+    expect(getNodeColor(" Product ")).toBe(NODE_COLORS.product);
+    expect(getNodeColor("")).toBe(NODE_COLORS.other);
+    expect(getNodeColor("team")).toBe(NODE_COLORS.other);
   });
 });
 

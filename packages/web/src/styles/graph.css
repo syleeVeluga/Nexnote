@@ -151,6 +151,14 @@
   font-weight: 600;
 }
 
+.graph-chip-swatch {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
+}
+
 .graph-chip-count {
   border-radius: 999px;
   background: rgba(148, 163, 184, 0.16);

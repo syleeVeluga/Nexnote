@@ -8,15 +8,11 @@ import {
 import { useTranslation } from "react-i18next";
 import ForceGraph2D from "react-force-graph-2d";
 import type { NodeObject, LinkObject } from "react-force-graph-2d";
-import type {
-  EntityType,
-  GraphNode,
-  GraphEdge,
-  GraphData,
-} from "@wekiflow/shared";
+import type { GraphNode, GraphEdge, GraphData } from "@wekiflow/shared";
 import { pages as pagesApi } from "../../lib/api-client.js";
 import { resolveSupportedLocale } from "../../i18n/locale.js";
 import { NodeInspector } from "./NodeInspector.js";
+import { getNodeColor } from "./graph-colors.js";
 import { getPredicateDisplayLabel } from "./predicate-label.js";
 import {
   buildGraphFilterCandidates,
@@ -36,16 +32,6 @@ interface GraphPanelProps {
 const DEFAULT_PANEL_WIDTH = 760;
 const MIN_PANEL_WIDTH = 280;
 const MAX_PANEL_WIDTH_RATIO = 0.8;
-
-export const NODE_COLORS: Record<EntityType, string> = {
-  person: "#4f46e5",
-  organization: "#059669",
-  concept: "#d97706",
-  technology: "#7c3aed",
-  location: "#dc2626",
-  event: "#0891b2",
-  other: "#6b7280",
-};
 
 type GNode = NodeObject<{
   id: string;
@@ -69,14 +55,6 @@ type GLink = LinkObject<
     confidence: number;
   }
 >;
-
-function getNodeColor(type: string): string {
-  return (
-    (NODE_COLORS as Record<string, string>)[type.toLowerCase()] ??
-    NODE_COLORS.other
-  );
-}
-
 
 export function GraphPanel({
   workspaceId,
@@ -355,7 +333,7 @@ export function GraphPanel({
       ctx.globalAlpha = isDimmed ? 0.22 : 1;
       ctx.beginPath();
       ctx.arc(node.x ?? 0, node.y ?? 0, size, 0, 2 * Math.PI);
-      ctx.fillStyle = node.isCenter ? "#1d4ed8" : color;
+      ctx.fillStyle = color;
       ctx.fill();
 
       if (node.isCenter) {
@@ -522,6 +500,11 @@ export function GraphPanel({
                   onClick={() => toggleEntityType(item.value)}
                   aria-pressed={activeEntityTypes.includes(item.value)}
                 >
+                  <span
+                    className="graph-chip-swatch"
+                    style={{ backgroundColor: getNodeColor(item.value) }}
+                    aria-hidden="true"
+                  />
                   {item.value}
                   <span className="graph-chip-count">{item.count}</span>
                 </button>
