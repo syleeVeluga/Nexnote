@@ -52,7 +52,7 @@
   "publishFailed": "발행에 실패했습니다",
   "publishConfirm": "이 페이지를 발행하시겠습니까?",
   "viewPublished": "발행된 페이지 보기",
-  "graph": "지식 그래프",
+  "graph": "연결 관계",
   "graphDepth": "탐색 범위",
   "graphConfidence": "관계 신뢰도",
   "graphEntityTypes": "개체 유형",

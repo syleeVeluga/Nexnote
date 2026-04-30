@@ -1,0 +1,130 @@
+{
+  "title": "AI 설정",
+  "eyebrow": "인제스천 에이전트",
+  "description": "워크스페이스 단위의 에이전트 동작을 조정하고, 승격 전 섀도 일치율을 확인합니다.",
+  "restrictedDescription": "워크스페이스 소유자와 관리자만 인제스천 에이전트 설정을 변경할 수 있습니다.",
+  "restrictedRole": "워크스페이스 권한이 부족합니다.",
+  "saved": "저장됨",
+  "tokens": "토큰",
+  "actions": {
+    "refreshDiagnostics": "진단 새로고침",
+    "save": "저장",
+    "saving": "저장 중...",
+    "resetDefaults": "기본값으로 되돌리기"
+  },
+  "modes": {
+    "classic": "클래식",
+    "shadow": "섀도",
+    "agent": "에이전트"
+  },
+  "providers": {
+    "inherit": "상속",
+    "openai": "OpenAI",
+    "gemini": "Gemini"
+  },
+  "values": {
+    "notApplicable": "해당 없음",
+    "default": "기본값",
+    "unconfigured": "미설정",
+    "none": "없음"
+  },
+  "sources": {
+    "workspace": "워크스페이스",
+    "env": "환경 변수",
+    "mock": "목",
+    "default": "기본값",
+    "unconfigured": "미설정",
+    "unset": "미지정"
+  },
+  "errors": {
+    "loadDiagnostics": "진단 정보를 불러오지 못했습니다",
+    "shadowParityNotPassed": "섀도 일치율이 아직 승격 기준을 통과하지 못했습니다.",
+    "positiveInteger": "{{field}}은(는) 양의 정수여야 합니다.",
+    "integerRange": "{{field}}은(는) {{min}}~{{max}} 사이의 정수여야 합니다.",
+    "percentRange": "{{field}}은(는) 0~100 사이의 숫자여야 합니다.",
+    "invalidSettings": "AI 에이전트 설정이 올바르지 않습니다",
+    "saveSettings": "설정을 저장하지 못했습니다"
+  },
+  "panels": {
+    "workspaceMode": {
+      "title": "워크스페이스 모드",
+      "description": "섀도 일치율이 충분해질 때까지 클래식 경로가 운영 반영을 담당합니다."
+    },
+    "dailyTokenCap": {
+      "title": "일일 토큰 한도",
+      "description": "워크스페이스가 한도에 도달하면 에이전트 계획 호출을 중지합니다.",
+      "usageAria": "일일 토큰 사용량"
+    }
+  },
+  "fields": {
+    "dailyTokenCap": "일일 토큰 한도",
+    "capOverride": "한도 override",
+    "observedDays": "관찰 기간",
+    "minComparableCount": "최소 비교 건수",
+    "actionAgreement": "결정 종류 일치율",
+    "targetAgreement": "대상 페이지 일치율",
+    "provider": "프로바이더",
+    "fastModel": "빠른 모델",
+    "largeContextModel": "대용량 컨텍스트 모델",
+    "fastThreshold": "빠른 모델 기준"
+  },
+  "parity": {
+    "title": "승격 기준 (실험용)",
+    "description": "AI가 운영 모드로 전환되기까지 필요한 검증 강도를 조정합니다.",
+    "warning": "이 값을 낮추면 충분히 검증되지 않은 AI 결정이 워크스페이스에 자동 반영될 수 있습니다. 실험·테스트 워크스페이스에서만 사용하세요. 비워두면 시스템 기본값(7일 / 20건 / 90% / 85%)이 적용됩니다.",
+    "daysSuffix": "일",
+    "countSuffix": "건",
+    "effective": "현재 적용:",
+    "daysValue": "{{count}}일",
+    "countValue": "{{count}}건",
+    "workspaceOverride": "(워크스페이스 override)",
+    "systemDefault": "(시스템 기본값)",
+    "observedDaysHelp": "며칠 동안 관찰한 뒤 승격 검토할지 정합니다 (기본 7일, 1~30 사이).",
+    "comparableCountHelp": "이 만큼의 ingestion 결정을 비교한 뒤 승격합니다 (기본 20건, 1~1000 사이).",
+    "actionAgreementHelp": "AI와 기존 분류기가 같은 종류(생성/갱신/추가 등)로 판단한 비율입니다 (기본 90%).",
+    "targetAgreementHelp": "AI와 기존 분류기가 같은 페이지를 선택한 비율입니다 (기본 85%)."
+  },
+  "modelRouting": {
+    "title": "모델 라우팅",
+    "description": "프로바이더, 빠른 모델, 대용량 컨텍스트 모델, 기준 토큰 수를 설정합니다.",
+    "provider": "프로바이더",
+    "base": "기본",
+    "fast": "빠른 모델",
+    "large": "대용량",
+    "threshold": "기준",
+    "effective": "현재 적용"
+  },
+  "instructions": {
+    "title": "에이전트 지침",
+    "description": "이 워크스페이스의 모든 탐색과 계획 단계 앞에 추가됩니다.",
+    "placeholder": "엔지니어링 RFC는 항상 /docs/engineering/rfcs/ 아래에 둡니다.\nSlack #incidents 출처는 기존 incident 페이지를 업데이트하고 새 페이지를 만들지 않습니다.\n\"PdM\"은 product manager를 뜻합니다.",
+    "characterCount": "{{value}} / 20,000"
+  },
+  "shadowParity": {
+    "title": "섀도 일치율",
+    "description": "최신 에이전트 계획과 기존 분류기 결정을 비교합니다.",
+    "metrics": {
+      "comparable": "비교 가능",
+      "action": "결정",
+      "target": "대상",
+      "full": "전체"
+    },
+    "status": {
+      "passed": "게이트 통과",
+      "blocked": "기준 미달",
+      "collecting": "수집 중",
+      "not_started": "시작 전"
+    },
+    "reason": {
+      "passed": "섀도 일치율이 승격 기준을 충족했습니다.",
+      "blocked": "섀도 일치율이 승격 기준보다 낮습니다.",
+      "collecting": "섀도 일치율 비교 데이터를 충분히 수집하는 중입니다.",
+      "not_started": "아직 비교 가능한 섀도 인제스천이 수집되지 않았습니다."
+    },
+    "gateSummary": "{{observedDays}}/{{minObservedDays}}일, 비교 {{comparableCount}}/{{minComparableCount}}건, 결정 {{actionRate}}, 대상 {{targetRate}}",
+    "dailyComparable": "비교 {{count}}건",
+    "dailyAgreement": "결정 {{actionRate}} / 대상 {{targetRate}}",
+    "loadingDiagnostics": "진단 정보를 불러오는 중...",
+    "noMismatches": "불일치가 없습니다."
+  }
+}

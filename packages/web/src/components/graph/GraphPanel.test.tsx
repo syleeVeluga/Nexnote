@@ -21,7 +21,7 @@ vi.mock("react-i18next", () => ({
             "predicateLabels.authors": "authors",
           };
       const messages: Record<string, string> = {
-        graph: "Knowledge Graph",
+        graph: "Relationships",
         graphDepth: "Traversal Range",
         graphConfidence: "Relationship Confidence",
         graphEntityTypes: "Entity Types",

@@ -139,6 +139,13 @@ export function useWorkspaceBreadcrumbs(
       return [...root, { label: t("activity") }];
     }
 
+    if (path.startsWith("/settings/ai")) {
+      return [
+        ...root,
+        { label: t("aiSettings", { defaultValue: "AI Settings" }) },
+      ];
+    }
+
     if (path.startsWith("/system/tokens")) {
       return [
         ...root,

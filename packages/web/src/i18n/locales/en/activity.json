@@ -1,6 +1,6 @@
 {
-  "title": "Activity",
-  "subtitle": "Recent changes by AI, reviewers, and the system",
+  "title": "Edit History",
+  "subtitle": "Recent document edits by AI, reviewers, and the system",
   "filters": {
     "actor": {
       "label": "Actor",
@@ -59,8 +59,8 @@
   "untitled": "Untitled",
   "fromIngestion": "from ingestion {{source}}",
   "changedBlocks": "{{count}} blocks",
-  "empty": "No activity yet",
-  "emptyFiltered": "No activity matches these filters",
+  "empty": "No edit history yet",
+  "emptyFiltered": "No edit history matches these filters",
   "loading": "Loading...",
   "loadMore": "Load more",
   "total": "{{count}} items"
