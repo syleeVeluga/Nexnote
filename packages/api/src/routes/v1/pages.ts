@@ -2007,6 +2007,8 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      // collectDescendantPageIds intentionally returns the root page first;
+      // subtree publishing means "this page plus active descendants".
       const subtreeIds = await collectDescendantPageIds(
         fastify.db,
         workspaceId,

@@ -85,6 +85,7 @@ export function PageEditorPage() {
     | {
         status: "success";
         snapshot: PublishedSnapshotSummary | null;
+        snapshots: PublishedSnapshotSummary[];
         scope: PublishScope;
         total: number;
         publishedCount: number;
@@ -267,6 +268,7 @@ export function PageEditorPage() {
       setPublishResult({
         status: "success",
         snapshot: res.snapshot,
+        snapshots: res.snapshots,
         scope: res.scope,
         total: res.total,
         publishedCount: res.publishedCount,
@@ -492,14 +494,31 @@ export function PageEditorPage() {
                 : t("publishSuccess")}
             </span>
             {publishResult.snapshot && (
-              <a
-                href={publishResult.snapshot.publicPath}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="publish-banner-link"
-              >
-                {t("viewPublished")}
-              </a>
+              <span className="publish-banner-links">
+                {publishResult.scope === "subtree" &&
+                publishResult.snapshots.length > 1 ? (
+                  publishResult.snapshots.map((snapshot) => (
+                    <a
+                      key={snapshot.id}
+                      href={snapshot.publicPath}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="publish-banner-link"
+                    >
+                      {snapshot.title}
+                    </a>
+                  ))
+                ) : (
+                  <a
+                    href={publishResult.snapshot.publicPath}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="publish-banner-link"
+                  >
+                    {t("viewPublished")}
+                  </a>
+                )}
+              </span>
             )}
             <button
               className="btn-close-panel"

@@ -55,7 +55,7 @@
   "publishSubtreeConfirm": "이 페이지와 하위 페이지를 함께 발행할까요? (총 {{count}}개)",
   "publishScopeLabel": "발행 범위",
   "publishScopeSelf": "이 페이지만",
-  "publishScopeSubtree": "하위 포함 {{count}}개",
+  "publishScopeSubtree": "현재+하위 총 {{count}}개",
   "publishScopeSubtreeLoading": "하위 확인 중...",
   "publishScopeSubtreeTooLarge": "{{limit}}개 초과",
   "publishScopeTooLargeTitle": "하위 포함 발행은 한 번에 {{limit}}개까지 가능합니다",

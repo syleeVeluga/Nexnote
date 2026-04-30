@@ -14,7 +14,10 @@ import {
   triples,
 } from "../../packages/db/src/index.ts";
 import { createAuthContext, authHeaders } from "../support/api-fixtures.ts";
-import { startIntegrationStack, type IntegrationStack } from "../support/integration-stack.ts";
+import {
+  startIntegrationStack,
+  type IntegrationStack,
+} from "../support/integration-stack.ts";
 import {
   closeTestConnections,
   prepareTestDatabase,
@@ -245,11 +248,152 @@ describe("pipeline nightly", { concurrency: false }, () => {
       url: `/api/v1/docs/${auth.workspaceSlug}/publishable-page`,
     });
     assert.equal(docsResponse.statusCode, 200);
-    const docsBody = docsResponse.json() as { html: string; publicPath: string };
+    const docsBody = docsResponse.json() as {
+      html: string;
+      publicPath: string;
+    };
 
     assert.match(snapshot.snapshotHtml, /Publishable Page/);
     assert.match(docsBody.html, /Published body\./);
-    assert.equal(docsBody.publicPath, `/docs/${auth.workspaceSlug}/publishable-page`);
+    assert.equal(
+      docsBody.publicPath,
+      `/docs/${auth.workspaceSlug}/publishable-page`,
+    );
+  });
+
+  it("publishes the current page and active descendants when scope is subtree", async () => {
+    const db = getDb();
+    const auth = await createAuthContext(stack.app, "nightly-subtree-publish");
+
+    const parentResponse = await stack.app.inject({
+      method: "POST",
+      url: `/api/v1/workspaces/${auth.workspaceId}/pages`,
+      headers: authHeaders(auth.token),
+      payload: {
+        title: "Publish Parent",
+        slug: "publish-parent",
+        contentMd: "# Publish Parent\n\nParent body.",
+      },
+    });
+    assert.equal(parentResponse.statusCode, 201);
+    const parentBody = parentResponse.json() as { page: { id: string } };
+
+    const childResponse = await stack.app.inject({
+      method: "POST",
+      url: `/api/v1/workspaces/${auth.workspaceId}/pages`,
+      headers: authHeaders(auth.token),
+      payload: {
+        title: "Publish Child",
+        slug: "publish-child",
+        parentPageId: parentBody.page.id,
+        contentMd: "# Publish Child\n\nChild body.",
+      },
+    });
+    assert.equal(childResponse.statusCode, 201);
+    const childBody = childResponse.json() as { page: { id: string } };
+
+    const siblingResponse = await stack.app.inject({
+      method: "POST",
+      url: `/api/v1/workspaces/${auth.workspaceId}/pages`,
+      headers: authHeaders(auth.token),
+      payload: {
+        title: "Publish Sibling",
+        slug: "publish-sibling",
+        contentMd: "# Publish Sibling\n\nSibling body.",
+      },
+    });
+    assert.equal(siblingResponse.statusCode, 201);
+    const siblingBody = siblingResponse.json() as { page: { id: string } };
+
+    const publishResponse = await stack.app.inject({
+      method: "POST",
+      url: `/api/v1/workspaces/${auth.workspaceId}/pages/${parentBody.page.id}/publish`,
+      headers: authHeaders(auth.token),
+      payload: { scope: "subtree" },
+    });
+    assert.equal(publishResponse.statusCode, 202);
+    const publishBody = publishResponse.json() as {
+      scope: "self" | "subtree";
+      total: number;
+      publishedCount: number;
+      skippedCount: number;
+      failedCount: number;
+      snapshots: Array<{ pageId: string; publicPath: string }>;
+    };
+
+    assert.equal(publishBody.scope, "subtree");
+    assert.equal(publishBody.total, 2);
+    assert.equal(publishBody.publishedCount, 2);
+    assert.equal(publishBody.skippedCount, 0);
+    assert.equal(publishBody.failedCount, 0);
+    assert.equal(publishBody.snapshots.length, 2);
+    assert.deepEqual(
+      new Set(publishBody.snapshots.map((snapshot) => snapshot.pageId)),
+      new Set([parentBody.page.id, childBody.page.id]),
+    );
+
+    const parentSnapshots = await db
+      .select()
+      .from(publishedSnapshots)
+      .where(
+        and(
+          eq(publishedSnapshots.pageId, parentBody.page.id),
+          eq(publishedSnapshots.isLive, true),
+        ),
+      );
+    const childSnapshots = await db
+      .select()
+      .from(publishedSnapshots)
+      .where(
+        and(
+          eq(publishedSnapshots.pageId, childBody.page.id),
+          eq(publishedSnapshots.isLive, true),
+        ),
+      );
+    const siblingSnapshots = await db
+      .select()
+      .from(publishedSnapshots)
+      .where(eq(publishedSnapshots.pageId, siblingBody.page.id));
+
+    assert.equal(parentSnapshots.length, 1);
+    assert.equal(childSnapshots.length, 1);
+    assert.equal(siblingSnapshots.length, 0);
+
+    const parentDocsResponse = await stack.app.inject({
+      method: "GET",
+      url: `/api/v1/docs/${auth.workspaceSlug}/publish-parent`,
+    });
+    assert.equal(parentDocsResponse.statusCode, 200);
+    const parentDocsBody = parentDocsResponse.json() as {
+      html: string;
+      publicPath: string;
+    };
+    assert.match(parentDocsBody.html, /Parent body\./);
+    assert.equal(
+      parentDocsBody.publicPath,
+      `/docs/${auth.workspaceSlug}/publish-parent`,
+    );
+
+    const childDocsResponse = await stack.app.inject({
+      method: "GET",
+      url: `/api/v1/docs/${auth.workspaceSlug}/publish-child`,
+    });
+    assert.equal(childDocsResponse.statusCode, 200);
+    const childDocsBody = childDocsResponse.json() as {
+      html: string;
+      publicPath: string;
+    };
+    assert.match(childDocsBody.html, /Child body\./);
+    assert.equal(
+      childDocsBody.publicPath,
+      `/docs/${auth.workspaceSlug}/publish-child`,
+    );
+
+    const siblingDocsResponse = await stack.app.inject({
+      method: "GET",
+      url: `/api/v1/docs/${auth.workspaceSlug}/publish-sibling`,
+    });
+    assert.equal(siblingDocsResponse.statusCode, 404);
   });
 
   it("marks ingestions failed when a mock marker is missing", async () => {
@@ -280,7 +424,10 @@ describe("pipeline nightly", { concurrency: false }, () => {
         }
         return ingestion;
       },
-      { timeoutMs: 20_000, description: "failed ingestion from missing marker" },
+      {
+        timeoutMs: 20_000,
+        description: "failed ingestion from missing marker",
+      },
     );
 
     const decisionsForFailedIngestion = await db

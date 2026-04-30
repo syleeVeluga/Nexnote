@@ -1075,6 +1075,13 @@ label {
   text-decoration: underline;
 }
 
+.publish-banner-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
 .publish-banner .btn-close-panel {
   margin-left: auto;
   color: #14532d;
