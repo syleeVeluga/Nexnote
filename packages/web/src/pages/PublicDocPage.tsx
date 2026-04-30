@@ -140,6 +140,14 @@ export function PublicDocPage() {
           <Link to={`/docs/${doc.workspace.slug}`} className="doc-back-link">
             {doc.workspace.name}
           </Link>
+          {doc.parent && (
+            <>
+              <span className="doc-header-sep">/</span>
+              <Link to={doc.parent.publicPath} className="doc-back-link">
+                {doc.parent.title}
+              </Link>
+            </>
+          )}
           <span className="doc-header-sep">/</span>
           <span className="doc-header-title">{doc.title}</span>
         </div>

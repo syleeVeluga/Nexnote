@@ -1560,6 +1560,7 @@ export interface PublicDoc {
   versionNo: number;
   publicPath: string;
   publishedAt: string;
+  parent: PublicDocListItem | null;
   children: PublicDocListItem[];
   workspace: {
     name: string;

@@ -116,6 +116,31 @@ const docRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const doc = rows[0];
+      const [pageRow] = await fastify.db
+        .select({ parentPageId: pages.parentPageId })
+        .from(pages)
+        .where(and(eq(pages.id, doc.pageId), isNull(pages.deletedAt)))
+        .limit(1);
+
+      const parentRows = pageRow?.parentPageId
+        ? await fastify.db
+            .select({
+              id: publishedSnapshots.id,
+              pageId: publishedSnapshots.pageId,
+              title: publishedSnapshots.title,
+              publicPath: publishedSnapshots.publicPath,
+              versionNo: publishedSnapshots.versionNo,
+              publishedAt: publishedSnapshots.publishedAt,
+            })
+            .from(publishedSnapshots)
+            .where(
+              and(
+                eq(publishedSnapshots.pageId, pageRow.parentPageId),
+                eq(publishedSnapshots.isLive, true),
+              ),
+            )
+            .limit(1)
+        : [];
       const childRows = await fastify.db
         .select({
           id: publishedSnapshots.id,
@@ -156,6 +181,7 @@ const docRoutes: FastifyPluginAsync = async (fastify) => {
         versionNo: doc.versionNo,
         publicPath: doc.publicPath,
         publishedAt: toIso(doc.publishedAt),
+        parent: parentRows[0] ? mapPublicDocListItem(parentRows[0]) : null,
         children: childRows.map(mapPublicDocListItem),
         workspace: {
           name: doc.workspaceName,

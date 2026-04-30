@@ -34,9 +34,9 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
-function renderPublicDoc() {
+function renderPublicDoc(path = "/docs/workspace/publish-parent") {
   return render(
-    <MemoryRouter initialEntries={["/docs/workspace/publish-parent"]}>
+    <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/docs/:workspaceSlug/*" element={<PublicDocPage />} />
       </Routes>
@@ -58,6 +58,7 @@ describe("PublicDocPage", () => {
       publicPath: "/docs/workspace/publish-parent",
       publishedAt: "2026-01-01T00:00:00.000Z",
       workspace: { name: "Workspace", slug: "workspace" },
+      parent: null,
       children: [
         {
           id: "snapshot-child",
@@ -81,5 +82,37 @@ describe("PublicDocPage", () => {
     expect(
       within(sidebar).getByText("Publish Child").closest("a"),
     ).toHaveAttribute("href", "/docs/workspace/publish-child");
+  });
+
+  it("links back to the parent document from a child page", async () => {
+    docsMock.get.mockResolvedValueOnce({
+      id: "snapshot-child",
+      pageId: "page-child",
+      title: "Publish Child",
+      html: "<p>Child body.</p>",
+      markdown: "# Publish Child\n\nChild body.",
+      toc: [],
+      versionNo: 1,
+      publicPath: "/docs/workspace/publish-child",
+      publishedAt: "2026-01-01T00:00:00.000Z",
+      workspace: { name: "Workspace", slug: "workspace" },
+      parent: {
+        id: "snapshot-parent",
+        pageId: "page-parent",
+        title: "Publish Parent",
+        publicPath: "/docs/workspace/publish-parent",
+        versionNo: 1,
+        publishedAt: "2026-01-01T00:00:00.000Z",
+      },
+      children: [],
+    });
+
+    renderPublicDoc("/docs/workspace/publish-child");
+
+    await screen.findByRole("heading", { name: "Publish Child" });
+    expect(screen.getByText("Publish Parent").closest("a")).toHaveAttribute(
+      "href",
+      "/docs/workspace/publish-parent",
+    );
   });
 });
