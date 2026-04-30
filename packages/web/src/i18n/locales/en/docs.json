@@ -4,6 +4,7 @@
   "notFoundDescription": "This page has not been published or does not exist.",
   "backToList": "Back to docs",
   "tableOfContents": "Table of Contents",
+  "childPages": "Child Pages",
   "publishedOn": "Published on {{date}}",
   "version": "Version {{version}}",
   "noDocs": "No published documents",

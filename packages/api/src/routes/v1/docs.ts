@@ -1,12 +1,32 @@
-import type {
-  FastifyPluginAsync,
-  FastifyRequest,
-  FastifyReply,
-} from "fastify";
-import { eq, and } from "drizzle-orm";
+import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
+import { asc, eq, and, isNull } from "drizzle-orm";
 import { publicDocParamsSchema, ERROR_CODES } from "@wekiflow/shared";
 import { publishedSnapshots, workspaces, pages } from "@wekiflow/db";
 import { sendValidationError } from "../../lib/reply-helpers.js";
+
+function toIso(value: Date | string): string {
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
+}
+
+function mapPublicDocListItem(doc: {
+  id: string;
+  pageId: string;
+  title: string;
+  publicPath: string;
+  versionNo: number;
+  publishedAt: Date | string;
+}) {
+  return {
+    id: doc.id,
+    pageId: doc.pageId,
+    title: doc.title,
+    publicPath: doc.publicPath,
+    versionNo: doc.versionNo,
+    publishedAt: toIso(doc.publishedAt),
+  };
+}
 
 /**
  * Minimal markdown → HTML fallback for when the publish-renderer worker
@@ -71,6 +91,7 @@ const docRoutes: FastifyPluginAsync = async (fastify) => {
           versionNo: publishedSnapshots.versionNo,
           publicPath: publishedSnapshots.publicPath,
           publishedAt: publishedSnapshots.publishedAt,
+          workspaceId: publishedSnapshots.workspaceId,
           workspaceName: workspaces.name,
           workspaceSlug: workspaces.slug,
         })
@@ -95,6 +116,31 @@ const docRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const doc = rows[0];
+      const childRows = await fastify.db
+        .select({
+          id: publishedSnapshots.id,
+          pageId: publishedSnapshots.pageId,
+          title: publishedSnapshots.title,
+          publicPath: publishedSnapshots.publicPath,
+          versionNo: publishedSnapshots.versionNo,
+          publishedAt: publishedSnapshots.publishedAt,
+        })
+        .from(pages)
+        .innerJoin(
+          publishedSnapshots,
+          and(
+            eq(publishedSnapshots.pageId, pages.id),
+            eq(publishedSnapshots.isLive, true),
+          ),
+        )
+        .where(
+          and(
+            eq(pages.workspaceId, doc.workspaceId),
+            eq(pages.parentPageId, doc.pageId),
+            isNull(pages.deletedAt),
+          ),
+        )
+        .orderBy(asc(pages.sortOrder), asc(pages.title));
 
       // If the publish-renderer worker hasn't processed the snapshot yet,
       // produce a basic HTML rendering so the content is still readable.
@@ -109,7 +155,8 @@ const docRoutes: FastifyPluginAsync = async (fastify) => {
         toc: doc.tocJson,
         versionNo: doc.versionNo,
         publicPath: doc.publicPath,
-        publishedAt: doc.publishedAt.toISOString(),
+        publishedAt: toIso(doc.publishedAt),
+        children: childRows.map(mapPublicDocListItem),
         workspace: {
           name: doc.workspaceName,
           slug: doc.workspaceSlug,
@@ -160,19 +207,24 @@ const docRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      const workspace = { name: rows[0].workspaceName, slug: rows[0].workspaceSlug };
+      const workspace = {
+        name: rows[0].workspaceName,
+        slug: rows[0].workspaceSlug,
+      };
 
       // A left join produces one row with nulls when no snapshots exist
       const docs = rows
         .filter((r) => r.id !== null)
-        .map((d) => ({
-          id: d.id!,
-          pageId: d.pageId!,
-          title: d.title!,
-          publicPath: d.publicPath!,
-          versionNo: d.versionNo!,
-          publishedAt: d.publishedAt!.toISOString(),
-        }));
+        .map((d) =>
+          mapPublicDocListItem({
+            id: d.id!,
+            pageId: d.pageId!,
+            title: d.title!,
+            publicPath: d.publicPath!,
+            versionNo: d.versionNo!,
+            publishedAt: d.publishedAt!,
+          }),
+        );
 
       return reply.code(200).send({ workspace, docs });
     },

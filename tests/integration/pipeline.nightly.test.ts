@@ -367,11 +367,26 @@ describe("pipeline nightly", { concurrency: false }, () => {
     const parentDocsBody = parentDocsResponse.json() as {
       html: string;
       publicPath: string;
+      children: Array<{ pageId: string; title: string; publicPath: string }>;
     };
     assert.match(parentDocsBody.html, /Parent body\./);
     assert.equal(
       parentDocsBody.publicPath,
       `/docs/${auth.workspaceSlug}/publish-parent`,
+    );
+    assert.deepEqual(
+      parentDocsBody.children.map((child) => ({
+        pageId: child.pageId,
+        title: child.title,
+        publicPath: child.publicPath,
+      })),
+      [
+        {
+          pageId: childBody.page.id,
+          title: "Publish Child",
+          publicPath: `/docs/${auth.workspaceSlug}/publish-child`,
+        },
+      ],
     );
 
     const childDocsResponse = await stack.app.inject({
@@ -382,12 +397,14 @@ describe("pipeline nightly", { concurrency: false }, () => {
     const childDocsBody = childDocsResponse.json() as {
       html: string;
       publicPath: string;
+      children: Array<{ pageId: string; title: string; publicPath: string }>;
     };
     assert.match(childDocsBody.html, /Child body\./);
     assert.equal(
       childDocsBody.publicPath,
       `/docs/${auth.workspaceSlug}/publish-child`,
     );
+    assert.deepEqual(childDocsBody.children, []);
 
     const siblingDocsResponse = await stack.app.inject({
       method: "GET",

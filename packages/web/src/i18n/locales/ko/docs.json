@@ -4,6 +4,7 @@
   "notFoundDescription": "이 페이지는 아직 발행되지 않았거나 존재하지 않습니다.",
   "backToList": "문서 목록으로",
   "tableOfContents": "목차",
+  "childPages": "하위 문서",
   "publishedOn": "발행일: {{date}}",
   "version": "버전 {{version}}",
   "noDocs": "발행된 문서가 없습니다",
