@@ -523,6 +523,7 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
           proposedRevisionId: ingestionDecisions.proposedRevisionId,
           modelRunId: ingestionDecisions.modelRunId,
           agentRunId: ingestionDecisions.agentRunId,
+          scheduledRunId: ingestionDecisions.scheduledRunId,
           action: ingestionDecisions.action,
           status: ingestionDecisions.status,
           proposedPageTitle: ingestionDecisions.proposedPageTitle,

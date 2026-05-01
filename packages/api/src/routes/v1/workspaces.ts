@@ -81,6 +81,10 @@ function toWorkspaceDto(row: typeof workspaces.$inferSelect) {
       row.agentParityMinTargetPageAgreementRate == null
         ? null
         : Number(row.agentParityMinTargetPageAgreementRate),
+    scheduledEnabled: row.scheduledEnabled,
+    scheduledAutoApply: row.scheduledAutoApply,
+    scheduledDailyTokenCap: row.scheduledDailyTokenCap,
+    scheduledPerRunPageLimit: row.scheduledPerRunPageLimit,
     useReconciliationDefault: row.useReconciliationDefault,
     ingestionMode: row.ingestionMode,
     createdAt: row.createdAt.toISOString(),
@@ -263,6 +267,10 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
               workspaces.agentParityMinActionAgreementRate,
             agentParityMinTargetPageAgreementRate:
               workspaces.agentParityMinTargetPageAgreementRate,
+            scheduledEnabled: workspaces.scheduledEnabled,
+            scheduledAutoApply: workspaces.scheduledAutoApply,
+            scheduledDailyTokenCap: workspaces.scheduledDailyTokenCap,
+            scheduledPerRunPageLimit: workspaces.scheduledPerRunPageLimit,
             useReconciliationDefault: workspaces.useReconciliationDefault,
             ingestionMode: workspaces.ingestionMode,
             createdAt: workspaces.createdAt,

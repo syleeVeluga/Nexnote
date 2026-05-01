@@ -1,4 +1,7 @@
-import type { IngestionAction } from "../constants/index.js";
+import type {
+  IngestionAction,
+  ScheduledRunTriggeredBy,
+} from "../constants/index.js";
 
 /** Data passed to the route-classifier job */
 export interface RouteClassifierJobData {
@@ -27,6 +30,26 @@ export interface IngestionAgentJobResult {
   agentRunId: string;
   status: "shadow" | "completed" | "failed" | "timeout";
   proposedMutations: number;
+  totalTokens: number;
+}
+
+/** Data passed to the scheduled-agent job */
+export interface ScheduledAgentJobData {
+  workspaceId: string;
+  taskId?: string | null;
+  triggeredBy: ScheduledRunTriggeredBy;
+  pageIds?: string[];
+  includeDescendants?: boolean;
+  instruction?: string | null;
+  requestedByUserId?: string | null;
+}
+
+/** Result returned from the scheduled-agent job */
+export interface ScheduledAgentJobResult {
+  scheduledRunId: string;
+  agentRunId?: string | null;
+  status: "completed" | "failed";
+  decisionCount: number;
   totalTokens: number;
 }
 

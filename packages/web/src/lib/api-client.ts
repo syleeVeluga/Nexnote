@@ -183,6 +183,10 @@ export interface Workspace {
   agentParityMinComparableCount: number | null;
   agentParityMinActionAgreementRate: number | null;
   agentParityMinTargetPageAgreementRate: number | null;
+  scheduledEnabled: boolean;
+  scheduledAutoApply: boolean;
+  scheduledDailyTokenCap: number | null;
+  scheduledPerRunPageLimit: number;
   useReconciliationDefault: boolean;
   ingestionMode: IngestionMode;
   role?: WorkspaceRole;
@@ -228,6 +232,10 @@ export const workspaces = {
       agentParityMinComparableCount?: number | null;
       agentParityMinActionAgreementRate?: number | null;
       agentParityMinTargetPageAgreementRate?: number | null;
+      scheduledEnabled?: boolean;
+      scheduledAutoApply?: boolean;
+      scheduledDailyTokenCap?: number | null;
+      scheduledPerRunPageLimit?: number;
       useReconciliationDefault?: boolean;
     },
   ) {
