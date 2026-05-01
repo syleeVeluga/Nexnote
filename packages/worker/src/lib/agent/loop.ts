@@ -43,6 +43,7 @@ import type {
 import { createAgentRunState } from "./types.js";
 
 const PROMPT_VERSION = "ingestion-agent-v1";
+const EXPLORE_OUTPUT_RESERVE = Math.min(4_096, MODE_OUTPUT_RESERVE.agent_plan);
 
 const EXPLORE_SYSTEM_PROMPT = `You are a read-only exploration agent for WekiFlow's Markdown knowledge wiki.
 Investigate the incoming ingestion with the available read-only tools, then stop calling tools when you have enough context to plan possible wiki updates.
@@ -234,6 +235,11 @@ export class AgentWorkspaceTokenCapExceeded extends Error {
     public readonly totalLatencyMs: number,
     public readonly cap: number,
     public readonly usedToday: number,
+    public readonly details: {
+      phase?: string;
+      estimatedTokens?: number;
+      remainingTokens?: number;
+    } = {},
   ) {
     super(message);
     this.name = "AgentWorkspaceTokenCapExceeded";
@@ -847,6 +853,13 @@ function enforceWorkspaceTokenCap(input: {
     input.totals.latencyMs,
     input.cap,
     input.usedToday,
+    {
+      phase: input.phase,
+      remainingTokens: Math.max(
+        0,
+        input.cap - input.usedToday - input.totals.tokens,
+      ),
+    },
   );
 }
 
@@ -865,6 +878,13 @@ function enforceWorkspaceTokenCapAfterUsage(input: {
     input.totals.latencyMs,
     input.cap,
     input.usedToday,
+    {
+      phase: input.phase,
+      remainingTokens: Math.max(
+        0,
+        input.cap - input.usedToday - input.totals.tokens,
+      ),
+    },
   );
 }
 
@@ -879,6 +899,11 @@ async function reserveWorkspaceTokensForRequest(
     phase: string;
   },
 ): Promise<AgentWorkspaceTokenReservation | null> {
+  const estimatedTokens = estimateReservationTokens(request);
+  const remainingTokens = Math.max(
+    0,
+    control.cap - control.usedToday - control.totals.tokens,
+  );
   if (!input.reserveWorkspaceTokens) {
     enforceWorkspaceTokenCap(control);
     return null;
@@ -886,7 +911,7 @@ async function reserveWorkspaceTokensForRequest(
 
   const reservation = await input.reserveWorkspaceTokens({
     phase: control.phase,
-    estimatedTokens: estimateReservationTokens(request),
+    estimatedTokens,
     cap: control.cap,
     usedToday: control.usedToday,
     totalTokensInRun: control.totals.tokens,
@@ -900,6 +925,11 @@ async function reserveWorkspaceTokensForRequest(
     control.totals.latencyMs,
     control.cap,
     control.usedToday,
+    {
+      phase: control.phase,
+      estimatedTokens,
+      remainingTokens,
+    },
   );
 }
 
@@ -1019,7 +1049,7 @@ export async function runIngestionAgentShadow(
       promptVersion: PROMPT_VERSION,
       messages,
       temperature: 0.1,
-      maxTokens: MODE_OUTPUT_RESERVE.agent_plan,
+      maxTokens: EXPLORE_OUTPUT_RESERVE,
       tools: readToolDefinitions(),
       toolChoice: "auto",
       budgetMeta: packedExplore.budgetMeta,

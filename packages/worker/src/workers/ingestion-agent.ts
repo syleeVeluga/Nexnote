@@ -39,6 +39,17 @@ function workerConcurrency(): number {
 }
 
 function errorStep(err: unknown): AgentRunTraceStep {
+  const tokenCapDetails =
+    err instanceof AgentWorkspaceTokenCapExceeded
+      ? {
+          cap: err.cap,
+          usedToday: err.usedToday,
+          totalTokens: err.totalTokens,
+          remainingTokens: err.details.remainingTokens ?? null,
+          estimatedTokens: err.details.estimatedTokens ?? null,
+          phase: err.details.phase ?? null,
+        }
+      : {};
   return {
     step: 0,
     type: "error",
@@ -46,6 +57,7 @@ function errorStep(err: unknown): AgentRunTraceStep {
     payload: {
       message: err instanceof Error ? err.message : String(err),
       name: err instanceof Error ? err.name : "Error",
+      ...tokenCapDetails,
     },
   };
 }

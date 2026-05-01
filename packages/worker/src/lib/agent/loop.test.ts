@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   agentMutateToolInputSchemas,
   agentReadToolInputSchemas,
+  MODE_OUTPUT_RESERVE,
   type AIAdapter,
   type AIRequest,
   type AIResponse,
@@ -127,6 +128,9 @@ describe("runIngestionAgentShadow", () => {
     assert.equal(result.planJson.proposedPlan[0].action, "update");
     assert.equal(result.decisionsCount, 1);
     assert.equal(recorded.length, 3);
+    assert.equal(adapter.requests[0].maxTokens, 4_096);
+    assert.equal(adapter.requests[1].maxTokens, 4_096);
+    assert.equal(adapter.requests[2].maxTokens, MODE_OUTPUT_RESERVE.agent_plan);
     assert.ok(
       adapter.requests[0].tools?.some((tool) => tool.name === "search_pages"),
     );
@@ -611,5 +615,39 @@ describe("runIngestionAgentShadow", () => {
       reservations.every((reservation) => reservation.estimatedTokens > 0),
     );
     assert.deepEqual(releases, [15, 15]);
+  });
+
+  it("reports reservation details when the workspace token cap blocks a model call", async () => {
+    const adapter = new SequenceAdapter([]);
+
+    await assert.rejects(
+      () =>
+        runIngestionAgentShadow({
+          db: fakeDb,
+          workspaceId: "workspace-1",
+          ingestion: {
+            id: "ingestion-1",
+            sourceName: "test",
+            contentType: "text/markdown",
+            titleHint: "Cap",
+            normalizedText: "Token reservation cap test.",
+            rawPayload: {},
+          },
+          adapter,
+          baseProvider: "openai",
+          baseModel: "gpt-5.4",
+          tools: {},
+          workspaceTokenUsage: { usedToday: 90, cap: 100 },
+          reserveWorkspaceTokens: async () => null,
+        }),
+      (err: unknown) => {
+        assert.ok(err instanceof AgentWorkspaceTokenCapExceeded);
+        assert.equal(err.details.phase, "explore model call");
+        assert.equal(err.details.remainingTokens, 10);
+        assert.ok((err.details.estimatedTokens ?? 0) > 0);
+        return true;
+      },
+    );
+    assert.equal(adapter.requests.length, 0);
   });
 });
