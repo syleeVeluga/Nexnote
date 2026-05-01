@@ -24,6 +24,7 @@ import {
   MODE_OUTPUT_RESERVE,
   QUEUE_NAMES,
   IMPORT_SOURCE_NAMES,
+  normalizeAIModelId,
 } from "@wekiflow/shared";
 import type {
   ContentReformatterJobData,
@@ -104,7 +105,10 @@ function getReformatProvider(): { provider: "openai" | "gemini"; model: string }
   if (process.env["GEMINI_API_KEY"]) {
     return {
       provider: "gemini",
-      model: process.env["REFORMAT_GEMINI_MODEL"] ?? "gemini-3.1-flash-lite",
+      model: normalizeAIModelId(
+        process.env["REFORMAT_GEMINI_MODEL"] ??
+          "gemini-3.1-flash-lite-preview",
+      ),
     };
   }
   // Fall back to default provider

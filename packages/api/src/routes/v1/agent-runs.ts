@@ -8,6 +8,7 @@ import {
   agentTraceChannel,
   agentRunTraceEventSchema,
   getAgentModelProvider,
+  normalizeAIModelId,
   type AIProvider,
   type AgentRunDto,
   type AgentRunTraceStep,
@@ -68,12 +69,14 @@ function defaultModelForProvider(
   }
   if (provider === "gemini") {
     return {
-      model: env["GEMINI_MODEL"] ?? AI_MODELS.GEMINI_DEFAULT,
+      model: normalizeAIModelId(
+        env["GEMINI_MODEL"] ?? AI_MODELS.GEMINI_DEFAULT,
+      ),
       source: env["GEMINI_MODEL"] ? "env" : "default",
     };
   }
   return {
-    model: env["OPENAI_MODEL"] ?? AI_MODELS.OPENAI_DEFAULT,
+    model: normalizeAIModelId(env["OPENAI_MODEL"] ?? AI_MODELS.OPENAI_DEFAULT),
     source: env["OPENAI_MODEL"] ? "env" : "default",
   };
 }
@@ -85,7 +88,7 @@ function agentModelOverrideForProvider(
   if (!model || !provider) return null;
   const modelProvider = getAgentModelProvider(model);
   if (modelProvider && modelProvider !== provider) return null;
-  return model;
+  return normalizeAIModelId(model);
 }
 
 function effectiveAgentModelOverride(input: {

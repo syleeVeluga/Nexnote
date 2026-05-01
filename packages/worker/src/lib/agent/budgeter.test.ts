@@ -32,7 +32,7 @@ describe("selectAgentModel", () => {
       baseProvider: "gemini",
       baseModel: "gemini-3.1-pro",
       env: {
-        AGENT_MODEL_FAST: "gemini-3.1-flash-lite",
+        AGENT_MODEL_FAST: "gemini-3.1-flash-lite-preview",
         AGENT_MODEL_LARGE_CONTEXT: "gemini-3.1-pro",
         AGENT_FAST_THRESHOLD_TOKENS: "50000",
       },
@@ -41,6 +41,22 @@ describe("selectAgentModel", () => {
     assert.equal(selected.provider, "gemini");
     assert.equal(selected.model, "gemini-3.1-pro");
     assert.equal(selected.routing, "large_context");
+  });
+
+  it("normalizes legacy Gemini fast-model overrides", () => {
+    const selected = selectAgentModel({
+      estimatedInputTokens: 10_000,
+      baseProvider: "gemini",
+      baseModel: "gemini-3.1-pro",
+      env: {
+        AGENT_MODEL_FAST: "gemini-3.1-flash-lite",
+        AGENT_FAST_THRESHOLD_TOKENS: "50000",
+      },
+    });
+
+    assert.equal(selected.provider, "gemini");
+    assert.equal(selected.model, "gemini-3.1-flash-lite-preview");
+    assert.equal(selected.routing, "fast");
   });
 
   it("uses the overridden provider's default model when providers differ", () => {

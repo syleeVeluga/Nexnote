@@ -111,7 +111,7 @@ export const AI_MODELS = {
 
 export const AGENT_MODEL_PRESETS_BY_PROVIDER = {
   openai: ["gpt-5.4-mini", "gpt-5.4", "gpt-5.4-pro"],
-  gemini: ["gemini-3.1-flash-lite", "gemini-3.1-pro"],
+  gemini: ["gemini-3.1-flash-lite-preview", "gemini-3.1-pro"],
 } as const satisfies Record<AIProvider, readonly string[]>;
 
 export const AGENT_MODEL_PRESETS = [
@@ -120,14 +120,23 @@ export const AGENT_MODEL_PRESETS = [
 ] as const;
 export type AgentModelPreset = (typeof AGENT_MODEL_PRESETS)[number];
 
+const AI_MODEL_ALIASES: Record<string, AgentModelPreset> = {
+  "gemini-3.1-flash-lite": "gemini-3.1-flash-lite-preview",
+};
+
+export function normalizeAIModelId(model: string): string {
+  return AI_MODEL_ALIASES[model] ?? model;
+}
+
 export function getAgentModelProvider(
   model: string | null | undefined,
 ): AIProvider | null {
   if (!model) return null;
+  const normalized = normalizeAIModelId(model);
   for (const provider of AI_PROVIDERS) {
     if (
       (AGENT_MODEL_PRESETS_BY_PROVIDER[provider] as readonly string[]).includes(
-        model,
+        normalized,
       )
     ) {
       return provider;
@@ -191,7 +200,7 @@ export const MODEL_CONTEXT_BUDGETS: Record<string, ModelContextBudget> = {
     inputTokenBudget: 800_000,
     safetyMarginRatio: 0.9,
   },
-  "gemini:gemini-3.1-flash-lite": {
+  "gemini:gemini-3.1-flash-lite-preview": {
     inputTokenBudget: 500_000,
     safetyMarginRatio: 0.9,
   },

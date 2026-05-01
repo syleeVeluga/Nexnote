@@ -6,6 +6,7 @@ import {
   estimateTokens,
   getModelContextBudget,
   getAgentModelProvider,
+  normalizeAIModelId,
   sliceWithinTokenBudget,
   type AIBudgetMeta,
   type AIMessage,
@@ -124,9 +125,9 @@ function defaultModelForProvider(
   env: NodeJS.ProcessEnv,
 ): string {
   if (provider === "gemini") {
-    return env["GEMINI_MODEL"] ?? AI_MODELS.GEMINI_DEFAULT;
+    return normalizeAIModelId(env["GEMINI_MODEL"] ?? AI_MODELS.GEMINI_DEFAULT);
   }
-  return env["OPENAI_MODEL"] ?? AI_MODELS.OPENAI_DEFAULT;
+  return normalizeAIModelId(env["OPENAI_MODEL"] ?? AI_MODELS.OPENAI_DEFAULT);
 }
 
 function agentModelOverrideForProvider(
@@ -136,7 +137,7 @@ function agentModelOverrideForProvider(
   if (!model) return undefined;
   const modelProvider = getAgentModelProvider(model);
   if (modelProvider && modelProvider !== provider) return undefined;
-  return model;
+  return normalizeAIModelId(model);
 }
 
 export function selectAgentModel(

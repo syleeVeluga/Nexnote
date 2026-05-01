@@ -178,6 +178,16 @@ describe("getDefaultProvider", () => {
     assert.equal(result.model, "gemini-3.1-pro-custom");
   });
 
+  it("normalizes legacy Gemini flash-lite model ids", () => {
+    clearAIEnv();
+    process.env["GEMINI_API_KEY"] = "gem-test-key";
+    process.env["GEMINI_MODEL"] = "gemini-3.1-flash-lite";
+
+    const result = getDefaultProvider();
+    assert.equal(result.provider, "gemini");
+    assert.equal(result.model, "gemini-3.1-flash-lite-preview");
+  });
+
   it("uses default model when OPENAI_MODEL is not set", () => {
     clearAIEnv();
     process.env["OPENAI_API_KEY"] = "sk-test-key";

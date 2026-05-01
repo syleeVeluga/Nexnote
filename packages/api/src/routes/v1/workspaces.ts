@@ -14,6 +14,7 @@ import {
   WORKSPACE_ROLES,
   ERROR_CODES,
   getAgentModelProvider,
+  normalizeAIModelId,
 } from "@wekiflow/shared";
 import {
   sendValidationError,
@@ -68,8 +69,12 @@ function toWorkspaceDto(row: typeof workspaces.$inferSelect) {
     defaultAiPolicy: row.defaultAiPolicy,
     agentInstructions: row.agentInstructions,
     agentProvider: row.agentProvider,
-    agentModelFast: row.agentModelFast,
-    agentModelLargeContext: row.agentModelLargeContext,
+    agentModelFast: row.agentModelFast
+      ? normalizeAIModelId(row.agentModelFast)
+      : null,
+    agentModelLargeContext: row.agentModelLargeContext
+      ? normalizeAIModelId(row.agentModelLargeContext)
+      : null,
     agentFastThresholdTokens: row.agentFastThresholdTokens,
     agentDailyTokenCap: row.agentDailyTokenCap,
     agentParityMinObservedDays: row.agentParityMinObservedDays,

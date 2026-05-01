@@ -11,7 +11,7 @@ import type {
   AIToolDefinition,
   NormalizedToolCall,
 } from "@wekiflow/shared";
-import { AI_MODELS } from "@wekiflow/shared";
+import { AI_MODELS, normalizeAIModelId } from "@wekiflow/shared";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const fixturePath = resolve(
@@ -485,7 +485,8 @@ class GeminiAdapter implements AIAdapter {
       .map(toGeminiContent)
       .filter((content): content is GeminiWireContent => content !== null);
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${request.model}:generateContent`;
+    const model = normalizeAIModelId(request.model);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
     const res = await fetch(url, {
       method: "POST",
@@ -584,13 +585,17 @@ export function getDefaultProvider(): { provider: AIProvider; model: string } {
   if (process.env["OPENAI_API_KEY"]) {
     return {
       provider: "openai",
-      model: process.env["OPENAI_MODEL"] ?? AI_MODELS.OPENAI_DEFAULT,
+      model: normalizeAIModelId(
+        process.env["OPENAI_MODEL"] ?? AI_MODELS.OPENAI_DEFAULT,
+      ),
     };
   }
   if (process.env["GEMINI_API_KEY"]) {
     return {
       provider: "gemini",
-      model: process.env["GEMINI_MODEL"] ?? AI_MODELS.GEMINI_DEFAULT,
+      model: normalizeAIModelId(
+        process.env["GEMINI_MODEL"] ?? AI_MODELS.GEMINI_DEFAULT,
+      ),
     };
   }
   throw new Error(

@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { modelRuns, predicateDisplayLabels } from "@wekiflow/db";
 import { getAIAdapter, getDefaultProvider } from "../ai-gateway.js";
 import type { AIRequest } from "@wekiflow/shared";
-import { MODE_OUTPUT_RESERVE } from "@wekiflow/shared";
+import { MODE_OUTPUT_RESERVE, normalizeAIModelId } from "@wekiflow/shared";
 
 const PROMPT_VERSION = "predicate-label-v2";
 const PREDICATE_LABEL_BATCH_SIZE = 24;
@@ -68,9 +68,10 @@ function getPredicateLabelProvider(): {
   if (process.env["GEMINI_API_KEY"]) {
     return {
       provider: "gemini",
-      model:
+      model: normalizeAIModelId(
         process.env["PREDICATE_LABEL_GEMINI_MODEL"] ??
-        "gemini-3.1-flash-lite",
+          "gemini-3.1-flash-lite-preview",
+      ),
     };
   }
   return getDefaultProvider();
