@@ -21,6 +21,8 @@
     "create": "new page",
     "update": "update",
     "append": "append",
+    "delete": "delete page",
+    "merge": "merge pages",
     "noop": "noop",
     "needs_review": "needs review"
   },
@@ -69,6 +71,12 @@
     "bannerTitle": "Concurrent human edit detected",
     "bannerBody": "A reviewer saved a new revision on {{editedAt}} after the classifier picked this target, so auto-apply was held back.",
     "approveWarning": "Approving will create a new AI revision on top of the human's edits. Reject and re-run classification if the incoming content is no longer relevant."
+  },
+  "destructive": {
+    "title": "Destructive change",
+    "deleteBody": "This will move \"{{title}}\" and its child pages to trash.",
+    "mergeBody": "This will promote the merged revision on \"{{title}}\" and move {{count}} source page(s) to trash.",
+    "warning": "This approval cannot be undone in v1."
   },
   "override": {
     "title": "Decision override",

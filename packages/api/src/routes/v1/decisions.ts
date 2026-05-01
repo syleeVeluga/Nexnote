@@ -379,6 +379,7 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
         proposedPageTitle: row.proposedPageTitle,
         confidence: row.confidence,
         reason: rationale?.reason ?? null,
+        rationale: row.rationaleJson ?? null,
         candidates: rationale?.candidates ?? [],
         conflict: rationale?.conflict ?? null,
         createdAt: row.createdAt.toISOString(),
@@ -646,12 +647,32 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      if (decision.action === "delete" || decision.action === "merge") {
+        return reply.code(400).send({
+          error: "Unsupported action override",
+          code: "DESTRUCTIVE_DECISION_OVERRIDE_UNSUPPORTED",
+          details:
+            "delete/merge decisions can only be approved or rejected, not edited.",
+        });
+      }
+
       // Guard: if switching action to update/append, a targetPageId must exist or be provided.
       const nextAction = body.data.action ?? decision.action;
       const nextTargetPageId =
         body.data.targetPageId !== undefined
           ? body.data.targetPageId
           : decision.targetPageId;
+      if (
+        body.data.action === "delete" ||
+        body.data.action === "merge"
+      ) {
+        return reply.code(400).send({
+          error: "Unsupported action override",
+          code: "DESTRUCTIVE_DECISION_OVERRIDE_UNSUPPORTED",
+          details:
+            "delete/merge decisions can only be created by Scheduled Agent and cannot be manually changed.",
+        });
+      }
       if (
         (nextAction === "update" || nextAction === "append") &&
         !nextTargetPageId

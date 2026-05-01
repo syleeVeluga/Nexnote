@@ -451,6 +451,16 @@ export function createRouteClassifierWorker(): Worker {
           proposedTitle: undefined,
         };
       }
+      if (parsed.action === "delete" || parsed.action === "merge") {
+        parsed = {
+          action: "needs_review" as const,
+          targetPageId: parsed.targetPageId,
+          confidence: Math.min(parsed.confidence, 0.59),
+          reason:
+            "Classic ingestion classifier cannot create delete/merge decisions; destructive actions are scheduled-agent only.",
+          proposedTitle: undefined,
+        };
+      }
 
       const [modelRun] = await db
         .insert(modelRuns)

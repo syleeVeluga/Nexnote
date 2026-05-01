@@ -644,6 +644,20 @@
   line-height: 1.45;
 }
 
+.review-destructive-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.review-destructive-list a {
+  color: var(--wf-color-red);
+  text-decoration: none;
+}
+
+.review-destructive-list a:hover {
+  text-decoration: underline;
+}
+
 .review-conflict-hint {
   font-size: 12px;
   color: var(--wf-color-orange);

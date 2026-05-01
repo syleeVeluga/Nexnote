@@ -61,9 +61,9 @@ If context is insufficient to avoid a duplicate or unsafe rewrite, return reques
 
 When you can make an exact edit, return a typed tool plan:
 {
-  "tool": "replace_in_page" | "edit_page_blocks" | "edit_page_section" | "update_page" | "append_to_page" | "create_page" | "noop" | "request_human_review",
+  "tool": "replace_in_page" | "edit_page_blocks" | "edit_page_section" | "update_page" | "append_to_page" | "create_page" | "delete_page" | "merge_pages" | "noop" | "request_human_review",
   "args": { ...tool arguments... },
-  "action": "create" | "update" | "append" | "noop" | "needs_review",
+  "action": "create" | "update" | "append" | "delete" | "merge" | "noop" | "needs_review",
   "targetPageId": "uuid or null",
   "confidence": 0.0,
   "reason": "why"
@@ -76,17 +76,20 @@ Tool argument contracts:
 - update_page: { pageId, newContentMd, confidence, reason }
 - append_to_page: { pageId, contentMd, sectionHint?, confidence, reason }
 - create_page: { title, contentMd, parentFolderId?, parentPageId?, confidence, reason }
+- delete_page: { pageId, confidence, reason } (Scheduled reorganize mode only; always becomes a human-reviewable suggestion)
+- merge_pages: { canonicalPageId, sourcePageIds, mergedContentMd, confidence, reason } (Scheduled reorganize mode only; always becomes a human-reviewable suggestion)
 - noop: { reason, confidence? }
 - request_human_review: { reason, suggestedAction?, suggestedPageIds?, confidence? }
 
 Use update_page only when a narrower tool cannot represent the change. Never invent page IDs or block IDs.
+Use delete_page and merge_pages only for scheduled wiki reorganization. If this is not scheduled mode, request human review instead.
 
 Return only JSON with this exact shape:
 {
   "summary": "short explanation",
   "proposedPlan": [
     {
-      "action": "create" | "update" | "append" | "noop" | "needs_review",
+      "action": "create" | "update" | "append" | "delete" | "merge" | "noop" | "needs_review",
       "targetPageId": "uuid or null",
       "confidence": 0.0,
       "reason": "why",
@@ -110,11 +113,11 @@ Return only JSON with this shape:
   "summary": "short repair explanation",
   "proposedPlan": [
     {
-      "action": "update" | "append" | "create" | "noop" | "needs_review",
+      "action": "update" | "append" | "create" | "delete" | "merge" | "noop" | "needs_review",
       "targetPageId": "uuid or null",
       "confidence": 0.0,
       "reason": "why this repaired mutation is safe",
-      "tool": "replace_in_page" | "edit_page_blocks" | "edit_page_section" | "update_page" | "append_to_page" | "create_page" | "noop" | "request_human_review",
+      "tool": "replace_in_page" | "edit_page_blocks" | "edit_page_section" | "update_page" | "append_to_page" | "create_page" | "delete_page" | "merge_pages" | "noop" | "request_human_review",
       "args": { "corrected": "tool arguments" },
       "evidence": []
     }
@@ -258,6 +261,9 @@ function scheduledPromptPrefix(input: RunIngestionAgentShadowInput): string {
     "- This is not an external fact ingestion. It is a request to reorganize and improve existing wiki pages.",
     "- Prefer replace_in_page, edit_page_blocks, or edit_page_section over full rewrites.",
     "- Use create_page only as a last resort when the target knowledge cannot fit into existing selected pages.",
+    "- Use delete_page when a selected page is fully redundant with another existing page.",
+    "- Use merge_pages to consolidate 2+ short pages into one canonical page; include full mergedContentMd.",
+    "- delete_page and merge_pages always land as suggestions for human review even if scheduled auto-apply is enabled.",
     "- Unless scheduled auto-apply is enabled for this workspace, mutations must remain human-reviewable suggestions.",
   ];
   if (seedPageIds.length > 0) {
@@ -510,6 +516,8 @@ const ACTION_TO_TOOL: Record<
   create: "create_page",
   update: "update_page",
   append: "append_to_page",
+  delete: "delete_page",
+  merge: "merge_pages",
   noop: "noop",
   needs_review: "request_human_review",
 };
@@ -572,6 +580,17 @@ function mutationToToolCall(
         pageId: mutation.targetPageId,
         contentMd: ingestionText,
         sectionHint: mutation.sectionHint,
+      },
+    };
+  }
+
+  if (action === "delete") {
+    return {
+      id: `mutation_${index}_${name}`,
+      name,
+      arguments: {
+        ...common,
+        pageId: mutation.targetPageId,
       },
     };
   }

@@ -9,6 +9,7 @@ import {
   FileText,
   RotateCcw,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import type { DecisionDetail } from "../../lib/api-client.js";
@@ -45,6 +46,29 @@ function detailStatusTone(status: DecisionDetail["status"]): BadgeTone {
   }
 }
 
+function rationaleRecord(decision: DecisionDetail): Record<string, unknown> {
+  return decision.rationale ?? {};
+}
+
+function pageRefs(value: unknown): Array<{ id: string; title: string | null }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (typeof item === "string") return { id: item, title: null };
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      return typeof record.id === "string"
+        ? {
+            id: record.id,
+            title: typeof record.title === "string" ? record.title : null,
+          }
+        : null;
+    })
+    .filter((item): item is { id: string; title: string | null } =>
+      Boolean(item),
+    );
+}
+
 export function ReviewDetail({
   workspaceId,
   decision,
@@ -72,6 +96,12 @@ export function ReviewDetail({
     (decision.action === "create" ||
       decision.action === "update" ||
       decision.action === "append");
+  const destructive =
+    decision.action === "delete" || decision.action === "merge";
+  const rationale = rationaleRecord(decision);
+  const mergeSourcePages = pageRefs(rationale.sourcePages);
+  const deletePageTitle =
+    typeof rationale.pageTitle === "string" ? rationale.pageTitle : null;
 
   const doApprove = async () => {
     setSubmitting("approve");
@@ -217,12 +247,61 @@ export function ReviewDetail({
         </div>
       )}
 
-      {!resolved && (
+      {!resolved && !destructive && (
         <DecisionOverrideForm
           workspaceId={workspaceId}
           decision={decision}
           onSaved={onDecisionChanged}
         />
+      )}
+
+      {destructive && (
+        <div className="review-conflict-banner">
+          <div className="review-conflict-title">
+            <AlertTriangle size={14} aria-hidden="true" />
+            {t("destructive.title", { defaultValue: "Destructive change" })}
+          </div>
+          <div className="review-conflict-body">
+            {decision.action === "delete" ? (
+              <>
+                <Trash2 size={13} aria-hidden="true" />{" "}
+                {t("destructive.deleteBody", {
+                  title:
+                    deletePageTitle ??
+                    decision.targetPage?.title ??
+                    t("common:untitled"),
+                  defaultValue:
+                    "This will move the selected page and its children to trash.",
+                })}
+              </>
+            ) : (
+              <>
+                {t("destructive.mergeBody", {
+                  title: decision.targetPage?.title ?? t("common:untitled"),
+                  count: mergeSourcePages.length,
+                  defaultValue:
+                    "This will promote the merged revision on the canonical page and move source pages to trash.",
+                })}
+                {mergeSourcePages.length > 0 && (
+                  <ul className="review-destructive-list">
+                    {mergeSourcePages.map((page) => (
+                      <li key={page.id}>
+                        <Link to={`/pages/${page.id}`}>
+                          {page.title ?? page.id}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </div>
+          <div className="review-conflict-hint">
+            {t("destructive.warning", {
+              defaultValue: "This approval cannot be undone in v1.",
+            })}
+          </div>
+        </div>
       )}
 
       {decision.proposedRevision?.diffMd ? (

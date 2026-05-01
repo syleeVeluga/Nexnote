@@ -75,6 +75,8 @@ export const INGESTION_ACTIONS = [
   "create",
   "update",
   "append",
+  "delete",
+  "merge",
   "noop",
   "needs_review",
 ] as const;

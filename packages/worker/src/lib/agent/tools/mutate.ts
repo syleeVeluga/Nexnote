@@ -20,9 +20,11 @@ import {
   type AgentMutateToolName,
   type AppendToPageToolInput,
   type CreatePageToolInput,
+  type DeletePageToolInput,
   type EditPageBlocksToolInput,
   type EditPageSectionToolInput,
   type IngestionAction,
+  type MergePagesToolInput,
   type NoopToolInput,
   type PatchGeneratorJobData,
   type ReplaceInPageToolInput,
@@ -106,6 +108,10 @@ function mutationDecisionStatus(
     return "suggested";
   }
   return classifyDecisionStatus(action, confidence);
+}
+
+function destructiveDecisionStatus(): "suggested" {
+  return "suggested";
 }
 
 function assertObservedPage(ctx: AgentToolContext, pageId: string): void {
@@ -791,6 +797,191 @@ async function createPage(
   };
 }
 
+async function deletePage(
+  input: CreateMutateToolsInput,
+  ctx: AgentToolContext,
+  args: DeletePageToolInput,
+): Promise<AgentToolResult> {
+  if (input.origin !== "scheduled") {
+    throw new AgentToolError(
+      "conflict",
+      "delete_page is only available for scheduled agent runs",
+    );
+  }
+  assertCanMutatePage(ctx, args.pageId);
+
+  const page = await getCurrentPage(ctx.db, ctx.workspaceId, args.pageId);
+  const observedBaseRevisionId = observedRevisionIdForPage(ctx, page);
+  const conflict = await detectHumanConflict(
+    ctx.db,
+    args.pageId,
+    observedBaseRevisionId,
+  );
+  const decision = await createDecision(ctx, input, {
+    action: "delete",
+    status: destructiveDecisionStatus(),
+    confidence: args.confidence,
+    reason: args.reason,
+    tool: "delete_page",
+    targetPageId: args.pageId,
+    rationale: {
+      kind: "delete",
+      baseRevisionId: page.currentRevisionId,
+      observedBaseRevisionId,
+      pageTitle: page.title,
+      ...(conflict
+        ? {
+            conflict: {
+              type: "conflict_with_human_edit",
+              humanRevisionId: conflict.id,
+              humanUserId: conflict.actorUserId,
+              humanEditedAt: conflict.createdAt.toISOString(),
+              humanRevisionNote: conflict.revisionNote,
+              baseRevisionId: observedBaseRevisionId,
+            },
+          }
+        : {}),
+    },
+  });
+
+  return {
+    data: {
+      decisionId: decision.id,
+      pageId: args.pageId,
+      status: "suggested",
+      action: "delete",
+      tool: "delete_page",
+    },
+    mutatedPageIds: [args.pageId],
+  };
+}
+
+async function mergePages(
+  input: CreateMutateToolsInput,
+  ctx: AgentToolContext,
+  args: MergePagesToolInput,
+): Promise<AgentToolResult> {
+  if (input.origin !== "scheduled") {
+    throw new AgentToolError(
+      "conflict",
+      "merge_pages is only available for scheduled agent runs",
+    );
+  }
+  assertCanMutatePage(ctx, args.canonicalPageId);
+  for (const sourcePageId of args.sourcePageIds) {
+    assertCanMutatePage(ctx, sourcePageId);
+  }
+
+  const canonical = await getCurrentPage(
+    ctx.db,
+    ctx.workspaceId,
+    args.canonicalPageId,
+  );
+  const sourcePages = await Promise.all(
+    args.sourcePageIds.map((pageId) =>
+      getCurrentPage(ctx.db, ctx.workspaceId, pageId),
+    ),
+  );
+  const observedBaseRevisionId = observedRevisionIdForPage(ctx, canonical);
+  const conflictRows = await Promise.all([
+    detectHumanConflict(ctx.db, canonical.id, observedBaseRevisionId).then(
+      (conflict) => ({ page: canonical, conflict, role: "canonical" as const }),
+    ),
+    ...sourcePages.map((page) =>
+      detectHumanConflict(
+        ctx.db,
+        page.id,
+        observedRevisionIdForPage(ctx, page),
+      ).then((conflict) => ({ page, conflict, role: "source" as const })),
+    ),
+  ]);
+  const conflicts = conflictRows
+    .filter((row) => row.conflict)
+    .map((row) => ({
+      type: "conflict_with_human_edit",
+      role: row.role,
+      pageId: row.page.id,
+      pageTitle: row.page.title,
+      humanRevisionId: row.conflict!.id,
+      humanUserId: row.conflict!.actorUserId,
+      humanEditedAt: row.conflict!.createdAt.toISOString(),
+      humanRevisionNote: row.conflict!.revisionNote,
+      baseRevisionId: observedRevisionIdForPage(ctx, row.page),
+    }));
+
+  const decision = await createDecision(ctx, input, {
+    action: "merge",
+    status: destructiveDecisionStatus(),
+    confidence: args.confidence,
+    reason: args.reason,
+    tool: "merge_pages",
+    targetPageId: args.canonicalPageId,
+    rationale: {
+      kind: "merge",
+      canonicalPageId: args.canonicalPageId,
+      sourcePageIds: args.sourcePageIds,
+      baseRevisionId: canonical.currentRevisionId,
+      observedBaseRevisionId,
+      canonicalPage: { id: canonical.id, title: canonical.title },
+      sourcePages: sourcePages.map((page) => ({
+        id: page.id,
+        title: page.title,
+      })),
+      ...(conflicts.length ? { conflicts, conflict: conflicts[0] } : {}),
+    },
+  });
+
+  const [revision] = await ctx.db
+    .insert(pageRevisions)
+    .values({
+      pageId: args.canonicalPageId,
+      baseRevisionId: canonical.currentRevisionId,
+      modelRunId: input.modelRunId,
+      actorType: "ai",
+      source: "scheduled",
+      sourceIngestionId: input.ingestion.id,
+      sourceDecisionId: decision.id,
+      contentMd: args.mergedContentMd,
+      revisionNote: `Agent merge_pages from ingestion ${input.ingestion.sourceName}`,
+    })
+    .returning({ id: pageRevisions.id });
+
+  const diff = computeDiff(
+    canonical.contentMd,
+    args.mergedContentMd,
+    null,
+    null,
+  );
+  await Promise.all([
+    ctx.db.insert(revisionDiffs).values({
+      revisionId: revision.id,
+      diffMd: diff.diffMd,
+      diffOpsJson: diff.diffOpsJson,
+      changedBlocks: diff.changedBlocks,
+    }),
+    ctx.db
+      .update(ingestionDecisions)
+      .set({ proposedRevisionId: revision.id })
+      .where(eq(ingestionDecisions.id, decision.id)),
+  ]);
+
+  return {
+    data: {
+      decisionId: decision.id,
+      revisionId: revision.id,
+      pageId: args.canonicalPageId,
+      sourcePageIds: args.sourcePageIds,
+      status: "suggested",
+      action: "merge",
+      tool: "merge_pages",
+    },
+    mutatedPageIds: [args.canonicalPageId, ...args.sourcePageIds],
+    observedPageRevisions: [
+      { pageId: args.canonicalPageId, revisionId: revision.id },
+    ],
+  };
+}
+
 async function noop(
   input: CreateMutateToolsInput,
   ctx: AgentToolContext,
@@ -867,8 +1058,8 @@ export async function recordAgentMutationFailure(
 
 export function createMutateTools(
   input: CreateMutateToolsInput,
-): Record<AgentMutateToolName, AgentToolDefinition> {
-  return {
+): Record<string, AgentToolDefinition> {
+  const tools: Record<string, AgentToolDefinition> = {
     replace_in_page: {
       name: "replace_in_page",
       description: "Replace an exact text occurrence inside an observed page.",
@@ -924,4 +1115,25 @@ export function createMutateTools(
         requestHumanReview(input, ctx, args as RequestHumanReviewToolInput),
     },
   };
+
+  if (input.origin === "scheduled") {
+    tools.delete_page = {
+      name: "delete_page",
+      description:
+        "Create a human-reviewable suggestion to delete an observed redundant page.",
+      schema: agentMutateToolInputSchemas.delete_page,
+      execute: (ctx, args) =>
+        deletePage(input, ctx, args as DeletePageToolInput),
+    };
+    tools.merge_pages = {
+      name: "merge_pages",
+      description:
+        "Create a human-reviewable suggestion to merge observed source pages into a canonical page.",
+      schema: agentMutateToolInputSchemas.merge_pages,
+      execute: (ctx, args) =>
+        mergePages(input, ctx, args as MergePagesToolInput),
+    };
+  }
+
+  return tools;
 }
