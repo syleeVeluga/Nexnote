@@ -78,6 +78,7 @@ const RECENT_KNOWLEDGE_STATUSES: DecisionStatus[] = [
   "rejected",
   "undone",
 ];
+const KNOWLEDGE_INDICATOR_REFRESH_MS = 30_000;
 
 interface MoveDialogState {
   pageId: string;
@@ -398,12 +399,16 @@ export function Sidebar({
     };
 
     refreshKnowledgeIndicator().catch(() => {});
+    const intervalId = window.setInterval(() => {
+      refreshKnowledgeIndicator().catch(() => {});
+    }, KNOWLEDGE_INDICATOR_REFRESH_MS);
     const unsubscribe = subscribeDecisionCountsUpdated((detail) => {
       if (cancelled || detail.workspaceId !== workspace.id) return;
       refreshKnowledgeIndicator(detail.counts).catch(() => {});
     });
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
       unsubscribe();
     };
   }, [workspace.id]);
