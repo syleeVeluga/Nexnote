@@ -9,6 +9,7 @@ declare module "fastify" {
     queues: {
       ingestion: Queue;
       "ingestion-agent": Queue;
+      "scheduled-agent-queue": Queue;
       patch: Queue;
       extraction: Queue;
       publish: Queue;
@@ -32,6 +33,9 @@ async function queuePluginImpl(fastify: FastifyInstance) {
     connection: createConnection(),
   });
   const ingestionAgentQueue = new Queue(QUEUE_NAMES.INGESTION_AGENT, {
+    connection: createConnection(),
+  });
+  const scheduledAgentQueue = new Queue(QUEUE_NAMES.SCHEDULED_AGENT, {
     connection: createConnection(),
   });
   const patchQueue = new Queue(QUEUE_NAMES.PATCH, {
@@ -62,6 +66,7 @@ async function queuePluginImpl(fastify: FastifyInstance) {
   fastify.decorate("queues", {
     ingestion: ingestionQueue,
     "ingestion-agent": ingestionAgentQueue,
+    "scheduled-agent-queue": scheduledAgentQueue,
     patch: patchQueue,
     extraction: extractionQueue,
     publish: publishQueue,
@@ -74,6 +79,7 @@ async function queuePluginImpl(fastify: FastifyInstance) {
     await Promise.all([
       ingestionQueue.close(),
       ingestionAgentQueue.close(),
+      scheduledAgentQueue.close(),
       patchQueue.close(),
       extractionQueue.close(),
       publishQueue.close(),

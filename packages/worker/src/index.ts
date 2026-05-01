@@ -6,6 +6,7 @@ import type { Worker } from "bullmq";
 import {
   createRouteClassifierWorker,
   createIngestionAgentWorker,
+  createScheduledAgentWorker,
   createPatchGeneratorWorker,
   createTripleExtractorWorker,
   createPublishRendererWorker,
@@ -40,6 +41,7 @@ function startWorkers(): void {
   logger.info("Starting WekiFlow workers...");
   workers.push(createRouteClassifierWorker());
   workers.push(createIngestionAgentWorker());
+  workers.push(createScheduledAgentWorker());
   workers.push(createPatchGeneratorWorker());
   workers.push(createTripleExtractorWorker());
   workers.push(createPublishRendererWorker());

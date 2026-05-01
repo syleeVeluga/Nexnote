@@ -16,6 +16,7 @@ import dashboardRoutes from "./v1/dashboard.js";
 import systemRoutes from "./v1/system.js";
 import apiTokenRoutes from "./v1/api-tokens.js";
 import agentRunRoutes from "./v1/agent-runs.js";
+import scheduledAgentRoutes from "./v1/scheduled-agent.js";
 import slackWebhookRoutes from "./v1/webhooks/slack-events.js";
 
 export const routes: FastifyPluginAsync = async (fastify) => {
@@ -64,6 +65,9 @@ export const routes: FastifyPluginAsync = async (fastify) => {
       });
       await scoped.register(agentRunRoutes, {
         prefix: "/workspaces/:workspaceId/agent-runs",
+      });
+      await scoped.register(scheduledAgentRoutes, {
+        prefix: "/workspaces/:workspaceId",
       });
       // Public docs — no auth required (handled inside the plugin)
       await scoped.register(docRoutes, { prefix: "/docs" });

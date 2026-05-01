@@ -51,6 +51,19 @@ export interface ApplyDecisionError {
   statusCode: number;
 }
 
+function decisionOrigin(decision: IngestionDecision): "ingest_api" | "scheduled" {
+  return decision.scheduledRunId ? "scheduled" : "ingest_api";
+}
+
+function readProposedContent(decision: IngestionDecision): string | null {
+  const rationale = decision.rationaleJson as {
+    proposedContentMd?: unknown;
+  } | null;
+  return typeof rationale?.proposedContentMd === "string"
+    ? rationale.proposedContentMd
+    : null;
+}
+
 export async function approveDecision(
   ctx: ApplyDecisionCtx,
 ): Promise<ApplyDecisionResult | ApplyDecisionError> {
@@ -102,7 +115,8 @@ export async function approveDecision(
       decision.proposedPageTitle ??
       ingestion.titleHint ??
       "Untitled (ingested)";
-    const contentMd = extractIngestionText(ingestion);
+    const contentMd =
+      readProposedContent(decision) ?? extractIngestionText(ingestion);
 
     const page = await insertPageWithUniqueSlug(db, {
       workspaceId,
@@ -119,7 +133,7 @@ export async function approveDecision(
         actorUserId: userId,
         actorType: "ai",
         modelRunId: decision.modelRunId,
-        source: "ingest_api",
+        source: decisionOrigin(decision),
         sourceIngestionId: ingestionId,
         sourceDecisionId: decision.id,
         contentMd,
@@ -163,6 +177,7 @@ export async function approveDecision(
         afterJson: {
           source: "decision_approve",
           ingestionId,
+          scheduledRunId: decision.scheduledRunId ?? null,
           decisionId: decision.id,
         },
       }),
@@ -261,7 +276,7 @@ export async function approveDecision(
           actorUserId: userId,
           actorType: "ai",
           modelRunId: decision.modelRunId,
-          source: "ingest_api",
+          source: decisionOrigin(decision),
           sourceIngestionId: ingestionId,
           sourceDecisionId: decision.id,
           contentMd: newContent,
@@ -330,6 +345,7 @@ export async function approveDecision(
         afterJson: {
           source: "decision_approve",
           ingestionId,
+          scheduledRunId: decision.scheduledRunId ?? null,
           decisionId: decision.id,
           revisionId,
         },

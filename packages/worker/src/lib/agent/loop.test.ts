@@ -445,6 +445,79 @@ describe("runIngestionAgentShadow", () => {
     );
   });
 
+  it("prepends scheduled instructions and seeds selected pages in execute mode", async () => {
+    let sawSeedPage = false;
+    const adapter = new SequenceAdapter([
+      response({ content: "I have enough scheduled context." }),
+      response({
+        content: JSON.stringify({
+          summary: "Clean up the selected page.",
+          proposedPlan: [
+            {
+              action: "update",
+              targetPageId: pageId,
+              confidence: 0.95,
+              reason: "Selected page needs cleanup.",
+              tool: "update_page",
+              args: {
+                pageId,
+                newContentMd: "# Redis\n\nCleaned up.",
+                confidence: 0.95,
+                reason: "Selected page needs cleanup.",
+              },
+              evidence: [],
+            },
+          ],
+          openQuestions: [],
+        }),
+      }),
+    ]);
+
+    const result = await runIngestionAgentShadow({
+      db: fakeDb,
+      workspaceId: "workspace-1",
+      origin: "scheduled",
+      mode: "agent",
+      agentRunId: "agent-run-1",
+      seedPageIds: [pageId],
+      instruction: "Remove duplicate sections.",
+      scheduledRunId: "scheduled-run-1",
+      scheduledAutoApply: false,
+      ingestion: {
+        id: "ingestion-1",
+        sourceName: "scheduled-agent",
+        contentType: "text/markdown",
+        titleHint: "Scheduled wiki reorganize",
+        normalizedText: "Selected page IDs: " + pageId,
+        rawPayload: {},
+      },
+      adapter,
+      baseProvider: "openai",
+      baseModel: "gpt-5.4",
+      mutateTools: {
+        update_page: {
+          name: "update_page",
+          description: "test update",
+          schema: agentMutateToolInputSchemas.update_page,
+          async execute(ctx) {
+            sawSeedPage = ctx.state.seenPageIds.has(pageId);
+            return {
+              data: { decisionId: "decision-1", status: "suggested" },
+              mutatedPageIds: [pageId],
+            };
+          },
+        },
+      } as Record<string, AgentToolDefinition>,
+      recordModelRun: async () => ({ id: "model-run-1" }),
+    });
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.decisionsCount, 1);
+    assert.equal(sawSeedPage, true);
+    assert.match(adapter.requests[0].messages[0].content, /Scheduled reorganize mode/);
+    assert.match(adapter.requests[0].messages[0].content, /Remove duplicate sections/);
+  });
+
   it("stops before model calls when the workspace daily token cap is exhausted", async () => {
     const adapter = new SequenceAdapter([]);
 

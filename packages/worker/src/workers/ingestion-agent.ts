@@ -63,13 +63,16 @@ function appendErrorStep(
   ];
 }
 
-function parsePositiveInt(value: string | undefined, fallback: number): number {
+export function parsePositiveInt(
+  value: string | undefined,
+  fallback: number,
+): number {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function buildWorkspaceAgentEnv(
+export function buildWorkspaceAgentEnv(
   workspace: {
     agentProvider: string | null;
     agentModelFast: string | null;
@@ -155,7 +158,7 @@ redis.call('SET', KEYS[1], tostring(next_value), 'PX', ARGV[2])
 return next_value
 `;
 
-async function loadWorkspaceAgentTokensToday(
+export async function loadWorkspaceAgentTokensToday(
   db: ReturnType<typeof getDb>,
   workspaceId: string,
 ): Promise<number> {
@@ -179,7 +182,7 @@ function parseLuaNumberPair(result: unknown): [number, number] {
   return [Number(result[0] ?? 0), Number(result[1] ?? 0)];
 }
 
-async function reserveWorkspaceAgentTokens(
+export async function reserveWorkspaceAgentTokens(
   redis: ReturnType<typeof createRedisConnection>,
   workspaceId: string,
   request: AgentWorkspaceTokenReservationRequest,
@@ -217,7 +220,7 @@ async function reserveWorkspaceAgentTokens(
   };
 }
 
-async function appendAgentRunStep(
+export async function appendAgentRunStep(
   db: ReturnType<typeof getDb>,
   agentRunId: string,
   step: AgentRunTraceStep,
@@ -230,7 +233,7 @@ async function appendAgentRunStep(
     .where(eq(agentRuns.id, agentRunId));
 }
 
-function toAgentRunDto(row: typeof agentRuns.$inferSelect): AgentRunDto {
+export function toAgentRunDto(row: typeof agentRuns.$inferSelect): AgentRunDto {
   return {
     id: row.id,
     ingestionId: row.ingestionId,
@@ -248,7 +251,7 @@ function toAgentRunDto(row: typeof agentRuns.$inferSelect): AgentRunDto {
   };
 }
 
-async function publishAgentRunEvent(
+export async function publishAgentRunEvent(
   redis: ReturnType<typeof createRedisConnection>,
   agentRunId: string,
   event: AgentRunTraceEvent,
@@ -258,7 +261,7 @@ async function publishAgentRunEvent(
     .catch(() => undefined);
 }
 
-async function loadAgentDecisionStats(
+export async function loadAgentDecisionStats(
   db: ReturnType<typeof getDb>,
   agentRunId: string,
 ): Promise<{
