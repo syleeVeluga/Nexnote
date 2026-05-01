@@ -79,6 +79,7 @@ const RECENT_KNOWLEDGE_STATUSES: DecisionStatus[] = [
   "undone",
 ];
 const KNOWLEDGE_INDICATOR_REFRESH_MS = 30_000;
+const KNOWLEDGE_INDICATOR_VISIBLE_MS = 20_000;
 
 interface MoveDialogState {
   pageId: string;
@@ -337,7 +338,8 @@ export function Sidebar({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [renaming, setRenaming] = useState<RenamingState>(null);
-  const [knowledgeIndicatorCount, setKnowledgeIndicatorCount] = useState(0);
+  const [knowledgeIndicatorBadgeCount, setKnowledgeIndicatorBadgeCount] =
+    useState(0);
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(
     null,
   );
@@ -382,6 +384,33 @@ export function Sidebar({
 
   useEffect(() => {
     let cancelled = false;
+    let lastDisplayedCount = 0;
+    let hideTimeoutId: number | null = null;
+
+    const clearHideTimeout = () => {
+      if (hideTimeoutId === null) return;
+      window.clearTimeout(hideTimeoutId);
+      hideTimeoutId = null;
+    };
+
+    const showKnowledgeIndicator = (next: number) => {
+      if (cancelled) return;
+      if (next <= 0) {
+        lastDisplayedCount = 0;
+        clearHideTimeout();
+        setKnowledgeIndicatorBadgeCount(0);
+        return;
+      }
+      if (next === lastDisplayedCount) return;
+
+      lastDisplayedCount = next;
+      clearHideTimeout();
+      setKnowledgeIndicatorBadgeCount(next);
+      hideTimeoutId = window.setTimeout(() => {
+        if (!cancelled) setKnowledgeIndicatorBadgeCount(0);
+        hideTimeoutId = null;
+      }, KNOWLEDGE_INDICATOR_VISIBLE_MS);
+    };
 
     const refreshKnowledgeIndicator = async (counts?: DecisionCounts) => {
       const [countsRes, recentRes] = await Promise.all([
@@ -395,7 +424,7 @@ export function Sidebar({
 
       if (cancelled) return;
       const next = (countsRes.counts.pending ?? 0) + recentRes.total;
-      setKnowledgeIndicatorCount((prev) => (prev === next ? prev : next));
+      showKnowledgeIndicator(next);
     };
 
     refreshKnowledgeIndicator().catch(() => {});
@@ -409,6 +438,7 @@ export function Sidebar({
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
+      clearHideTimeout();
       unsubscribe();
     };
   }, [workspace.id]);
@@ -1051,7 +1081,7 @@ export function Sidebar({
           to="/review"
           icon={<GraduationCap size={15} />}
           label={t("review")}
-          badge={knowledgeIndicatorCount}
+          badge={knowledgeIndicatorBadgeCount}
         />
         <SidebarNavLink
           to="/wiki"
