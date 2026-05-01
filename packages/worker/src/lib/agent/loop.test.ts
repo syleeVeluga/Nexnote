@@ -255,6 +255,160 @@ describe("runIngestionAgentShadow", () => {
     assert.ok(result.steps.some((step) => step.type === "mutation_result"));
   });
 
+  it("executes scheduled merge as a single mutation when the plan also edits the canonical page", async () => {
+    const sourcePageId = "22222222-2222-4222-8222-222222222222";
+    const calls: Array<{ name: string; input: unknown }> = [];
+    const tools: Record<string, AgentToolDefinition> = {
+      search_pages: {
+        name: "search_pages",
+        description: "test search",
+        schema: agentReadToolInputSchemas.search_pages,
+        async execute() {
+          return {
+            data: {
+              pages: [
+                { id: pageId, title: "HR answers" },
+                { id: sourcePageId, title: "Founding day" },
+              ],
+            },
+            observedPageIds: [pageId, sourcePageId],
+          };
+        },
+      },
+    };
+    const mutateTools: Record<string, AgentToolDefinition> = {
+      append_to_page: {
+        name: "append_to_page",
+        description: "test append",
+        schema: agentMutateToolInputSchemas.append_to_page,
+        async execute(_ctx, input) {
+          calls.push({ name: "append_to_page", input });
+          return {
+            data: {
+              decisionId: "33333333-3333-4333-8333-333333333333",
+              status: "suggested",
+            },
+            mutatedPageIds: [pageId],
+          };
+        },
+      },
+      merge_pages: {
+        name: "merge_pages",
+        description: "test merge",
+        schema: agentMutateToolInputSchemas.merge_pages,
+        async execute(_ctx, input) {
+          calls.push({ name: "merge_pages", input });
+          return {
+            data: {
+              decisionId: "44444444-4444-4444-8444-444444444444",
+              status: "suggested",
+            },
+            mutatedPageIds: [pageId, sourcePageId],
+          };
+        },
+      },
+    };
+    const adapter = new SequenceAdapter([
+      response({
+        finishReason: "tool_calls",
+        toolCalls: [
+          {
+            id: "call_0_search_pages",
+            name: "search_pages",
+            arguments: { query: "hr answers" },
+          },
+        ],
+      }),
+      response({ content: "I have enough context." }),
+      response({
+        content: JSON.stringify({
+          summary: "Merge a short HR answer page into the HR answer hub.",
+          proposedPlan: [
+            {
+              action: "append",
+              targetPageId: pageId,
+              confidence: 0.95,
+              reason: "Add the founding day answer to the hub.",
+              tool: "append_to_page",
+              args: {
+                pageId,
+                contentMd: "## Founding day\n\n5/6",
+                confidence: 0.95,
+                reason: "Add the founding day answer to the hub.",
+              },
+              evidence: [],
+            },
+            {
+              action: "merge",
+              targetPageId: pageId,
+              confidence: 0.95,
+              reason: "The source page is redundant after consolidation.",
+              tool: "merge_pages",
+              args: {
+                canonicalPageId: pageId,
+                sourcePageIds: [sourcePageId],
+                mergedContentMd: "# HR answers\n\n## Founding day\n\n5/6",
+                confidence: 0.95,
+                reason: "The source page is redundant after consolidation.",
+              },
+              evidence: [],
+            },
+          ],
+          openQuestions: [],
+        }),
+      }),
+    ]);
+    let modelRun = 0;
+
+    const result = await runIngestionAgentShadow({
+      db: fakeDb,
+      workspaceId: "workspace-1",
+      ingestion: {
+        id: "ingestion-1",
+        sourceName: "scheduled",
+        contentType: "text/markdown",
+        titleHint: "HR cleanup",
+        normalizedText: "Merge HR answer pages.",
+        rawPayload: {},
+      },
+      mode: "agent",
+      origin: "scheduled",
+      allowDestructiveScheduledAgent: true,
+      agentRunId: "55555555-5555-4555-8555-555555555555",
+      adapter,
+      baseProvider: "openai",
+      baseModel: "gpt-5.4",
+      tools,
+      mutateTools,
+      recordModelRun: async () => {
+        modelRun += 1;
+        return { id: `66666666-6666-4666-8666-66666666666${modelRun}` };
+      },
+    });
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.decisionsCount, 1);
+    assert.deepEqual(calls, [
+      {
+        name: "merge_pages",
+        input: {
+          canonicalPageId: pageId,
+          sourcePageIds: [sourcePageId],
+          mergedContentMd: "# HR answers\n\n## Founding day\n\n5/6",
+          confidence: 0.95,
+          reason: "The source page is redundant after consolidation.",
+        },
+      },
+    ]);
+    assert.ok(
+      result.steps.some(
+        (step) =>
+          step.type === "plan" &&
+          step.payload["normalization"] === "scheduled_merge_single_mutation",
+      ),
+    );
+  });
+
   it("keeps free-form human review guidance out of suggestedAction", async () => {
     const calls: unknown[] = [];
     const mutateTools: Record<string, AgentToolDefinition> = {

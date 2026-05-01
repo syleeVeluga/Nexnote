@@ -276,6 +276,7 @@ function scheduledPromptPrefix(input: RunIngestionAgentShadowInput): string {
     input.allowDestructiveScheduledAgent
       ? "- Use merge_pages to consolidate 2+ short pages into one canonical page; include full mergedContentMd."
       : "- Destructive tools are disabled for this workspace; do not plan merge_pages.",
+    "- When using merge_pages, do not also append/update/delete the canonical page or source pages in the same plan; mergedContentMd must already include the final canonical content.",
     "- delete_page and merge_pages always land as suggestions for human review even if scheduled auto-apply is enabled.",
     "- Unless scheduled auto-apply is enabled for this workspace, mutations must remain human-reviewable suggestions.",
   ];
@@ -684,6 +685,88 @@ function mutationToToolCall(
   };
 }
 
+function stringArg(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function stringArrayArg(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function mergeMutationPageIds(mutation: AgentPlanMutation): string[] | null {
+  if (mutation.tool !== "merge_pages") return null;
+  const args = mutation.args ?? {};
+  const canonicalPageId = stringArg(args["canonicalPageId"]);
+  if (!canonicalPageId) return null;
+  return [canonicalPageId, ...stringArrayArg(args["sourcePageIds"])];
+}
+
+function directlyMutatedPageIds(mutation: AgentPlanMutation): string[] {
+  const args = mutation.args ?? {};
+  const pageId = stringArg(args["pageId"]);
+  if (pageId) return [pageId];
+  return mutation.targetPageId ? [mutation.targetPageId] : [];
+}
+
+function normalizeScheduledMergePlan(
+  plan: IngestionAgentPlan,
+  input: Pick<
+    Parameters<typeof executeMutations>[0],
+    "origin" | "allowDestructiveScheduledAgent"
+  >,
+): { plan: IngestionAgentPlan; dropped: AgentPlanMutation[] } {
+  if (
+    input.origin !== "scheduled" ||
+    !input.allowDestructiveScheduledAgent ||
+    plan.proposedPlan.length < 2
+  ) {
+    return { plan, dropped: [] };
+  }
+
+  const mergeMutationIndexes = new Set<number>();
+  const mergeClaimedPageIds = new Set<string>();
+  const dropped = new Set<number>();
+
+  for (const [index, mutation] of plan.proposedPlan.entries()) {
+    const pageIds = mergeMutationPageIds(mutation);
+    if (!pageIds) continue;
+
+    if (pageIds.some((pageId) => mergeClaimedPageIds.has(pageId))) {
+      dropped.add(index);
+      continue;
+    }
+
+    mergeMutationIndexes.add(index);
+    for (const pageId of pageIds) {
+      mergeClaimedPageIds.add(pageId);
+    }
+  }
+
+  if (mergeMutationIndexes.size === 0) {
+    return { plan, dropped: [] };
+  }
+
+  const proposedPlan = plan.proposedPlan.filter((mutation, index) => {
+    if (dropped.has(index)) return false;
+    if (mergeMutationIndexes.has(index)) return true;
+    const overlapsMerge = directlyMutatedPageIds(mutation).some((pageId) =>
+      mergeClaimedPageIds.has(pageId),
+    );
+    if (overlapsMerge) {
+      dropped.add(index);
+      return false;
+    }
+    return true;
+  });
+
+  return {
+    plan: { ...plan, proposedPlan },
+    dropped: [...dropped].map((index) => plan.proposedPlan[index]!),
+  };
+}
+
 function resultDecisionId(result: unknown): string | null {
   if (!result || typeof result !== "object") return null;
   const id = (result as Record<string, unknown>)["decisionId"];
@@ -734,10 +817,24 @@ async function executeMutations(input: {
     tools,
     options: { maxCallsPerTurn: 1 },
   });
+  const normalized = normalizeScheduledMergePlan(input.plan, input);
+  if (normalized.dropped.length > 0) {
+    traceStep(input, input.steps, "plan", {
+      normalization: "scheduled_merge_single_mutation",
+      reason:
+        "merge_pages already contains the full canonical content and source-page deletion proposal, so overlapping page mutations were skipped before execution.",
+      droppedMutations: normalized.dropped.map((mutation) => ({
+        action: mutation.action,
+        tool: mutation.tool,
+        targetPageId: mutation.targetPageId,
+        args: mutation.args,
+      })),
+    });
+  }
 
   let succeeded = 0;
   let failed = 0;
-  for (const [index, mutation] of input.plan.proposedPlan.entries()) {
+  for (const [index, mutation] of normalized.plan.proposedPlan.entries()) {
     const toolCall = mutationToToolCall(mutation, index, input.ingestionText);
     const [execution] = await dispatcher.dispatchToolCalls([toolCall]);
     traceStep(input, input.steps, "mutation_result", {
