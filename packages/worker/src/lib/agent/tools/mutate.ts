@@ -1,19 +1,25 @@
 import type { Queue } from "bullmq";
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull } from "drizzle-orm";
 import {
   auditLogs,
+  collectDescendantPageIds,
   folders,
   ingestionDecisions,
   insertPageWithUniqueSlug,
   pagePaths,
+  pageRedirects,
   pageRevisions,
   pages,
+  PageDeletionError,
   revisionDiffs,
+  softDeleteSubtree,
+  softDeleteSubtreeInTransaction,
 } from "@wekiflow/db";
 import {
   agentMutateToolInputSchemas,
   classifyDecisionStatus,
   computeDiff,
+  CONFIDENCE,
   DEFAULT_JOB_OPTIONS,
   JOB_NAMES,
   slugify,
@@ -100,19 +106,38 @@ function activitySource(
     : source;
 }
 
+function scheduledAutoApplyStatus(
+  action: IngestionAction,
+  confidence: number,
+): ReturnType<typeof classifyDecisionStatus> {
+  if (action === "noop") return "noop";
+  if (action === "needs_review") return "needs_review";
+  if (confidence >= CONFIDENCE.SCHEDULED_AUTO_APPLY) return "auto_applied";
+  return "suggested";
+}
+
 function mutationDecisionStatus(
   input: CreateMutateToolsInput,
   action: "create" | "update" | "append",
   confidence: number,
 ): ReturnType<typeof classifyDecisionStatus> {
-  if (input.origin === "scheduled" && !input.scheduledAutoApply) {
-    return "suggested";
+  if (input.origin === "scheduled") {
+    if (!input.scheduledAutoApply) return "suggested";
+    return scheduledAutoApplyStatus(action, confidence);
   }
   return classifyDecisionStatus(action, confidence);
 }
 
-function destructiveDecisionStatus(): "suggested" {
-  return "suggested";
+function destructiveDecisionStatus(
+  input: CreateMutateToolsInput,
+  action: "delete" | "merge",
+  confidence: number,
+): ReturnType<typeof classifyDecisionStatus> {
+  // Destructive tools are only exposed to scheduled-origin runs (mutate-tools
+  // builder enforces the gate). Without scheduled_auto_apply opt-in, every
+  // destructive proposal lands in /review for human approval.
+  if (!input.scheduledAutoApply) return "suggested";
+  return scheduledAutoApplyStatus(action, confidence);
 }
 
 function assertObservedPage(ctx: AgentToolContext, pageId: string): void {
@@ -331,7 +356,10 @@ async function persistDirectPatch(
           observedBaseRevisionId,
         )
       : null;
-  const decisionStatus = conflict ? "suggested" : status;
+  const decisionStatus =
+    conflict && !(input.origin === "scheduled" && input.scheduledAutoApply)
+      ? "suggested"
+      : status;
   const decision = await createDecision(ctx, input, {
     action: "update",
     status: decisionStatus,
@@ -818,40 +846,101 @@ async function deletePage(
     args.pageId,
     observedBaseRevisionId,
   );
+  const status = destructiveDecisionStatus(input, "delete", args.confidence);
+  const baseRationale: Record<string, unknown> = {
+    kind: "delete",
+    baseRevisionId: page.currentRevisionId,
+    observedBaseRevisionId,
+    pageTitle: page.title,
+    ...(conflict
+      ? {
+          conflict: {
+            type: "conflict_with_human_edit",
+            humanRevisionId: conflict.id,
+            humanUserId: conflict.actorUserId,
+            humanEditedAt: conflict.createdAt.toISOString(),
+            humanRevisionNote: conflict.revisionNote,
+            baseRevisionId: observedBaseRevisionId,
+          },
+        }
+      : {}),
+  };
   const decision = await createDecision(ctx, input, {
     action: "delete",
-    status: destructiveDecisionStatus(),
+    status,
     confidence: args.confidence,
     reason: args.reason,
     tool: "delete_page",
     targetPageId: args.pageId,
-    rationale: {
-      kind: "delete",
-      baseRevisionId: page.currentRevisionId,
-      observedBaseRevisionId,
-      pageTitle: page.title,
-      ...(conflict
-        ? {
-            conflict: {
-              type: "conflict_with_human_edit",
-              humanRevisionId: conflict.id,
-              humanUserId: conflict.actorUserId,
-              humanEditedAt: conflict.createdAt.toISOString(),
-              humanRevisionNote: conflict.revisionNote,
-              baseRevisionId: observedBaseRevisionId,
-            },
-          }
-        : {}),
-    },
+    rationale: baseRationale,
   });
+
+  let appliedStatus = status;
+  let deletedPageIds: string[] | undefined;
+  if (status === "auto_applied") {
+    try {
+      const result = await softDeleteSubtree(ctx.db, {
+        workspaceId: ctx.workspaceId,
+        rootPageId: args.pageId,
+        modelRunId: input.modelRunId,
+        auditExtra: {
+          source: activitySource(input, "ingestion_agent_delete"),
+          ingestionId: input.ingestion.id,
+          scheduledRunId: input.scheduledRunId ?? null,
+          decisionId: decision.id,
+        },
+      });
+      deletedPageIds = result.deletedPageIds;
+      await ctx.db.insert(auditLogs).values({
+        workspaceId: ctx.workspaceId,
+        modelRunId: input.modelRunId,
+        entityType: "ingestion_decision",
+        entityId: decision.id,
+        action: "auto_apply_delete",
+        afterJson: {
+          source: activitySource(input, "ingestion_agent_delete"),
+          ingestionId: input.ingestion.id,
+          scheduledRunId: input.scheduledRunId ?? null,
+          decisionId: decision.id,
+          pageId: args.pageId,
+          deletedPageIds: result.deletedPageIds,
+        },
+      });
+    } catch (err) {
+      if (err instanceof PageDeletionError) {
+        appliedStatus = "suggested";
+        await ctx.db
+          .update(ingestionDecisions)
+          .set({
+            status: "suggested",
+            rationaleJson: {
+              reason: args.reason,
+              tool: "delete_page",
+              agentRunId: input.agentRunId,
+              scheduledRunId: input.scheduledRunId ?? null,
+              origin: input.origin ?? "ingestion",
+              ...baseRationale,
+              autoApplyDowngrade: {
+                code: err.code,
+                details: err.details,
+              },
+            },
+          })
+          .where(eq(ingestionDecisions.id, decision.id));
+      } else {
+        throw err;
+      }
+    }
+  }
 
   return {
     data: {
       decisionId: decision.id,
       pageId: args.pageId,
-      status: "suggested",
+      status: appliedStatus,
       action: "delete",
       tool: "delete_page",
+      ...(deletedPageIds ? { deletedPageIds } : {}),
     },
     mutatedPageIds: [args.pageId],
   };
@@ -910,26 +999,28 @@ async function mergePages(
       baseRevisionId: observedRevisionIdForPage(ctx, row.page),
     }));
 
+  const status = destructiveDecisionStatus(input, "merge", args.confidence);
+  const baseRationale: Record<string, unknown> = {
+    kind: "merge",
+    canonicalPageId: args.canonicalPageId,
+    sourcePageIds: args.sourcePageIds,
+    baseRevisionId: canonical.currentRevisionId,
+    observedBaseRevisionId,
+    canonicalPage: { id: canonical.id, title: canonical.title },
+    sourcePages: sourcePages.map((page) => ({
+      id: page.id,
+      title: page.title,
+    })),
+    ...(conflicts.length ? { conflicts, conflict: conflicts[0] } : {}),
+  };
   const decision = await createDecision(ctx, input, {
     action: "merge",
-    status: destructiveDecisionStatus(),
+    status,
     confidence: args.confidence,
     reason: args.reason,
     tool: "merge_pages",
     targetPageId: args.canonicalPageId,
-    rationale: {
-      kind: "merge",
-      canonicalPageId: args.canonicalPageId,
-      sourcePageIds: args.sourcePageIds,
-      baseRevisionId: canonical.currentRevisionId,
-      observedBaseRevisionId,
-      canonicalPage: { id: canonical.id, title: canonical.title },
-      sourcePages: sourcePages.map((page) => ({
-        id: page.id,
-        title: page.title,
-      })),
-      ...(conflicts.length ? { conflicts, conflict: conflicts[0] } : {}),
-    },
+    rationale: baseRationale,
   });
 
   const [revision] = await ctx.db
@@ -966,15 +1057,146 @@ async function mergePages(
       .where(eq(ingestionDecisions.id, decision.id)),
   ]);
 
+  let appliedStatus = status;
+  let deletedPageIds: string[] | undefined;
+  if (status === "auto_applied") {
+    try {
+      // Preflight: a source page cannot be an ancestor of the canonical (would
+      // delete the canonical with the source subtree).
+      const sourceSubtreeIds = await Promise.all(
+        args.sourcePageIds.map((pageId) =>
+          collectDescendantPageIds(ctx.db, ctx.workspaceId, pageId).then(
+            (ids) => ({ sourcePageId: pageId, descendantPageIds: ids }),
+          ),
+        ),
+      );
+      const protectedSubtree = sourceSubtreeIds.find((s) =>
+        s.descendantPageIds.includes(args.canonicalPageId),
+      );
+      if (protectedSubtree) {
+        throw new PageDeletionError("PAGE_PARENT_CONFLICT", {
+          sourcePageId: protectedSubtree.sourcePageId,
+          canonicalPageId: args.canonicalPageId,
+        });
+      }
+
+      const applyResult = await ctx.db.transaction(async (tx) => {
+        // Capture redirect paths before soft-delete flips is_current to false.
+        const redirectRows = await tx
+          .select({ pageId: pagePaths.pageId, path: pagePaths.path })
+          .from(pagePaths)
+          .where(
+            and(
+              eq(pagePaths.workspaceId, ctx.workspaceId),
+              inArray(pagePaths.pageId, args.sourcePageIds),
+              eq(pagePaths.isCurrent, true),
+            ),
+          );
+
+        const collected: string[] = [];
+        for (const sourcePageId of args.sourcePageIds) {
+          const result = await softDeleteSubtreeInTransaction(tx, {
+            workspaceId: ctx.workspaceId,
+            rootPageId: sourcePageId,
+            modelRunId: input.modelRunId,
+            auditExtra: {
+              source: activitySource(input, "ingestion_agent_merge"),
+              ingestionId: input.ingestion.id,
+              scheduledRunId: input.scheduledRunId ?? null,
+              decisionId: decision.id,
+              mergeCanonicalPageId: args.canonicalPageId,
+            },
+          });
+          collected.push(...result.deletedPageIds);
+        }
+
+        const now = new Date();
+        const redirectValues = redirectRows
+          .filter((row) => row.pageId !== args.canonicalPageId)
+          .map((row) => ({
+            workspaceId: ctx.workspaceId,
+            fromPageId: row.pageId,
+            toPageId: args.canonicalPageId,
+            fromPath: row.path,
+            createdByDecisionId: decision.id,
+          }));
+
+        await Promise.all([
+          tx
+            .update(pages)
+            .set({
+              currentRevisionId: revision.id,
+              updatedAt: now,
+              lastAiUpdatedAt: now,
+            })
+            .where(eq(pages.id, args.canonicalPageId)),
+          redirectValues.length > 0
+            ? tx
+                .insert(pageRedirects)
+                .values(redirectValues)
+                .onConflictDoNothing()
+            : Promise.resolve(),
+          tx.insert(auditLogs).values({
+            workspaceId: ctx.workspaceId,
+            modelRunId: input.modelRunId,
+            entityType: "ingestion_decision",
+            entityId: decision.id,
+            action: "auto_apply_merge",
+            afterJson: {
+              source: activitySource(input, "ingestion_agent_merge"),
+              ingestionId: input.ingestion.id,
+              scheduledRunId: input.scheduledRunId ?? null,
+              decisionId: decision.id,
+              canonicalPageId: args.canonicalPageId,
+              sourcePageIds: args.sourcePageIds,
+              deletedPageIds: collected,
+              revisionId: revision.id,
+            },
+          }),
+        ]);
+
+        return { deletedPageIds: collected };
+      });
+      deletedPageIds = applyResult.deletedPageIds;
+
+      await enqueuePostApply(ctx, input, args.canonicalPageId, revision.id);
+    } catch (err) {
+      if (err instanceof PageDeletionError) {
+        appliedStatus = "suggested";
+        await ctx.db
+          .update(ingestionDecisions)
+          .set({
+            status: "suggested",
+            rationaleJson: {
+              reason: args.reason,
+              tool: "merge_pages",
+              agentRunId: input.agentRunId,
+              scheduledRunId: input.scheduledRunId ?? null,
+              origin: input.origin ?? "ingestion",
+              ...baseRationale,
+              autoApplyDowngrade: {
+                code: err.code,
+                details: err.details,
+              },
+            },
+          })
+          .where(eq(ingestionDecisions.id, decision.id));
+      } else {
+        throw err;
+      }
+    }
+  }
+
   return {
     data: {
       decisionId: decision.id,
       revisionId: revision.id,
       pageId: args.canonicalPageId,
       sourcePageIds: args.sourcePageIds,
-      status: "suggested",
+      status: appliedStatus,
       action: "merge",
       tool: "merge_pages",
+      ...(deletedPageIds ? { deletedPageIds } : {}),
     },
     mutatedPageIds: [args.canonicalPageId, ...args.sourcePageIds],
     observedPageRevisions: [
