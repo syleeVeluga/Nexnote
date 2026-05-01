@@ -255,6 +255,88 @@ describe("runIngestionAgentShadow", () => {
     assert.ok(result.steps.some((step) => step.type === "mutation_result"));
   });
 
+  it("keeps free-form human review guidance out of suggestedAction", async () => {
+    const calls: unknown[] = [];
+    const mutateTools: Record<string, AgentToolDefinition> = {
+      request_human_review: {
+        name: "request_human_review",
+        description: "test review",
+        schema: agentMutateToolInputSchemas.request_human_review,
+        async execute(_ctx, input) {
+          calls.push(input);
+          return {
+            data: {
+              decisionId: "22222222-2222-4222-8222-222222222222",
+              status: "needs_review",
+            },
+          };
+        },
+      },
+    };
+    const adapter = new SequenceAdapter([
+      response({ content: "No tools needed." }),
+      response({
+        content: JSON.stringify({
+          summary: "Human review is needed.",
+          proposedPlan: [
+            {
+              action: "needs_review",
+              targetPageId: pageId,
+              confidence: 0.4,
+              reason: "Multiple pages may need consolidation.",
+              tool: "request_human_review",
+              args: {
+                reason: "Multiple pages may need consolidation.",
+                suggestedAction:
+                  "Pick a canonical page, update it, and archive duplicates.",
+                suggestedPageIds: [pageId],
+                confidence: 0.4,
+              },
+              evidence: [],
+            },
+          ],
+          openQuestions: [],
+        }),
+      }),
+    ]);
+    let modelRun = 0;
+
+    const result = await runIngestionAgentShadow({
+      db: fakeDb,
+      workspaceId: "workspace-1",
+      ingestion: {
+        id: "ingestion-1",
+        sourceName: "test",
+        contentType: "text/markdown",
+        titleHint: "HR answers",
+        normalizedText: "HR note.",
+        rawPayload: {},
+      },
+      mode: "agent",
+      agentRunId: "33333333-3333-4333-8333-333333333333",
+      adapter,
+      baseProvider: "openai",
+      baseModel: "gpt-5.4",
+      tools: {},
+      mutateTools,
+      recordModelRun: async () => {
+        modelRun += 1;
+        return { id: `44444444-4444-4444-8444-44444444444${modelRun}` };
+      },
+    });
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.decisionsCount, 1);
+    assert.deepEqual(calls, [
+      {
+        reason:
+          "Multiple pages may need consolidation.\n\nSuggested action note: Pick a canonical page, update it, and archive duplicates.",
+        suggestedPageIds: [pageId],
+        confidence: 0.4,
+      },
+    ]);
+  });
+
   it("runs one mutation repair turn when a mutate tool returns self-correction hints", async () => {
     let appendCalls = 0;
     const tools: Record<string, AgentToolDefinition> = {
@@ -518,8 +600,14 @@ describe("runIngestionAgentShadow", () => {
     assert.equal(result.status, "completed");
     assert.equal(result.decisionsCount, 1);
     assert.equal(sawSeedPage, true);
-    assert.match(adapter.requests[0].messages[0].content, /Scheduled reorganize mode/);
-    assert.match(adapter.requests[0].messages[0].content, /Remove duplicate sections/);
+    assert.match(
+      adapter.requests[0].messages[0].content,
+      /Scheduled reorganize mode/,
+    );
+    assert.match(
+      adapter.requests[0].messages[0].content,
+      /Remove duplicate sections/,
+    );
   });
 
   it("stops before model calls when the workspace daily token cap is exhausted", async () => {

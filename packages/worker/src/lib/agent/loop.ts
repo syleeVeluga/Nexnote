@@ -2,6 +2,7 @@ import {
   extractIngestionText,
   ingestionAgentPlanSchema,
   estimateTokens,
+  INGESTION_ACTIONS,
   MODE_OUTPUT_RESERVE,
   type AIAdapter,
   type AIBudgetMeta,
@@ -44,6 +45,7 @@ import { createAgentRunState } from "./types.js";
 
 const PROMPT_VERSION = "ingestion-agent-v1";
 const EXPLORE_OUTPUT_RESERVE = Math.min(4_096, MODE_OUTPUT_RESERVE.agent_plan);
+const INGESTION_ACTION_SET = new Set<string>(INGESTION_ACTIONS);
 
 const EXPLORE_SYSTEM_PROMPT = `You are a read-only exploration agent for WekiFlow's Markdown knowledge wiki.
 Investigate the incoming ingestion with the available read-only tools, then stop calling tools when you have enough context to plan possible wiki updates.
@@ -80,7 +82,7 @@ Tool argument contracts:
 - delete_page: { pageId, confidence, reason } (Scheduled reorganize mode only; always becomes a human-reviewable suggestion)
 - merge_pages: { canonicalPageId, sourcePageIds, mergedContentMd, confidence, reason } (Scheduled reorganize mode only; always becomes a human-reviewable suggestion)
 - noop: { reason, confidence? }
-- request_human_review: { reason, suggestedAction?, suggestedPageIds?, confidence? }
+- request_human_review: { reason, suggestedAction?, suggestedPageIds?, confidence? } where suggestedAction must be one of "create", "update", "append", "delete", "merge", "noop", "needs_review"; put free-form guidance in reason, not suggestedAction.
 
 Use update_page only when a narrower tool cannot represent the change. Never invent page IDs or block IDs.
 Use delete_page and merge_pages only for scheduled wiki reorganization. If this is not scheduled mode, request human review instead.
@@ -278,7 +280,9 @@ function scheduledPromptPrefix(input: RunIngestionAgentShadowInput): string {
     "- Unless scheduled auto-apply is enabled for this workspace, mutations must remain human-reviewable suggestions.",
   ];
   if (seedPageIds.length > 0) {
-    lines.push(`- Seed page IDs selected by the user: ${seedPageIds.join(", ")}`);
+    lines.push(
+      `- Seed page IDs selected by the user: ${seedPageIds.join(", ")}`,
+    );
   }
   const instruction = input.instruction?.trim();
   if (instruction) {
@@ -533,21 +537,75 @@ const ACTION_TO_TOOL: Record<
   needs_review: "request_human_review",
 };
 
+function appendReasonNote(
+  reason: string,
+  label: string,
+  value: string,
+): string {
+  const note = `${label}: ${value}`;
+  const next = reason.trim().length > 0 ? `${reason}\n\n${note}` : note;
+  return next.slice(0, 2_000);
+}
+
+function normalizeRequestHumanReviewArgs(
+  args: Record<string, unknown>,
+  fallback: Pick<AgentPlanMutation, "confidence" | "reason" | "targetPageId">,
+): Record<string, unknown> {
+  const normalized = { ...args };
+  normalized.reason =
+    typeof normalized.reason === "string" && normalized.reason.trim().length > 0
+      ? normalized.reason
+      : fallback.reason;
+  normalized.confidence =
+    typeof normalized.confidence === "number"
+      ? normalized.confidence
+      : fallback.confidence;
+  if (!Array.isArray(normalized.suggestedPageIds) && fallback.targetPageId) {
+    normalized.suggestedPageIds = [fallback.targetPageId];
+  }
+
+  const suggestedAction = normalized.suggestedAction;
+  if (suggestedAction === undefined) return normalized;
+  if (
+    typeof suggestedAction === "string" &&
+    INGESTION_ACTION_SET.has(suggestedAction)
+  ) {
+    return normalized;
+  }
+
+  delete normalized.suggestedAction;
+  if (
+    typeof suggestedAction === "string" &&
+    suggestedAction.trim().length > 0
+  ) {
+    normalized.reason = appendReasonNote(
+      String(normalized.reason),
+      "Suggested action note",
+      suggestedAction,
+    );
+  }
+  return normalized;
+}
+
 function mutationToToolCall(
   mutation: AgentPlanMutation,
   index: number,
   ingestionText: string,
 ): NormalizedToolCall {
   if (mutation.tool) {
+    const args = {
+      ...(mutation.args ?? {}),
+      confidence:
+        (mutation.args?.["confidence"] as unknown) ?? mutation.confidence,
+      reason: (mutation.args?.["reason"] as unknown) ?? mutation.reason,
+    };
     return {
       id: `mutation_${index}_${mutation.tool}`,
       name: mutation.tool,
-      arguments: {
-        ...(mutation.args ?? {}),
-        confidence:
-          (mutation.args?.["confidence"] as unknown) ?? mutation.confidence,
-        reason: (mutation.args?.["reason"] as unknown) ?? mutation.reason,
-      },
+      arguments:
+        mutation.tool === "request_human_review"
+          ? normalizeRequestHumanReviewArgs(args, mutation)
+          : args,
     };
   }
 
@@ -1351,10 +1409,9 @@ export async function runIngestionAgentShadow(
     agentRunId: input.agentRunId,
     modelRunId: planModelRun.id,
     origin: input.origin,
-          scheduledRunId: input.scheduledRunId,
-          scheduledAutoApply: input.scheduledAutoApply,
-          allowDestructiveScheduledAgent:
-            input.allowDestructiveScheduledAgent,
+    scheduledRunId: input.scheduledRunId,
+    scheduledAutoApply: input.scheduledAutoApply,
+    allowDestructiveScheduledAgent: input.allowDestructiveScheduledAgent,
     ingestionText,
     plan: parsed.plan,
     state: dispatcher.state,
