@@ -20,6 +20,7 @@ import {
   isUniqueViolation,
 } from "../../lib/reply-helpers.js";
 import { readAgentParityGateStatus } from "../../lib/agent-parity-gate.js";
+import { syncWorkspaceScheduledTaskSchedulers } from "../../lib/scheduled-agent-scheduler.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -148,6 +149,18 @@ function validateAgentSettingsPatch(
       );
     }
   }
+}
+
+function rollbackWorkspacePatch(
+  currentWorkspace: typeof workspaces.$inferSelect,
+  patch: Partial<typeof workspaces.$inferInsert>,
+): Partial<typeof workspaces.$inferInsert> {
+  const rollback: Record<string, unknown> = {};
+  const current = currentWorkspace as unknown as Record<string, unknown>;
+  for (const key of Object.keys(patch)) {
+    rollback[key] = current[key];
+  }
+  return rollback as Partial<typeof workspaces.$inferInsert>;
 }
 
 function toMemberDto(
@@ -433,6 +446,51 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
 
         if (!updated) {
           throw fastify.httpErrors.notFound("Workspace not found");
+        }
+
+        if (
+          Object.prototype.hasOwnProperty.call(body, "scheduledEnabled") &&
+          updated.scheduledEnabled !== currentWorkspace.scheduledEnabled
+        ) {
+          try {
+            await syncWorkspaceScheduledTaskSchedulers({
+              db: fastify.db,
+              queue: fastify.queues["scheduled-agent-queue"],
+              workspaceId,
+              scheduledEnabled: updated.scheduledEnabled,
+            });
+          } catch (err) {
+            const rollbackPatch = rollbackWorkspacePatch(
+              currentWorkspace,
+              workspacePatch,
+            );
+            await fastify.db.transaction(async (tx) => {
+              await tx
+                .update(workspaces)
+                .set({ ...rollbackPatch, updatedAt: new Date() })
+                .where(eq(workspaces.id, workspaceId));
+              await tx.insert(auditLogs).values({
+                workspaceId,
+                userId,
+                entityType: "workspace",
+                entityId: workspaceId,
+                action: "workspace.update.rollback",
+                beforeJson: workspacePatch,
+                afterJson: rollbackPatch,
+              });
+            });
+            await syncWorkspaceScheduledTaskSchedulers({
+              db: fastify.db,
+              queue: fastify.queues["scheduled-agent-queue"],
+              workspaceId,
+              scheduledEnabled: currentWorkspace.scheduledEnabled,
+            }).catch(() => undefined);
+            return reply.code(503).send({
+              error: "Scheduled task scheduler unavailable",
+              code: "SCHEDULED_TASK_SCHEDULER_UNAVAILABLE",
+              details: err instanceof Error ? err.message : String(err),
+            });
+          }
         }
 
         return toWorkspaceDto(updated);

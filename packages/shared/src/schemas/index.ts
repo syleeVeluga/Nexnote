@@ -10,3 +10,4 @@ export * from "./dashboard.js";
 export * from "./synthesis.js";
 export * from "./system.js";
 export * from "./agent.js";
+export * from "./scheduled.js";

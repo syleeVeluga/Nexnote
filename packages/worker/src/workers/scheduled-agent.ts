@@ -231,6 +231,7 @@ export function createScheduledAgentWorker(): Worker {
       const [workspace] = await db
         .select({
           id: workspaces.id,
+          scheduledEnabled: workspaces.scheduledEnabled,
           scheduledAutoApply: workspaces.scheduledAutoApply,
           scheduledDailyTokenCap: workspaces.scheduledDailyTokenCap,
           scheduledPerRunPageLimit: workspaces.scheduledPerRunPageLimit,
@@ -263,17 +264,6 @@ export function createScheduledAgentWorker(): Worker {
         throw new Error(`Scheduled task ${job.data.taskId} not found`);
       }
 
-      const runInput: ScheduledAgentInput = {
-        pageIds: job.data.pageIds ?? task?.targetPageIds ?? [],
-        includeDescendants:
-          job.data.includeDescendants ?? task?.includeDescendants ?? true,
-        instruction: job.data.instruction ?? task?.instruction ?? null,
-        perRunPageLimit: workspace.scheduledPerRunPageLimit,
-      };
-      if (runInput.pageIds.length === 0) {
-        throw new Error("Scheduled agent requires at least one target page");
-      }
-
       const scheduledRun = job.data.scheduledRunId
         ? await db
             .update(scheduledRuns)
@@ -302,6 +292,46 @@ export function createScheduledAgentWorker(): Worker {
             .then((rows) => rows[0]);
       if (!scheduledRun) {
         throw new Error(`Scheduled run ${job.data.scheduledRunId} not found`);
+      }
+
+      const skippedReason =
+        job.data.triggeredBy === "cron" && task && !task.enabled
+          ? "task_disabled"
+          : job.data.triggeredBy === "cron" && !workspace.scheduledEnabled
+            ? "workspace_scheduled_disabled"
+            : null;
+      if (skippedReason) {
+        const completedAt = new Date();
+        await db
+          .update(scheduledRuns)
+          .set({
+            status: "completed",
+            decisionCount: 0,
+            tokensIn: 0,
+            tokensOut: 0,
+            diagnosticsJson: { skippedReason },
+            completedAt,
+          })
+          .where(eq(scheduledRuns.id, scheduledRun.id));
+        await job.updateProgress(100);
+        return {
+          scheduledRunId: scheduledRun.id,
+          agentRunId: null,
+          status: "completed",
+          decisionCount: 0,
+          totalTokens: 0,
+        };
+      }
+
+      const runInput: ScheduledAgentInput = {
+        pageIds: job.data.pageIds ?? task?.targetPageIds ?? [],
+        includeDescendants:
+          job.data.includeDescendants ?? task?.includeDescendants ?? true,
+        instruction: job.data.instruction ?? task?.instruction ?? null,
+        perRunPageLimit: workspace.scheduledPerRunPageLimit,
+      };
+      if (runInput.pageIds.length === 0) {
+        throw new Error("Scheduled agent requires at least one target page");
       }
 
       let ingestion: typeof ingestions.$inferSelect | null = null;
