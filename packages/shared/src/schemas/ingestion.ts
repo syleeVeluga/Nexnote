@@ -90,6 +90,14 @@ export const entityTypeEnum = z.enum([
   "system",
   "event",
   "concept",
+  "development",
+  "research",
+  "marketing",
+  "policy",
+  "design",
+  "operations",
+  "legal",
+  "sales",
 ]);
 
 export const tripleExtractionSchema = z.object({

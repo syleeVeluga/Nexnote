@@ -157,17 +157,6 @@ export const MODEL_RUN_STATUSES = [
 ] as const;
 export type ModelRunStatus = (typeof MODEL_RUN_STATUSES)[number];
 
-export const ENTITY_TYPES = [
-  "person",
-  "organization",
-  "concept",
-  "technology",
-  "location",
-  "event",
-  "other",
-] as const;
-export type EntityType = (typeof ENTITY_TYPES)[number];
-
 export const TRIPLE_STATUSES = [
   "active",
   "deprecated",

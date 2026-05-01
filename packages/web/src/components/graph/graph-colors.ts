@@ -5,9 +5,16 @@ export const NODE_COLORS = {
   product: "#c2410c",
   document: "#0f766e",
   system: "#2563eb",
-  technology: "#7c3aed",
   event: "#0891b2",
   concept: "#d97706",
+  development: "#16a34a",
+  research: "#7c3aed",
+  marketing: "#db2777",
+  policy: "#64748b",
+  design: "#c026d3",
+  operations: "#ca8a04",
+  legal: "#44403c",
+  sales: "#65a30d",
   other: "#6b7280",
 } as const;
 

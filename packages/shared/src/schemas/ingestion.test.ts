@@ -142,6 +142,14 @@ describe("tripleExtractionSchema", () => {
     "system",
     "event",
     "concept",
+    "development",
+    "research",
+    "marketing",
+    "policy",
+    "design",
+    "operations",
+    "legal",
+    "sales",
   ] as const;
 
   const validTriple = {
