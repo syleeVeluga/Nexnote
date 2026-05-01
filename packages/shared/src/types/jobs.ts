@@ -35,6 +35,7 @@ export interface IngestionAgentJobResult {
 
 /** Data passed to the scheduled-agent job */
 export interface ScheduledAgentJobData {
+  scheduledRunId?: string | null;
   workspaceId: string;
   taskId?: string | null;
   triggeredBy: ScheduledRunTriggeredBy;
@@ -72,6 +73,7 @@ export interface PatchGeneratorJobData {
   contentOverrideMd?: string | null;
   sectionHint?: string | null;
   agentRunId?: string | null;
+  scheduledRunId?: string | null;
 }
 
 /** Result returned from the patch-generator job */

@@ -40,6 +40,7 @@ import type {
   AgentToolErrorPayload,
   AgentToolExecution,
 } from "./types.js";
+import { createAgentRunState } from "./types.js";
 
 const PROMPT_VERSION = "ingestion-agent-v1";
 
@@ -159,8 +160,13 @@ export interface RunIngestionAgentShadowInput {
   db: AgentDb;
   workspaceId: string;
   ingestion: AgentIngestionInput;
+  origin?: "ingestion" | "scheduled";
   mode?: "shadow" | "agent";
   agentRunId?: string;
+  seedPageIds?: string[];
+  instruction?: string | null;
+  scheduledRunId?: string | null;
+  scheduledAutoApply?: boolean;
   adapter?: AIAdapter;
   baseProvider?: AIProvider;
   baseModel?: string;
@@ -242,6 +248,45 @@ Workspace operator instructions:
 ${trimmed}
 
 Treat these workspace instructions as routing and editing policy. If they conflict with tool safety, confidence gates, or provenance requirements, keep the safety requirement and request human review.`;
+}
+
+function scheduledPromptPrefix(input: RunIngestionAgentShadowInput): string {
+  if (input.origin !== "scheduled") return "";
+  const seedPageIds = [...new Set(input.seedPageIds ?? [])];
+  const lines = [
+    "Scheduled reorganize mode:",
+    "- This is not an external fact ingestion. It is a request to reorganize and improve existing wiki pages.",
+    "- Prefer replace_in_page, edit_page_blocks, or edit_page_section over full rewrites.",
+    "- Use create_page only as a last resort when the target knowledge cannot fit into existing selected pages.",
+    "- Unless scheduled auto-apply is enabled for this workspace, mutations must remain human-reviewable suggestions.",
+  ];
+  if (seedPageIds.length > 0) {
+    lines.push(`- Seed page IDs selected by the user: ${seedPageIds.join(", ")}`);
+  }
+  const instruction = input.instruction?.trim();
+  if (instruction) {
+    lines.push("", "User instruction:", instruction);
+  }
+  return lines.join("\n");
+}
+
+function mergeAgentInstructions(
+  input: RunIngestionAgentShadowInput,
+): string | null {
+  const scheduled = scheduledPromptPrefix(input);
+  const workspace = input.workspaceAgentInstructions?.trim() ?? "";
+  if (!scheduled && !workspace) return null;
+  return [scheduled, workspace].filter(Boolean).join("\n\n");
+}
+
+function createInitialAgentRunState(
+  seedPageIds: string[] | undefined,
+): AgentRunState {
+  const state = createAgentRunState();
+  for (const pageId of seedPageIds ?? []) {
+    state.seenPageIds.add(pageId);
+  }
+  return state;
 }
 
 function readToolDefinitions(): AIToolDefinition[] {
@@ -563,6 +608,9 @@ async function executeMutations(input: {
   ingestion: AgentIngestionInput;
   agentRunId: string;
   modelRunId: string;
+  origin?: RunIngestionAgentShadowInput["origin"];
+  scheduledRunId?: RunIngestionAgentShadowInput["scheduledRunId"];
+  scheduledAutoApply?: RunIngestionAgentShadowInput["scheduledAutoApply"];
   ingestionText: string;
   plan: IngestionAgentPlan;
   state: AgentRunState;
@@ -581,6 +629,9 @@ async function executeMutations(input: {
     ingestion: input.ingestion,
     agentRunId: input.agentRunId,
     modelRunId: input.modelRunId,
+    origin: input.origin,
+    scheduledRunId: input.scheduledRunId,
+    scheduledAutoApply: input.scheduledAutoApply,
     ...input.mutationQueues,
   };
   const tools =
@@ -857,13 +908,14 @@ export async function runIngestionAgentShadow(
   const steps: AgentRunTraceStep[] = [];
   const totals = { tokens: 0, latencyMs: 0 };
   const ingestionText = extractIngestionText(input.ingestion);
+  const mergedInstructions = mergeAgentInstructions(input);
   const exploreSystemPrompt = withWorkspaceInstructions(
     EXPLORE_SYSTEM_PROMPT,
-    input.workspaceAgentInstructions,
+    mergedInstructions,
   );
   const planSystemPrompt = withWorkspaceInstructions(
     PLAN_SYSTEM_PROMPT,
-    input.workspaceAgentInstructions,
+    mergedInstructions,
   );
   const base =
     input.baseProvider && input.baseModel
@@ -895,9 +947,11 @@ export async function runIngestionAgentShadow(
     env: input.env,
   });
 
+  const initialState = createInitialAgentRunState(input.seedPageIds);
   const dispatcher = createAgentDispatcher({
     db: input.db,
     workspaceId: input.workspaceId,
+    state: initialState,
     tools: input.tools,
     env: input.env,
     model: { provider: exploreModel.provider, model: exploreModel.model },
@@ -1240,6 +1294,9 @@ export async function runIngestionAgentShadow(
     ingestion: input.ingestion,
     agentRunId: input.agentRunId,
     modelRunId: planModelRun.id,
+    origin: input.origin,
+    scheduledRunId: input.scheduledRunId,
+    scheduledAutoApply: input.scheduledAutoApply,
     ingestionText,
     plan: parsed.plan,
     state: dispatcher.state,

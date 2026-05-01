@@ -56,6 +56,9 @@ export interface CreateMutateToolsInput {
   ingestion: AgentMutationIngestion;
   agentRunId: string;
   modelRunId: string;
+  origin?: "ingestion" | "scheduled";
+  scheduledRunId?: string | null;
+  scheduledAutoApply?: boolean;
   patchQueue?: QueueLike<PatchGeneratorJobData>;
   extractionQueue?: QueueLike<TripleExtractorJobData>;
   searchQueue?: QueueLike<SearchIndexUpdaterJobData>;
@@ -77,6 +80,32 @@ interface ConflictingRevision {
   actorUserId: string | null;
   createdAt: Date;
   revisionNote: string | null;
+}
+
+function revisionSource(
+  input: CreateMutateToolsInput,
+): "ingest_api" | "scheduled" {
+  return input.origin === "scheduled" ? "scheduled" : "ingest_api";
+}
+
+function activitySource(
+  input: CreateMutateToolsInput,
+  source: string,
+): string {
+  return input.origin === "scheduled"
+    ? source.replace("ingestion_agent", "scheduled_agent")
+    : source;
+}
+
+function mutationDecisionStatus(
+  input: CreateMutateToolsInput,
+  action: "create" | "update" | "append",
+  confidence: number,
+): ReturnType<typeof classifyDecisionStatus> {
+  if (input.origin === "scheduled" && !input.scheduledAutoApply) {
+    return "suggested";
+  }
+  return classifyDecisionStatus(action, confidence);
 }
 
 function assertObservedPage(ctx: AgentToolContext, pageId: string): void {
@@ -216,6 +245,7 @@ async function createDecision(
       targetPageId: values.targetPageId ?? null,
       modelRunId: input.modelRunId,
       agentRunId: input.agentRunId,
+      scheduledRunId: input.scheduledRunId ?? null,
       action: values.action,
       status: values.status,
       proposedPageTitle: values.proposedPageTitle ?? null,
@@ -224,6 +254,8 @@ async function createDecision(
         reason: values.reason,
         tool: values.tool,
         agentRunId: input.agentRunId,
+        scheduledRunId: input.scheduledRunId ?? null,
+        origin: input.origin ?? "ingestion",
         ...(values.rationale ?? {}),
       },
     })
@@ -283,7 +315,7 @@ async function persistDirectPatch(
     );
   }
 
-  const status = classifyDecisionStatus("update", params.confidence);
+  const status = mutationDecisionStatus(input, "update", params.confidence);
   const conflict =
     status === "auto_applied"
       ? await detectHumanConflict(
@@ -326,7 +358,7 @@ async function persistDirectPatch(
       baseRevisionId: page.currentRevisionId,
       modelRunId: input.modelRunId,
       actorType: "ai",
-      source: "ingest_api",
+      source: revisionSource(input),
       sourceIngestionId: input.ingestion.id,
       sourceDecisionId: decision.id,
       contentMd: params.newContentMd,
@@ -364,8 +396,9 @@ async function persistDirectPatch(
         entityId: params.pageId,
         action: "update",
         afterJson: {
-          source: "ingestion_agent_direct_patch",
+          source: activitySource(input, "ingestion_agent_direct_patch"),
           ingestionId: input.ingestion.id,
+          scheduledRunId: input.scheduledRunId ?? null,
           decisionId: decision.id,
           revisionId: revision.id,
           tool: params.tool,
@@ -389,8 +422,12 @@ async function persistDirectPatch(
           entityId: params.pageId,
           action: "update",
           afterJson: {
-            source: "ingestion_agent_direct_patch_conflict_downgrade",
+            source: activitySource(
+              input,
+              "ingestion_agent_direct_patch_conflict_downgrade",
+            ),
             ingestionId: input.ingestion.id,
+            scheduledRunId: input.scheduledRunId ?? null,
             decisionId: decision.id,
             revisionId: revision.id,
             tool: params.tool,
@@ -512,7 +549,7 @@ async function enqueuePatchFallback(
 ): Promise<AgentToolResult> {
   assertCanMutatePage(ctx, args.pageId);
   const page = await getCurrentPage(ctx.db, ctx.workspaceId, args.pageId);
-  const status = classifyDecisionStatus(action, args.confidence);
+  const status = mutationDecisionStatus(input, action, args.confidence);
   const contentOverrideMd =
     action === "update"
       ? (args as UpdatePageToolInput).newContentMd
@@ -559,6 +596,7 @@ async function enqueuePatchFallback(
         action,
         baseRevisionId: page.currentRevisionId,
         agentRunId: input.agentRunId,
+        scheduledRunId: input.scheduledRunId ?? null,
         contentOverrideMd,
         sectionHint: "sectionHint" in args ? args.sectionHint ?? null : null,
       },
@@ -573,7 +611,7 @@ async function enqueuePatchFallback(
         baseRevisionId: page.currentRevisionId,
         modelRunId: input.modelRunId,
         actorType: "ai",
-        source: "ingest_api",
+        source: revisionSource(input),
         sourceIngestionId: input.ingestion.id,
         sourceDecisionId: decision.id,
         contentMd: proposedContentMd,
@@ -613,7 +651,7 @@ async function createPage(
   ctx: AgentToolContext,
   args: CreatePageToolInput,
 ): Promise<AgentToolResult> {
-  const status = classifyDecisionStatus("create", args.confidence);
+  const status = mutationDecisionStatus(input, "create", args.confidence);
 
   if (status !== "auto_applied") {
     const decision = await createDecision(ctx, input, {
@@ -623,6 +661,9 @@ async function createPage(
       reason: args.reason,
       tool: "create_page",
       proposedPageTitle: args.title,
+      rationale: {
+        proposedContentMd: args.contentMd,
+      },
     });
     return {
       data: {
@@ -694,7 +735,7 @@ async function createPage(
       pageId: page.id,
       modelRunId: input.modelRunId,
       actorType: "ai",
-      source: "ingest_api",
+      source: revisionSource(input),
       sourceIngestionId: input.ingestion.id,
       sourceDecisionId: decision.id,
       contentMd: args.contentMd,
@@ -725,8 +766,9 @@ async function createPage(
       entityId: page.id,
       action: "create",
       afterJson: {
-        source: "ingestion_agent_auto",
+        source: activitySource(input, "ingestion_agent_auto"),
         ingestionId: input.ingestion.id,
+        scheduledRunId: input.scheduledRunId ?? null,
         decisionId: decision.id,
         revisionId: revision.id,
         tool: "create_page",
@@ -806,6 +848,7 @@ export async function recordAgentMutationFailure(
       ingestionId: input.ingestion.id,
       modelRunId: input.modelRunId,
       agentRunId: input.agentRunId,
+      scheduledRunId: input.scheduledRunId ?? null,
       action: "needs_review",
       status: "failed",
       confidence: 0,
@@ -813,6 +856,8 @@ export async function recordAgentMutationFailure(
         reason: `Agent mutation failed: ${failure.message}`,
         tool: failure.tool,
         agentRunId: input.agentRunId,
+        scheduledRunId: input.scheduledRunId ?? null,
+        origin: input.origin ?? "ingestion",
         details: failure.details ?? null,
       },
     })
