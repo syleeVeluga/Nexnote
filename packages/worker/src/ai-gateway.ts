@@ -41,6 +41,133 @@ let mockFixtureCache: MockFixtureFile | null = null;
 
 type JsonRecord = Record<string, unknown>;
 
+const RETRYABLE_AI_HTTP_STATUSES = new Set([
+  408, 409, 425, 429, 500, 502, 503, 504,
+]);
+
+class AIProviderError extends Error {
+  constructor(
+    public readonly provider: AIProvider,
+    public readonly status: number,
+    public readonly responseBody: string,
+    public readonly retryable: boolean,
+    public readonly retryAfterMs: number | null,
+  ) {
+    super(`${providerLabel(provider)} API error ${status}: ${responseBody}`);
+    this.name = "AIProviderError";
+  }
+}
+
+function providerLabel(provider: AIProvider): string {
+  return provider === "openai" ? "OpenAI" : "Gemini";
+}
+
+function readNonNegativeIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function aiGatewayRetryConfig(): {
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+} {
+  return {
+    maxRetries: readNonNegativeIntEnv("AI_GATEWAY_MAX_RETRIES", 2),
+    baseDelayMs: readNonNegativeIntEnv("AI_GATEWAY_RETRY_BASE_DELAY_MS", 750),
+    maxDelayMs: readNonNegativeIntEnv("AI_GATEWAY_RETRY_MAX_DELAY_MS", 8_000),
+  };
+}
+
+function parseRetryAfterMs(value: string | null): number | null {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.floor(seconds * 1_000);
+  }
+
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return null;
+  return Math.max(0, timestamp - Date.now());
+}
+
+function retryDelayMs(input: {
+  attempt: number;
+  retryAfterMs: number | null;
+  baseDelayMs: number;
+  maxDelayMs: number;
+}): number {
+  const exponential = input.baseDelayMs * 2 ** input.attempt;
+  const delay = Math.max(input.retryAfterMs ?? 0, exponential);
+  return Math.min(delay, input.maxDelayMs);
+}
+
+async function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return;
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableNetworkError(err: unknown): boolean {
+  return err instanceof TypeError;
+}
+
+async function fetchWithProviderRetry(
+  provider: AIProvider,
+  input: string | URL | Request,
+  init: RequestInit,
+): Promise<Response> {
+  const { maxRetries, baseDelayMs, maxDelayMs } = aiGatewayRetryConfig();
+  let lastNetworkError: unknown = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    try {
+      const res = await fetch(input, init);
+      if (res.ok) return res;
+
+      const text = await res.text();
+      const retryAfterMsValue = parseRetryAfterMs(
+        res.headers.get("retry-after"),
+      );
+      const retryable = RETRYABLE_AI_HTTP_STATUSES.has(res.status);
+      const error = new AIProviderError(
+        provider,
+        res.status,
+        text,
+        retryable,
+        retryAfterMsValue,
+      );
+      if (!retryable || attempt >= maxRetries) throw error;
+
+      await sleep(
+        retryDelayMs({
+          attempt,
+          retryAfterMs: retryAfterMsValue,
+          baseDelayMs,
+          maxDelayMs,
+        }),
+      );
+    } catch (err) {
+      if (err instanceof AIProviderError) throw err;
+      if (!isRetryableNetworkError(err) || attempt >= maxRetries) throw err;
+      lastNetworkError = err;
+      await sleep(
+        retryDelayMs({
+          attempt,
+          retryAfterMs: null,
+          baseDelayMs,
+          maxDelayMs,
+        }),
+      );
+    }
+  }
+
+  throw (
+    lastNetworkError ?? new Error(`${providerLabel(provider)} request failed`)
+  );
+}
+
 interface OpenAIWireMessage {
   role: "system" | "user" | "assistant" | "tool";
   content?: string | null;
@@ -411,33 +538,32 @@ class OpenAIAdapter implements AIAdapter {
 
     const start = Date.now();
 
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+    const res = await fetchWithProviderRetry(
+      this.provider,
+      "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: request.model,
+          messages: request.messages.map(toOpenAIMessage),
+          temperature: request.temperature ?? 0.2,
+          max_completion_tokens: request.maxTokens ?? 2048,
+          ...(request.responseFormat === "json"
+            ? { response_format: { type: "json_object" } }
+            : {}),
+          ...(request.tools?.length
+            ? { tools: request.tools.map(toOpenAITool) }
+            : {}),
+          ...(request.toolChoice
+            ? { tool_choice: toOpenAIToolChoice(request.toolChoice) }
+            : {}),
+        }),
       },
-      body: JSON.stringify({
-        model: request.model,
-        messages: request.messages.map(toOpenAIMessage),
-        temperature: request.temperature ?? 0.2,
-        max_completion_tokens: request.maxTokens ?? 2048,
-        ...(request.responseFormat === "json"
-          ? { response_format: { type: "json_object" } }
-          : {}),
-        ...(request.tools?.length
-          ? { tools: request.tools.map(toOpenAITool) }
-          : {}),
-        ...(request.toolChoice
-          ? { tool_choice: toOpenAIToolChoice(request.toolChoice) }
-          : {}),
-      }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`OpenAI API error ${res.status}: ${text}`);
-    }
+    );
 
     const data = (await res.json()) as {
       choices: Array<{
@@ -488,7 +614,7 @@ class GeminiAdapter implements AIAdapter {
     const model = normalizeAIModelId(request.model);
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-    const res = await fetch(url, {
+    const res = await fetchWithProviderRetry(this.provider, url, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       body: JSON.stringify({
@@ -523,11 +649,6 @@ class GeminiAdapter implements AIAdapter {
           : {}),
       }),
     });
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Gemini API error ${res.status}: ${text}`);
-    }
 
     const data = (await res.json()) as {
       candidates: Array<{

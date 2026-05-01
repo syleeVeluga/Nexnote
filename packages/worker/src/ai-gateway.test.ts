@@ -12,6 +12,9 @@ const ENV_KEYS = [
   "OPENAI_MODEL",
   "GEMINI_MODEL",
   "AI_TEST_MODE",
+  "AI_GATEWAY_MAX_RETRIES",
+  "AI_GATEWAY_RETRY_BASE_DELAY_MS",
+  "AI_GATEWAY_RETRY_MAX_DELAY_MS",
 ] as const;
 
 type EnvSnapshot = Record<string, string | undefined>;
@@ -532,5 +535,60 @@ describe("AI gateway tool-calling normalization", () => {
     assert.deepEqual(geminiFunctionCall?.args, toolCall.arguments);
     assert.equal(geminiFunctionResponse?.name, toolCall.name);
     assert.deepEqual(geminiFunctionResponse?.response, { results: [] });
+  });
+
+  it("retries transient Gemini 503 responses before failing the model call", async () => {
+    clearAIEnv();
+    process.env["GEMINI_API_KEY"] = "gem-test-key";
+    process.env["AI_GATEWAY_MAX_RETRIES"] = "1";
+    process.env["AI_GATEWAY_RETRY_BASE_DELAY_MS"] = "0";
+    process.env["AI_GATEWAY_RETRY_MAX_DELAY_MS"] = "0";
+
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: 503,
+              message:
+                "This model is currently experiencing high demand. Please try again later.",
+              status: "UNAVAILABLE",
+            },
+          }),
+          { status: 503, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              finishReason: "STOP",
+              content: { parts: [{ text: "ok after retry" }] },
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 3,
+            candidatesTokenCount: 2,
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof globalThis.fetch;
+
+    const response = await getAIAdapter("gemini").chat({
+      provider: "gemini",
+      model: "gemini-3.1-pro",
+      mode: "agent_plan",
+      promptVersion: "test-gemini-retry",
+      messages: [{ role: "user", content: "go" }],
+    });
+
+    assert.equal(calls, 2);
+    assert.equal(response.content, "ok after retry");
+    assert.equal(response.tokenInput, 3);
+    assert.equal(response.tokenOutput, 2);
   });
 });
