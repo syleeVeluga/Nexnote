@@ -22,6 +22,8 @@ export const AGENT_MUTATE_TOOL_NAMES = [
   "update_page",
   "append_to_page",
   "create_page",
+  "delete_page",
+  "merge_pages",
   "noop",
   "request_human_review",
 ] as const;
@@ -166,6 +168,39 @@ export const createPageToolInputSchema = z
   });
 export type CreatePageToolInput = z.infer<typeof createPageToolInputSchema>;
 
+export const deletePageToolInputSchema = z.object({
+  pageId: uuidSchema,
+  confidence: confidenceSchema,
+  reason: mutationReasonSchema,
+});
+export type DeletePageToolInput = z.infer<typeof deletePageToolInputSchema>;
+
+export const mergePagesToolInputSchema = z
+  .object({
+    canonicalPageId: uuidSchema,
+    sourcePageIds: z.array(uuidSchema).min(1).max(10),
+    mergedContentMd: z.string().min(1).max(500_000),
+    confidence: confidenceSchema,
+    reason: mutationReasonSchema,
+  })
+  .superRefine((value, ctx) => {
+    if (value.sourcePageIds.includes(value.canonicalPageId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["sourcePageIds"],
+        message: "canonicalPageId must not appear in sourcePageIds",
+      });
+    }
+    if (new Set(value.sourcePageIds).size !== value.sourcePageIds.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["sourcePageIds"],
+        message: "sourcePageIds must be unique",
+      });
+    }
+  });
+export type MergePagesToolInput = z.infer<typeof mergePagesToolInputSchema>;
+
 export const noopToolInputSchema = z.object({
   reason: mutationReasonSchema,
   confidence: confidenceSchema.default(1),
@@ -189,6 +224,8 @@ export const agentMutateToolInputSchemas = {
   update_page: updatePageToolInputSchema,
   append_to_page: appendToPageToolInputSchema,
   create_page: createPageToolInputSchema,
+  delete_page: deletePageToolInputSchema,
+  merge_pages: mergePagesToolInputSchema,
   noop: noopToolInputSchema,
   request_human_review: requestHumanReviewToolInputSchema,
 } as const;
@@ -235,6 +272,20 @@ export const agentPlanMutationSchema = z
         code: z.ZodIssueCode.custom,
         path: ["proposedTitle"],
         message: "proposedTitle is required for create mutations",
+      });
+    }
+    if (value.action === "delete" && !value.targetPageId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetPageId"],
+        message: "targetPageId is required for delete mutations",
+      });
+    }
+    if (value.action === "merge" && value.tool !== "merge_pages") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tool"],
+        message: "merge mutations must use the merge_pages tool",
       });
     }
   });

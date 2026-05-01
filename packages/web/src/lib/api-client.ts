@@ -908,6 +908,7 @@ export interface DecisionListItem extends DecisionBase {
 }
 
 export interface DecisionDetail extends Omit<DecisionListItem, "ingestion"> {
+  rationale: Record<string, unknown> | null;
   candidates: DecisionCandidate[];
   conflict: DecisionConflict | null;
   ingestion: {
@@ -1161,10 +1162,11 @@ export const decisions = {
     return request<
       | {
           status: "applied";
-          action: "create" | "update" | "append";
+          action: "create" | "update" | "append" | "delete" | "merge";
           ingestionId: string;
           pageId: string;
-          revisionId: string;
+          revisionId?: string;
+          deletedPageIds?: string[];
         }
       | {
           status: "acknowledged";

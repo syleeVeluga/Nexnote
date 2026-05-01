@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import {
   ingestions,
   ingestionDecisions,
@@ -8,6 +8,7 @@ import {
   revisionDiffs,
   auditLogs,
   insertPageWithUniqueSlug,
+  publishedSnapshots,
 } from "@wekiflow/db";
 import type { Database, IngestionDecision } from "@wekiflow/db";
 import type { Queue } from "bullmq";
@@ -21,6 +22,11 @@ import {
   IMPORT_SOURCE_NAMES,
 } from "@wekiflow/shared";
 import type { TripleExtractorJobData } from "@wekiflow/shared";
+import {
+  collectDescendantPageIds,
+  PageDeletionError,
+  softDeleteSubtree,
+} from "./page-deletion.js";
 
 export interface ApplyDecisionCtx {
   db: Database;
@@ -34,10 +40,11 @@ export interface ApplyDecisionCtx {
 export type ApplyDecisionResult =
   | {
       status: "applied";
-      action: "create" | "update" | "append";
+      action: "create" | "update" | "append" | "delete" | "merge";
       ingestionId: string;
       pageId: string;
-      revisionId: string;
+      revisionId?: string;
+      deletedPageIds?: string[];
     }
   | {
       status: "acknowledged";
@@ -51,7 +58,9 @@ export interface ApplyDecisionError {
   statusCode: number;
 }
 
-function decisionOrigin(decision: IngestionDecision): "ingest_api" | "scheduled" {
+function decisionOrigin(
+  decision: IngestionDecision,
+): "ingest_api" | "scheduled" {
   return decision.scheduledRunId ? "scheduled" : "ingest_api";
 }
 
@@ -62,6 +71,138 @@ function readProposedContent(decision: IngestionDecision): string | null {
   return typeof rationale?.proposedContentMd === "string"
     ? rationale.proposedContentMd
     : null;
+}
+
+function readMergeMeta(decision: IngestionDecision): {
+  canonicalPageId: string;
+  sourcePageIds: string[];
+} | null {
+  const rationale = decision.rationaleJson as {
+    canonicalPageId?: unknown;
+    sourcePageIds?: unknown;
+  } | null;
+  if (
+    typeof rationale?.canonicalPageId !== "string" ||
+    !Array.isArray(rationale.sourcePageIds)
+  ) {
+    return null;
+  }
+  const sourcePageIds = rationale.sourcePageIds.filter(
+    (id): id is string => typeof id === "string",
+  );
+  if (sourcePageIds.length === 0) return null;
+  return { canonicalPageId: rationale.canonicalPageId, sourcePageIds };
+}
+
+function pageDeletionError(err: PageDeletionError): ApplyDecisionError {
+  if (err.code === ERROR_CODES.PAGE_NOT_FOUND) {
+    return {
+      code: ERROR_CODES.PAGE_NOT_FOUND,
+      details: "Target page not found",
+      statusCode: 404,
+    };
+  }
+  if (err.code === ERROR_CODES.PUBLISHED_BLOCK) {
+    return {
+      code: ERROR_CODES.PUBLISHED_BLOCK,
+      details:
+        "A page in the affected subtree has a live published snapshot. Unpublish it before approving.",
+      statusCode: 409,
+    };
+  }
+  return {
+    code: err.code,
+    details: "Page deletion failed",
+    statusCode: 409,
+  };
+}
+
+export function findSourceSubtreeContainingPage(input: {
+  protectedPageId: string;
+  sourceSubtrees: Array<{ sourcePageId: string; descendantPageIds: string[] }>;
+}): string | null {
+  for (const subtree of input.sourceSubtrees) {
+    if (subtree.descendantPageIds.includes(input.protectedPageId)) {
+      return subtree.sourcePageId;
+    }
+  }
+  return null;
+}
+
+async function preflightSoftDeleteTargets(input: {
+  db: Database;
+  workspaceId: string;
+  rootPageIds: string[];
+  protectedPageId?: string | null;
+}): Promise<ApplyDecisionError | null> {
+  const rootPageIds = [...new Set(input.rootPageIds)];
+  if (rootPageIds.length === 0) return null;
+
+  const roots = await input.db
+    .select({ id: pages.id })
+    .from(pages)
+    .where(
+      and(
+        inArray(pages.id, rootPageIds),
+        eq(pages.workspaceId, input.workspaceId),
+      ),
+    );
+  if (roots.length !== rootPageIds.length) {
+    return {
+      code: ERROR_CODES.PAGE_NOT_FOUND,
+      details: "One or more source pages were not found",
+      statusCode: 404,
+    };
+  }
+
+  const sourceSubtrees = await Promise.all(
+    rootPageIds.map(async (pageId) => ({
+      sourcePageId: pageId,
+      descendantPageIds: await collectDescendantPageIds(
+        input.db,
+        input.workspaceId,
+        pageId,
+      ),
+    })),
+  );
+  const protectedSource = input.protectedPageId
+    ? findSourceSubtreeContainingPage({
+        protectedPageId: input.protectedPageId,
+        sourceSubtrees,
+      })
+    : null;
+  if (protectedSource) {
+    return {
+      code: ERROR_CODES.PAGE_PARENT_CONFLICT,
+      details: "Merge source page cannot be an ancestor of the canonical page.",
+      statusCode: 400,
+    };
+  }
+
+  const descendantIds = [
+    ...new Set(sourceSubtrees.flatMap((subtree) => subtree.descendantPageIds)),
+  ];
+  if (descendantIds.length === 0) return null;
+
+  const liveRows = await input.db
+    .select({ pageId: publishedSnapshots.pageId })
+    .from(publishedSnapshots)
+    .where(
+      and(
+        inArray(publishedSnapshots.pageId, descendantIds),
+        eq(publishedSnapshots.isLive, true),
+      ),
+    );
+  if (liveRows.length > 0) {
+    return {
+      code: ERROR_CODES.PUBLISHED_BLOCK,
+      details:
+        "A page in the affected subtree has a live published snapshot. Unpublish it before approving.",
+      statusCode: 409,
+    };
+  }
+
+  return null;
 }
 
 export async function approveDecision(
@@ -358,6 +499,189 @@ export async function approveDecision(
       ingestionId,
       pageId: decision.targetPageId,
       revisionId,
+    };
+  }
+
+  if (decision.action === "delete") {
+    if (!decision.targetPageId) {
+      return {
+        code: ERROR_CODES.MISSING_TARGET_PAGE,
+        details: "Decision requires a targetPageId for delete",
+        statusCode: 400,
+      };
+    }
+    const preflight = await preflightSoftDeleteTargets({
+      db,
+      workspaceId,
+      rootPageIds: [decision.targetPageId],
+    });
+    if (preflight) return preflight;
+
+    let deletedPageIds: string[];
+    try {
+      const result = await softDeleteSubtree(db, {
+        workspaceId,
+        rootPageId: decision.targetPageId,
+        userId,
+      });
+      deletedPageIds = result.deletedPageIds;
+    } catch (err) {
+      if (err instanceof PageDeletionError) return pageDeletionError(err);
+      throw err;
+    }
+
+    await Promise.all([
+      db
+        .update(ingestionDecisions)
+        .set({ status: "approved" })
+        .where(eq(ingestionDecisions.id, decision.id)),
+      db
+        .update(ingestions)
+        .set({ status: "completed", processedAt: new Date() })
+        .where(eq(ingestions.id, ingestionId)),
+      db.insert(auditLogs).values({
+        workspaceId,
+        userId,
+        entityType: "ingestion_decision",
+        entityId: decision.id,
+        action: "approve_delete",
+        afterJson: {
+          source: "decision_approve",
+          ingestionId,
+          scheduledRunId: decision.scheduledRunId ?? null,
+          decisionId: decision.id,
+          pageId: decision.targetPageId,
+          deletedPageIds,
+        },
+      }),
+    ]);
+
+    return {
+      status: "applied",
+      action: "delete",
+      ingestionId,
+      pageId: decision.targetPageId,
+      deletedPageIds,
+    };
+  }
+
+  if (decision.action === "merge") {
+    const meta = readMergeMeta(decision);
+    if (!meta || !decision.targetPageId || !decision.proposedRevisionId) {
+      return {
+        code: ERROR_CODES.EMPTY_UPDATE,
+        details:
+          "Merge decision requires targetPageId, proposedRevisionId, and sourcePageIds metadata",
+        statusCode: 400,
+      };
+    }
+    if (meta.canonicalPageId !== decision.targetPageId) {
+      return {
+        code: ERROR_CODES.PAGE_PARENT_CONFLICT,
+        details: "Merge canonical page does not match decision target",
+        statusCode: 400,
+      };
+    }
+
+    const [revision] = await db
+      .select({ id: pageRevisions.id, pageId: pageRevisions.pageId })
+      .from(pageRevisions)
+      .where(eq(pageRevisions.id, decision.proposedRevisionId))
+      .limit(1);
+    if (!revision || revision.pageId !== decision.targetPageId) {
+      return {
+        code: ERROR_CODES.REVISION_NOT_FOUND,
+        details: "Merge proposed revision not found for canonical page",
+        statusCode: 400,
+      };
+    }
+    const preflight = await preflightSoftDeleteTargets({
+      db,
+      workspaceId,
+      rootPageIds: meta.sourcePageIds,
+      protectedPageId: decision.targetPageId,
+    });
+    if (preflight) return preflight;
+
+    const deletedPageIds: string[] = [];
+    try {
+      for (const sourcePageId of meta.sourcePageIds) {
+        const result = await softDeleteSubtree(db, {
+          workspaceId,
+          rootPageId: sourcePageId,
+          userId,
+        });
+        deletedPageIds.push(...result.deletedPageIds);
+      }
+    } catch (err) {
+      if (err instanceof PageDeletionError) return pageDeletionError(err);
+      throw err;
+    }
+
+    const now = new Date();
+    const tripleData: TripleExtractorJobData = {
+      pageId: decision.targetPageId,
+      revisionId: decision.proposedRevisionId,
+      workspaceId,
+      useReconciliation: ingestion.useReconciliation,
+    };
+    await Promise.all([
+      extractionQueue.add(
+        JOB_NAMES.TRIPLE_EXTRACTOR,
+        tripleData,
+        DEFAULT_JOB_OPTIONS,
+      ),
+      searchQueue.add(
+        JOB_NAMES.SEARCH_INDEX_UPDATER,
+        {
+          pageId: decision.targetPageId,
+          revisionId: decision.proposedRevisionId,
+          workspaceId,
+        },
+        DEFAULT_JOB_OPTIONS,
+      ),
+      db
+        .update(pages)
+        .set({
+          currentRevisionId: decision.proposedRevisionId,
+          updatedAt: now,
+          lastAiUpdatedAt: now,
+        })
+        .where(eq(pages.id, decision.targetPageId)),
+      db
+        .update(ingestionDecisions)
+        .set({ status: "approved" })
+        .where(eq(ingestionDecisions.id, decision.id)),
+      db
+        .update(ingestions)
+        .set({ status: "completed", processedAt: new Date() })
+        .where(eq(ingestions.id, ingestionId)),
+      db.insert(auditLogs).values({
+        workspaceId,
+        userId,
+        entityType: "ingestion_decision",
+        entityId: decision.id,
+        action: "approve_merge",
+        afterJson: {
+          source: "decision_approve",
+          ingestionId,
+          scheduledRunId: decision.scheduledRunId ?? null,
+          decisionId: decision.id,
+          canonicalPageId: decision.targetPageId,
+          sourcePageIds: meta.sourcePageIds,
+          deletedPageIds,
+          revisionId: decision.proposedRevisionId,
+        },
+      }),
+    ]);
+
+    return {
+      status: "applied",
+      action: "merge",
+      ingestionId,
+      pageId: decision.targetPageId,
+      revisionId: decision.proposedRevisionId,
+      deletedPageIds,
     };
   }
 

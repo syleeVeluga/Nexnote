@@ -115,6 +115,8 @@ function DecisionPanel({
     (summary.action === "create" ||
       summary.action === "update" ||
       summary.action === "append");
+  const destructive =
+    summary.action === "delete" || summary.action === "merge";
 
   const doApprove = async () => {
     setSubmitting("approve");
@@ -275,7 +277,7 @@ function DecisionPanel({
         )}
       </div>
 
-      {detail && !resolved && (
+      {detail && !resolved && !destructive && (
         <DecisionOverrideForm
           workspaceId={workspaceId}
           decision={detail}
