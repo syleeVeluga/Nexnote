@@ -236,14 +236,21 @@ pnpm --filter web typecheck
 pnpm --filter web lint
 ```
 
-## Out of Scope (v2 Follow-ups)
+## v2 Follow-up Progress
 
-- **delete/merge undo** — soft-delete 복구는 가능하나 search/triple/path 재생성, merge canonical revision 롤백이 복잡. 별도 RFC.
-- **Page redirects** (`page_redirects` 테이블): 외부에서 source 페이지 slug로 들어왔을 때 canonical로 리디렉트.
+Implemented in follow-up:
+
+- **delete/merge undo** — approved delete decisions restore the soft-deleted subtree; approved merge decisions restore source pages, disable merge redirects, and create a rollback revision on the canonical page.
+- **Page redirects** — `page_redirects` redirects source page public paths to the canonical page's live public snapshot after merge approval.
+- **Ingestion-origin exposure** — review DTOs and UI keep `origin` / `scheduledRunId` visible, including a direct Scheduled Agent run link.
+- **Workspace destructive-tools toggle** — `workspaces.allow_destructive_scheduled_agent` gates `delete_page` / `merge_pages` tool exposure in Scheduled Agent runs.
+- **Bulk delete UI** — `/review` can select multiple pending delete decisions and approve/reject them together.
+- **Merge dry-run / inline preview** — pending merge decisions expose an editable merged Markdown preview; saving rewrites the proposed revision and diff before approval.
+
+Remaining out of scope:
+
 - **Ingestion-agent (origin='ingestion') 노출**: 운영 데이터 쌓이고 parity 안정화된 후.
-- **Workspace policy preset** (`workspaces.allow_destructive_scheduled_agent`): 워크스페이스별 토글로 destructive 도구를 추가로 게이팅.
-- **Bulk delete UI**: 사람이 review에서 여러 delete decision을 한 번에 승인/거부.
-- **Merge 미리보기 정확도**: 현재는 에이전트가 통째 mergedContentMd를 작성. v2에서 dry-run 미리보기 + reviewer 인라인 편집.
+- Dedicated e2e coverage for destructive undo, redirects, bulk delete, and inline merge preview.
 
 ## CLAUDE.md / Documentation Map 업데이트
 

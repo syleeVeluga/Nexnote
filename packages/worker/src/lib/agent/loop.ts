@@ -170,6 +170,7 @@ export interface RunIngestionAgentShadowInput {
   instruction?: string | null;
   scheduledRunId?: string | null;
   scheduledAutoApply?: boolean;
+  allowDestructiveScheduledAgent?: boolean;
   adapter?: AIAdapter;
   baseProvider?: AIProvider;
   baseModel?: string;
@@ -261,8 +262,12 @@ function scheduledPromptPrefix(input: RunIngestionAgentShadowInput): string {
     "- This is not an external fact ingestion. It is a request to reorganize and improve existing wiki pages.",
     "- Prefer replace_in_page, edit_page_blocks, or edit_page_section over full rewrites.",
     "- Use create_page only as a last resort when the target knowledge cannot fit into existing selected pages.",
-    "- Use delete_page when a selected page is fully redundant with another existing page.",
-    "- Use merge_pages to consolidate 2+ short pages into one canonical page; include full mergedContentMd.",
+    input.allowDestructiveScheduledAgent
+      ? "- Use delete_page when a selected page is fully redundant with another existing page."
+      : "- Destructive tools are disabled for this workspace; do not plan delete_page.",
+    input.allowDestructiveScheduledAgent
+      ? "- Use merge_pages to consolidate 2+ short pages into one canonical page; include full mergedContentMd."
+      : "- Destructive tools are disabled for this workspace; do not plan merge_pages.",
     "- delete_page and merge_pages always land as suggestions for human review even if scheduled auto-apply is enabled.",
     "- Unless scheduled auto-apply is enabled for this workspace, mutations must remain human-reviewable suggestions.",
   ];
@@ -630,6 +635,7 @@ async function executeMutations(input: {
   origin?: RunIngestionAgentShadowInput["origin"];
   scheduledRunId?: RunIngestionAgentShadowInput["scheduledRunId"];
   scheduledAutoApply?: RunIngestionAgentShadowInput["scheduledAutoApply"];
+  allowDestructiveScheduledAgent?: RunIngestionAgentShadowInput["allowDestructiveScheduledAgent"];
   ingestionText: string;
   plan: IngestionAgentPlan;
   state: AgentRunState;
@@ -651,6 +657,7 @@ async function executeMutations(input: {
     origin: input.origin,
     scheduledRunId: input.scheduledRunId,
     scheduledAutoApply: input.scheduledAutoApply,
+    allowDestructiveScheduledAgent: input.allowDestructiveScheduledAgent,
     ...input.mutationQueues,
   };
   const tools =
@@ -1314,8 +1321,10 @@ export async function runIngestionAgentShadow(
     agentRunId: input.agentRunId,
     modelRunId: planModelRun.id,
     origin: input.origin,
-    scheduledRunId: input.scheduledRunId,
-    scheduledAutoApply: input.scheduledAutoApply,
+          scheduledRunId: input.scheduledRunId,
+          scheduledAutoApply: input.scheduledAutoApply,
+          allowDestructiveScheduledAgent:
+            input.allowDestructiveScheduledAgent,
     ingestionText,
     plan: parsed.plan,
     state: dispatcher.state,

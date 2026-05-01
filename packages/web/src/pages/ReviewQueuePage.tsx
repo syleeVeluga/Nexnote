@@ -8,6 +8,7 @@ import {
   Inbox,
   RotateCcw,
   Send,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import { useWorkspace } from "../hooks/use-workspace.js";
@@ -132,6 +133,10 @@ export function ReviewQueuePage() {
   const [counts, setCounts] = useState<DecisionCounts | null>(null);
   const [allTotal, setAllTotal] = useState<number | null>(null);
   const [activeTotal, setActiveTotal] = useState<number | null>(null);
+  const [bulkDeleteIds, setBulkDeleteIds] = useState<string[]>([]);
+  const [bulkWorking, setBulkWorking] = useState<"approve" | "reject" | null>(
+    null,
+  );
   const refreshSeqRef = useRef(0);
 
   const tabConfig = TABS.find((tab) => tab.key === activeTab) ?? TABS[0];
@@ -205,6 +210,18 @@ export function ReviewQueuePage() {
 
         if (seq !== refreshSeqRef.current) return [];
         setItems(listRes.data);
+        setBulkDeleteIds((prev) =>
+          prev.filter((id) =>
+            listRes.data.some(
+              (item) =>
+                item.id === id &&
+                item.action === "delete" &&
+                (item.status === "suggested" ||
+                  item.status === "needs_review" ||
+                  item.status === "failed"),
+            ),
+          ),
+        );
         setCounts(countsRes.counts);
         setAllTotal(nextAllTotal);
         setActiveTotal(listRes.total);
@@ -350,6 +367,45 @@ export function ReviewQueuePage() {
     await loadDetail(selectedId);
   }, [workspaceId, selectedId, refresh, loadDetail]);
 
+  const bulkDeleteSet = useMemo(
+    () => new Set(bulkDeleteIds),
+    [bulkDeleteIds],
+  );
+
+  const toggleBulkDelete = useCallback((id: string) => {
+    setBulkDeleteIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+    );
+  }, []);
+
+  const handleBulkDelete = useCallback(
+    async (mode: "approve" | "reject") => {
+      if (!workspaceId || bulkDeleteIds.length === 0) return;
+      setBulkWorking(mode);
+      try {
+        for (const decisionId of bulkDeleteIds) {
+          if (mode === "approve") {
+            await decisionsApi.approve(workspaceId, decisionId);
+          } else {
+            await decisionsApi.reject(
+              workspaceId,
+              decisionId,
+              "Bulk rejected from review queue",
+            );
+          }
+        }
+        setBulkDeleteIds([]);
+        await refresh({ broadcastCounts: true });
+        if (selectedId) await loadDetail(selectedId);
+      } catch (err) {
+        window.alert(err instanceof Error ? err.message : t("actionFailed"));
+      } finally {
+        setBulkWorking(null);
+      }
+    },
+    [bulkDeleteIds, loadDetail, refresh, selectedId, t, workspaceId],
+  );
+
   const itemsRef = useRef(items);
   const selectedIdRef = useRef(selectedId);
   const handleApproveRef = useRef(handleApprove);
@@ -485,6 +541,38 @@ export function ReviewQueuePage() {
         ))}
       </div>
 
+      {bulkDeleteIds.length > 0 && (
+        <div className="review-bulk-bar">
+          <span>
+            <Trash2 size={13} aria-hidden="true" />
+            {t("bulkDelete.selected", {
+              count: bulkDeleteIds.length,
+              defaultValue: "{{count}} delete decisions selected",
+            })}
+          </span>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => void handleBulkDelete("reject")}
+            disabled={bulkWorking !== null}
+          >
+            {bulkWorking === "reject"
+              ? t("rejecting")
+              : t("bulkDelete.reject", { defaultValue: "Reject selected" })}
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void handleBulkDelete("approve")}
+            disabled={bulkWorking !== null}
+          >
+            {bulkWorking === "approve"
+              ? t("approving")
+              : t("bulkDelete.approve", { defaultValue: "Approve selected" })}
+          </button>
+        </div>
+      )}
+
       <div className="review-body">
         <div className="review-list">
           {loading ? (
@@ -494,6 +582,11 @@ export function ReviewQueuePage() {
           ) : (
             items.map((item) => {
               const fanout = fanoutByDecisionId.get(item.id);
+              const bulkEligible =
+                item.action === "delete" &&
+                (item.status === "suggested" ||
+                  item.status === "needs_review" ||
+                  item.status === "failed");
               return (
                 <button
                   key={item.id}
@@ -501,6 +594,18 @@ export function ReviewQueuePage() {
                   onClick={() => setSelectedId(item.id)}
                 >
                   <div className="review-item-top">
+                    {bulkEligible && (
+                      <input
+                        type="checkbox"
+                        className="review-bulk-checkbox"
+                        checked={bulkDeleteSet.has(item.id)}
+                        onChange={() => toggleBulkDelete(item.id)}
+                        onClick={(event) => event.stopPropagation()}
+                        aria-label={t("bulkDelete.toggle", {
+                          defaultValue: "Select delete decision",
+                        })}
+                      />
+                    )}
                     <Badge
                       tone={statusTone(item.status)}
                       size="sm"

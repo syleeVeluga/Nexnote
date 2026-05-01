@@ -51,6 +51,32 @@
   background: var(--wf-color-blue-bg);
 }
 
+.review-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  border: 1px solid var(--wf-color-border);
+  border-radius: var(--wf-radius-md);
+  background: var(--wf-color-surface);
+}
+
+.review-bulk-bar span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--wf-color-ink);
+}
+
+.review-bulk-checkbox {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
 .review-body {
   display: grid;
   grid-template-columns: minmax(320px, 400px) minmax(0, 1fr);
@@ -348,6 +374,20 @@
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--wf-color-ink);
+}
+
+.review-merge-preview-editor {
+  width: 100%;
+  min-height: 260px;
+  resize: vertical;
+  border: 1px solid var(--wf-color-border);
+  border-radius: var(--wf-radius-md);
+  background: var(--wf-color-surface);
+  color: var(--wf-color-ink);
+  font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 10px;
 }
 
 .review-detail-collapsible {

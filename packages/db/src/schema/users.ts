@@ -49,6 +49,11 @@ export const workspaces = pgTable(
     scheduledAutoApply: boolean("scheduled_auto_apply")
       .notNull()
       .default(false),
+    allowDestructiveScheduledAgent: boolean(
+      "allow_destructive_scheduled_agent",
+    )
+      .notNull()
+      .default(false),
     scheduledDailyTokenCap: integer("scheduled_daily_token_cap"),
     scheduledPerRunPageLimit: integer("scheduled_per_run_page_limit")
       .notNull()

@@ -111,6 +111,8 @@ export function AISettingsPage() {
   const [parityTargetRateInput, setParityTargetRateInput] = useState("");
   const [scheduledEnabled, setScheduledEnabled] = useState(false);
   const [scheduledAutoApply, setScheduledAutoApply] = useState(false);
+  const [allowDestructiveScheduledAgent, setAllowDestructiveScheduledAgent] =
+    useState(false);
   const [scheduledDailyTokenCapInput, setScheduledDailyTokenCapInput] =
     useState("");
   const [scheduledPerRunPageLimitInput, setScheduledPerRunPageLimitInput] =
@@ -191,6 +193,7 @@ export function AISettingsPage() {
     );
     setScheduledEnabled(current.scheduledEnabled);
     setScheduledAutoApply(current.scheduledAutoApply);
+    setAllowDestructiveScheduledAgent(current.allowDestructiveScheduledAgent);
     setScheduledDailyTokenCapInput(
       current.scheduledDailyTokenCap == null
         ? ""
@@ -352,6 +355,9 @@ export function AISettingsPage() {
         agentParityMinTargetPageAgreementRate: parityMinTargetPageAgreementRate,
         scheduledEnabled,
         scheduledAutoApply: scheduledEnabled ? scheduledAutoApply : false,
+        allowDestructiveScheduledAgent: scheduledEnabled
+          ? allowDestructiveScheduledAgent
+          : false,
         scheduledDailyTokenCap,
         scheduledPerRunPageLimit,
       });
@@ -555,6 +561,30 @@ export function AISettingsPage() {
                 {t("scheduledAgent.help.autoApply", {
                   defaultValue:
                     "Keep this off unless scheduled runs are trusted for this workspace.",
+                })}
+              </small>
+            </span>
+          </label>
+
+          <label className="ai-settings-check-field">
+            <input
+              type="checkbox"
+              checked={allowDestructiveScheduledAgent}
+              disabled={!scheduledEnabled}
+              onChange={(event) =>
+                setAllowDestructiveScheduledAgent(event.target.checked)
+              }
+            />
+            <span>
+              <strong>
+                {t("scheduledAgent.fields.destructiveTools", {
+                  defaultValue: "Allow delete and merge tools",
+                })}
+              </strong>
+              <small>
+                {t("scheduledAgent.help.destructiveTools", {
+                  defaultValue:
+                    "When enabled, Scheduled Agent can propose page deletes and merges for review.",
                 })}
               </small>
             </span>

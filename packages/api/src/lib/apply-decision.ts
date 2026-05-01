@@ -3,6 +3,7 @@ import {
   ingestions,
   ingestionDecisions,
   pages,
+  pageRedirects,
   pagePaths,
   pageRevisions,
   revisionDiffs,
@@ -203,6 +204,45 @@ async function preflightSoftDeleteTargets(input: {
   }
 
   return null;
+}
+
+async function loadCurrentRedirectPaths(input: {
+  db: Database;
+  workspaceId: string;
+  sourcePageIds: string[];
+}): Promise<Array<{ fromPageId: string; fromPath: string }>> {
+  if (input.sourcePageIds.length === 0) return [];
+  const rows = await input.db
+    .select({ fromPageId: pagePaths.pageId, fromPath: pagePaths.path })
+    .from(pagePaths)
+    .where(
+      and(
+        eq(pagePaths.workspaceId, input.workspaceId),
+        inArray(pagePaths.pageId, input.sourcePageIds),
+        eq(pagePaths.isCurrent, true),
+      ),
+    );
+  return rows;
+}
+
+async function createMergeRedirects(input: {
+  db: Database;
+  workspaceId: string;
+  canonicalPageId: string;
+  decisionId: string;
+  redirects: Array<{ fromPageId: string; fromPath: string }>;
+}): Promise<void> {
+  const values = input.redirects
+    .filter((row) => row.fromPageId !== input.canonicalPageId)
+    .map((row) => ({
+      workspaceId: input.workspaceId,
+      fromPageId: row.fromPageId,
+      toPageId: input.canonicalPageId,
+      fromPath: row.fromPath,
+      createdByDecisionId: input.decisionId,
+    }));
+  if (values.length === 0) return;
+  await input.db.insert(pageRedirects).values(values).onConflictDoNothing();
 }
 
 export async function approveDecision(
@@ -584,7 +624,11 @@ export async function approveDecision(
     }
 
     const [revision] = await db
-      .select({ id: pageRevisions.id, pageId: pageRevisions.pageId })
+      .select({
+        id: pageRevisions.id,
+        pageId: pageRevisions.pageId,
+        actorType: pageRevisions.actorType,
+      })
       .from(pageRevisions)
       .where(eq(pageRevisions.id, decision.proposedRevisionId))
       .limit(1);
@@ -602,6 +646,11 @@ export async function approveDecision(
       protectedPageId: decision.targetPageId,
     });
     if (preflight) return preflight;
+    const redirectPaths = await loadCurrentRedirectPaths({
+      db,
+      workspaceId,
+      sourcePageIds: meta.sourcePageIds,
+    });
 
     const deletedPageIds: string[] = [];
     try {
@@ -645,7 +694,9 @@ export async function approveDecision(
         .set({
           currentRevisionId: decision.proposedRevisionId,
           updatedAt: now,
-          lastAiUpdatedAt: now,
+          ...(revision.actorType === "user"
+            ? { lastHumanEditedAt: now }
+            : { lastAiUpdatedAt: now }),
         })
         .where(eq(pages.id, decision.targetPageId)),
       db
@@ -672,6 +723,13 @@ export async function approveDecision(
           deletedPageIds,
           revisionId: decision.proposedRevisionId,
         },
+      }),
+      createMergeRedirects({
+        db,
+        workspaceId,
+        canonicalPageId: decision.targetPageId,
+        decisionId: decision.id,
+        redirects: redirectPaths,
       }),
     ]);
 

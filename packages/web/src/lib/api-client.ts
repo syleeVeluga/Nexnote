@@ -188,6 +188,7 @@ export interface Workspace {
   agentParityMinTargetPageAgreementRate: number | null;
   scheduledEnabled: boolean;
   scheduledAutoApply: boolean;
+  allowDestructiveScheduledAgent: boolean;
   scheduledDailyTokenCap: number | null;
   scheduledPerRunPageLimit: number;
   useReconciliationDefault: boolean;
@@ -237,6 +238,7 @@ export const workspaces = {
       agentParityMinTargetPageAgreementRate?: number | null;
       scheduledEnabled?: boolean;
       scheduledAutoApply?: boolean;
+      allowDestructiveScheduledAgent?: boolean;
       scheduledDailyTokenCap?: number | null;
       scheduledPerRunPageLimit?: number;
       useReconciliationDefault?: boolean;
@@ -1203,9 +1205,41 @@ export const decisions = {
           pageId: string;
           revisionId: string;
         }
+      | {
+          status: "undone";
+          action: "delete";
+          ingestionId: string;
+          pageId: string;
+          restoredPageIds: string[];
+        }
+      | {
+          status: "undone";
+          action: "merge";
+          ingestionId: string;
+          pageId: string;
+          revisionId: string;
+          restoredPageIds: string[];
+        }
     >(`/workspaces/${workspaceId}/decisions/${decisionId}/undo`, {
       method: "POST",
       body: JSON.stringify({}),
+    });
+  },
+  updateProposedRevision(
+    workspaceId: string,
+    decisionId: string,
+    contentMd: string,
+  ) {
+    return request<{
+      proposedRevision: {
+        id: string;
+        contentMd: string;
+        diffMd: string | null;
+        changedBlocks: number | null;
+      };
+    }>(`/workspaces/${workspaceId}/decisions/${decisionId}/proposed-revision`, {
+      method: "PATCH",
+      body: JSON.stringify({ contentMd }),
     });
   },
   edit(
