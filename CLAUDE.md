@@ -13,6 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 백로그 / 진행 상태 | [`docs/TASKS.md`](docs/TASKS.md) |
 | 구현 RFC — Ingestion Agent | [`docs/ingestion-agent-plan.md`](docs/ingestion-agent-plan.md) |
 | 구현 RFC/상태 — Scheduled Agent | [`docs/scheduled-agent-plan.md`](docs/scheduled-agent-plan.md) |
+| 구현 RFC — Scheduled Agent destructive tools | [`docs/scheduled-agent-merge-delete-plan.md`](docs/scheduled-agent-merge-delete-plan.md) |
 | 구현 RFC — Parity Gate UI | [`docs/agent-parity-gate-ui-plan.md`](docs/agent-parity-gate-ui-plan.md) |
 | 구현 RFC — UI 참조 | [`docs/UI_REFERENCE_IMPLEMENTATION_PLAN.md`](docs/UI_REFERENCE_IMPLEMENTATION_PLAN.md) |
 | 설계 메모 (참고용) | [`docs/CHUNKING_PLAN.md`](docs/CHUNKING_PLAN.md), [`docs/KNOWLEDGE_CONNECTIVITY_PLAN.md`](docs/KNOWLEDGE_CONNECTIVITY_PLAN.md) |

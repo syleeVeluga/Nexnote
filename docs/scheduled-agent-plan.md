@@ -277,6 +277,7 @@ These remain out of v1 scope:
 - scheduled-specific dry-run/shadow/live promotion gate
 - richer schedule builder presets instead of raw cron only
 - stronger `must_block_commit` signal for dangerous maintenance actions
+- destructive `delete_page` / `merge_pages` tools — see [`scheduled-agent-merge-delete-plan.md`](scheduled-agent-merge-delete-plan.md)
 - `workspace.domain` policy presets
 - `model_runs.origin` if origin joins become too expensive/noisy
 - `idle_recurring` diagnostic after repeated noop runs
