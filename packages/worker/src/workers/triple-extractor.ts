@@ -434,7 +434,7 @@ export function createTripleExtractorWorker(): Worker {
 - \`literal\` — dates, numbers, measurements, statuses, titles, and short descriptive values.
 
 ## Entity type rules
-- \`subjectType\` and \`objectEntityType\` MUST use one of: \`person\`, \`organization\`, \`location\`, \`product\`, \`document\`, \`system\`, \`event\`, \`concept\`.
+- \`subjectType\` and \`objectEntityType\` MUST use one of: \`person\`, \`organization\`, \`location\`, \`product\`, \`document\`, \`system\`, \`event\`, \`concept\`, \`development\`, \`research\`, \`marketing\`, \`policy\`, \`design\`, \`operations\`, \`legal\`, \`sales\`.
 - \`person\`: individual humans (이순신, Jane Lee).
 - \`organization\`: companies, teams, agencies, military units, committees (Acme Corp, 조선 수군).
 - \`location\`: physical or geopolitical places (Seoul, 한산도).
@@ -442,6 +442,14 @@ export function createTripleExtractorWorker(): Worker {
 - \`document\`: named documents or document-like artifacts (PRD, RFC, 회의록).
 - \`system\`: software systems, databases, services, protocols, or infrastructure components (Postgres, BullMQ).
 - \`event\`: named meetings, conferences, incidents, launches, or campaigns (KubeCon 2026, weekly planning meeting).
+- \`development\`: software development efforts — features, sprints, codebases, engineering initiatives, refactors (auth-rewrite, Q3 platform migration).
+- \`research\`: research efforts, studies, experiments, investigations, exploratory work (user interview round 3, latency study).
+- \`marketing\`: marketing campaigns, brand programs, growth initiatives, content efforts (Q4 launch campaign, SEO push).
+- \`policy\`: organizational policies, rules, guidelines, compliance standards, governance items (PTO policy, GDPR data-retention rule).
+- \`design\`: design systems, visual identities, UX initiatives, design artifacts (design system v2, mobile redesign).
+- \`operations\`: operational programs, processes, runbooks, on-call/SRE practices (incident-response runbook, weekly deploy process).
+- \`legal\`: contracts, agreements, legal cases, legal entities-as-instruments (NDA, EULA, ToS-2026).
+- \`sales\`: sales programs, deals, accounts as commercial relationships, sales motions (enterprise pilot, Q2 pipeline).
 - \`concept\`: abstract topics, roles, categories, fields, or anything that does not clearly fit the above.
 - If ambiguous, use \`concept\`. Omit \`objectEntityType\` when \`objectType\` is \`literal\`.
 
@@ -466,11 +474,11 @@ Schema:
   "triples": [
     {
       "subject": "Entity Name",
-      "subjectType": "person" | "organization" | "location" | "product" | "document" | "system" | "event" | "concept",
+      "subjectType": "person" | "organization" | "location" | "product" | "document" | "system" | "event" | "concept" | "development" | "research" | "marketing" | "policy" | "design" | "operations" | "legal" | "sales",
       "predicate": "relationship_type",
       "object": "Another Entity or literal value",
       "objectType": "entity" | "literal",
-      "objectEntityType": "person" | "organization" | "location" | "product" | "document" | "system" | "event" | "concept",
+      "objectEntityType": "person" | "organization" | "location" | "product" | "document" | "system" | "event" | "concept" | "development" | "research" | "marketing" | "policy" | "design" | "operations" | "legal" | "sales",
       "confidence": 0.9,
       "spans": [{ "start": 0, "end": 50, "excerpt": "text excerpt" }]
     }
