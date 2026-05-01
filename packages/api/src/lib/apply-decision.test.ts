@@ -3,6 +3,7 @@ import { strict as assert } from "node:assert";
 import {
   approveDecision,
   findSourceSubtreeContainingPage,
+  rejectDecision,
 } from "./apply-decision.js";
 
 const workspaceId = "11111111-1111-4111-8111-111111111111";
@@ -262,6 +263,65 @@ describe("approveDecision destructive decisions", () => {
       db.insertedValues.some(
         (value) =>
           (value as { action?: string }).action === "approve_merge",
+      ),
+    );
+  });
+});
+
+describe("rejectDecision destructive decisions", () => {
+  it("rejects merge without promoting the proposed revision or deleting source pages", async () => {
+    const extractionQueue = new FakeQueue();
+    const searchQueue = new FakeQueue();
+    const db = new FakeDb({
+      selectQueue: [],
+      executeQueue: [],
+    });
+
+    const result = await rejectDecision(
+      ctx({
+        db,
+        extractionQueue,
+        searchQueue,
+        decision: {
+          action: "merge",
+          targetPageId: canonicalPageId,
+          proposedRevisionId,
+          rationaleJson: {
+            canonicalPageId,
+            sourcePageIds: [sourcePageId],
+          },
+        },
+      }),
+    );
+
+    assert.equal(result.status, "rejected");
+    assert.equal(result.ingestionId, ingestionId);
+    assert.equal(extractionQueue.jobs.length, 0);
+    assert.equal(searchQueue.jobs.length, 0);
+    assert.ok(
+      db.updatedValues.some(
+        (value) => (value as { status?: string }).status === "rejected",
+      ),
+    );
+    assert.ok(
+      db.updatedValues.every(
+        (value) =>
+          !("currentRevisionId" in (value as Record<string, unknown>)) &&
+          !("deletedAt" in (value as Record<string, unknown>)) &&
+          (value as { proposedRevisionId?: unknown }).proposedRevisionId !==
+            null,
+      ),
+    );
+    assert.ok(
+      db.insertedValues.some(
+        (value) => (value as { action?: string }).action === "reject",
+      ),
+    );
+    assert.ok(
+      db.insertedValues.every(
+        (value) =>
+          (value as { action?: string }).action !== "approve_merge" &&
+          (value as { action?: string }).action !== "delete",
       ),
     );
   });

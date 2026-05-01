@@ -21,6 +21,8 @@
     "create": "새 페이지",
     "update": "업데이트",
     "append": "추가",
+    "delete": "페이지 삭제",
+    "merge": "페이지 병합",
     "noop": "무시",
     "needs_review": "검토 요청"
   },
@@ -29,6 +31,12 @@
   "loading": "로딩 중...",
   "confidence": "신뢰도",
   "source": "출처",
+  "origin": {
+    "filterLabel": "결정 출처",
+    "all": "모든 출처",
+    "ingestion": "인제스션",
+    "scheduled": "Scheduled Agent"
+  },
   "receivedAt": "수신 시각",
   "reason": "AI 판단",
   "target": "대상",
@@ -62,9 +70,16 @@
     "bannerBody": "분류기가 이 타겟을 선택한 후인 {{editedAt}}에 사용자가 새 리비전을 저장했기 때문에 자동 적용이 중단되었습니다.",
     "approveWarning": "승인하면 사람의 수정 위에 새로운 AI 리비전이 생성됩니다. 수신 내용이 더 이상 관련 없다면 거절하고 재분류하세요."
   },
+  "destructive": {
+    "title": "삭제성 변경",
+    "deleteBody": "\"{{title}}\"와 하위 페이지를 휴지통으로 이동합니다.",
+    "mergeBody": "\"{{title}}\"에 병합 리비전을 승격하고 {{count}}개의 원본 페이지를 휴지통으로 이동합니다.",
+    "warning": "v1에서는 이 승인을 되돌릴 수 없습니다."
+  },
   "detail": {
     "backToReview": "신규 지식으로 돌아가기",
     "viewFullDetail": "전체 인제스션 상세 보기",
+    "viewScheduledRun": "Scheduled Agent 실행 보기",
     "payload": "인제스션 페이로드",
     "decisions": "결정",
     "candidates": "후보 페이지",
@@ -75,6 +90,7 @@
     "downloadOriginal": "원본 다운로드",
     "downloadFailed": "다운로드 실패",
     "loadFailed": "불러오기 실패",
+    "loadFullDecision": "전체 결정 불러오기",
     "notFound": "인제스션을 찾을 수 없습니다",
     "untitledFromSource": "{{source}}에서 수신한 제목 없음",
     "matchSource": {
