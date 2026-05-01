@@ -12,6 +12,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 | 데이터 모델 (ERD) | [`docs/ERD 초안 — AI 기반 Markdown 지식 위키 서비스.md`](docs/ERD%20%EC%B4%88%EC%95%88%20%E2%80%94%20AI%20%EA%B8%B0%EB%B0%98%20Markdown%20%EC%A7%80%EC%8B%9D%20%EC%9C%84%ED%82%A4%20%EC%84%9C%EB%B9%84%EC%8A%A4.md) |
 | 백로그 / 진행 상태 | [`docs/TASKS.md`](docs/TASKS.md) |
 | 구현 RFC — Ingestion Agent | [`docs/ingestion-agent-plan.md`](docs/ingestion-agent-plan.md) |
+| 구현 RFC — Scheduled Agent | [`docs/scheduled-agent-plan.md`](docs/scheduled-agent-plan.md) |
 | 구현 RFC — UI 참조 | [`docs/UI_REFERENCE_IMPLEMENTATION_PLAN.md`](docs/UI_REFERENCE_IMPLEMENTATION_PLAN.md) |
 | 설계 메모 (참고용) | [`docs/CHUNKING_PLAN.md`](docs/CHUNKING_PLAN.md), [`docs/KNOWLEDGE_CONNECTIVITY_PLAN.md`](docs/KNOWLEDGE_CONNECTIVITY_PLAN.md) |
 | 운영 가이드 | [`docs/slack-webhook.md`](docs/slack-webhook.md) |
