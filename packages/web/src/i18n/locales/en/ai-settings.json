@@ -84,6 +84,28 @@
     "actionAgreementHelp": "The rate where AI and the classic classifier choose the same action type (create/update/append, etc.; default 90%).",
     "targetAgreementHelp": "The rate where AI and the classic classifier choose the same target page (default 85%)."
   },
+  "scheduledAgent": {
+    "title": "Scheduled Agent",
+    "description": "Let the agent reorganize selected wiki areas on demand or on a schedule.",
+    "fields": {
+      "enabled": "Enable Scheduled Agent",
+      "autoApply": "Auto-apply scheduled decisions",
+      "destructiveTools": "Allow delete and merge tools",
+      "dailyTokenCap": "Scheduled daily token cap",
+      "perRunPageLimit": "Pages per run"
+    },
+    "help": {
+      "enabled": "Allow manual and cron-based scheduled reorganize runs.",
+      "autoApply": "Keep this off unless scheduled runs are trusted for this workspace.",
+      "destructiveTools": "When enabled, Scheduled Agent can propose page deletes and merges for review.",
+      "dailyTokenCap": "Optional override. Values of 10,000 or more are recommended.",
+      "perRunPageLimit": "Allowed range: 1 to 500 pages."
+    },
+    "placeholders": {
+      "dailyTokenCap": "System default"
+    },
+    "manageLink": "Manage schedules and runs"
+  },
   "modelRouting": {
     "title": "Model routing",
     "description": "Provider, fast model, large-context model, and threshold.",

@@ -128,12 +128,44 @@ export const pagePaths = pgTable(
   ],
 );
 
+export const pageRedirects = pgTable(
+  "page_redirects",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    fromPageId: uuid("from_page_id").references(() => pages.id, {
+      onDelete: "set null",
+    }),
+    toPageId: uuid("to_page_id")
+      .notNull()
+      .references(() => pages.id, { onDelete: "cascade" }),
+    fromPath: text("from_path").notNull(),
+    // FK added in SQL migration to avoid a schema module cycle with ingestions.
+    createdByDecisionId: uuid("created_by_decision_id"),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("page_redirects_workspace_from_path_active_uk")
+      .on(t.workspaceId, t.fromPath)
+      .where(sql`${t.disabledAt} IS NULL`),
+    index("page_redirects_to_page_idx").on(t.toPageId),
+    index("page_redirects_decision_idx").on(t.createdByDecisionId),
+  ],
+);
+
 export type Folder = typeof folders.$inferSelect;
 export type NewFolder = typeof folders.$inferInsert;
 export type Page = typeof pages.$inferSelect;
 export type NewPage = typeof pages.$inferInsert;
 export type PagePath = typeof pagePaths.$inferSelect;
 export type NewPagePath = typeof pagePaths.$inferInsert;
+export type PageRedirect = typeof pageRedirects.$inferSelect;
+export type NewPageRedirect = typeof pageRedirects.$inferInsert;
 
 export const foldersRelations = relations(folders, ({ one, many }) => ({
   workspace: one(workspaces, {
@@ -175,5 +207,22 @@ export const pagePathsRelations = relations(pagePaths, ({ one }) => ({
   page: one(pages, {
     fields: [pagePaths.pageId],
     references: [pages.id],
+  }),
+}));
+
+export const pageRedirectsRelations = relations(pageRedirects, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [pageRedirects.workspaceId],
+    references: [workspaces.id],
+  }),
+  fromPage: one(pages, {
+    fields: [pageRedirects.fromPageId],
+    references: [pages.id],
+    relationName: "redirectFromPage",
+  }),
+  toPage: one(pages, {
+    fields: [pageRedirects.toPageId],
+    references: [pages.id],
+    relationName: "redirectToPage",
   }),
 }));

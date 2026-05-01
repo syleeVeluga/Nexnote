@@ -76,7 +76,18 @@
     "title": "Destructive change",
     "deleteBody": "This will move \"{{title}}\" and its child pages to trash.",
     "mergeBody": "This will promote the merged revision on \"{{title}}\" and move {{count}} source page(s) to trash.",
-    "warning": "This approval cannot be undone in v1."
+    "warning": "Approval moves pages to trash. It can be undone while there are no restore conflicts."
+  },
+  "bulkDelete": {
+    "selected": "{{count}} delete decisions selected",
+    "approve": "Approve selected",
+    "reject": "Reject selected",
+    "toggle": "Select delete decision"
+  },
+  "mergePreview": {
+    "title": "Merge preview",
+    "save": "Update preview",
+    "saving": "Saving..."
   },
   "override": {
     "title": "Decision override",

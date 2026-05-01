@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import { asc, eq, and, isNull } from "drizzle-orm";
 import { publicDocParamsSchema, ERROR_CODES } from "@wekiflow/shared";
-import { publishedSnapshots, workspaces, pages } from "@wekiflow/db";
+import { pageRedirects, publishedSnapshots, workspaces, pages } from "@wekiflow/db";
 import { sendValidationError } from "../../lib/reply-helpers.js";
 
 function toIso(value: Date | string): string {
@@ -109,6 +109,37 @@ const docRoutes: FastifyPluginAsync = async (fastify) => {
         .limit(1);
 
       if (rows.length === 0) {
+        const redirectRows = await fastify.db
+          .select({
+            targetPublicPath: publishedSnapshots.publicPath,
+          })
+          .from(workspaces)
+          .innerJoin(
+            pageRedirects,
+            and(
+              eq(pageRedirects.workspaceId, workspaces.id),
+              eq(pageRedirects.fromPath, pagePath),
+              isNull(pageRedirects.disabledAt),
+            ),
+          )
+          .innerJoin(
+            publishedSnapshots,
+            and(
+              eq(publishedSnapshots.pageId, pageRedirects.toPageId),
+              eq(publishedSnapshots.isLive, true),
+            ),
+          )
+          .where(eq(workspaces.slug, workspaceSlug))
+          .limit(1);
+        if (redirectRows[0]?.targetPublicPath) {
+          return reply
+            .code(308)
+            .header("Location", redirectRows[0].targetPublicPath)
+            .send({
+              redirectTo: redirectRows[0].targetPublicPath,
+              code: "PAGE_REDIRECT",
+            });
+        }
         return reply.code(404).send({
           error: "Published document not found",
           code: ERROR_CODES.DOC_NOT_FOUND,

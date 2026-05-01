@@ -295,74 +295,80 @@ export async function restoreSubtree(
   db: AnyDb,
   input: RestoreInput,
 ): Promise<RestoreResult> {
+  return await db.transaction(async (tx: AnyDb) =>
+    restoreSubtreeInTransaction(tx, input),
+  );
+}
+
+export async function restoreSubtreeInTransaction(
+  tx: AnyDb,
+  input: RestoreInput,
+): Promise<RestoreResult> {
   const { workspaceId, rootPageId, userId } = input;
 
-  return await db.transaction(async (tx: AnyDb) => {
-    const [root] = await tx
-      .select({
-        id: pages.id,
-        title: pages.title,
-        slug: pages.slug,
-        parentPageId: pages.parentPageId,
-        deletedAt: pages.deletedAt,
-      })
-      .from(pages)
-      .where(
-        and(eq(pages.id, rootPageId), eq(pages.workspaceId, workspaceId)),
-      )
-      .limit(1);
+  const [root] = await tx
+    .select({
+      id: pages.id,
+      title: pages.title,
+      slug: pages.slug,
+      parentPageId: pages.parentPageId,
+      deletedAt: pages.deletedAt,
+    })
+    .from(pages)
+    .where(and(eq(pages.id, rootPageId), eq(pages.workspaceId, workspaceId)))
+    .limit(1);
 
-    if (!root) throw new PageDeletionError(ERROR_CODES.PAGE_NOT_FOUND);
-    if (!root.deletedAt) {
-      return { restoredPageIds: [], rootTitle: root.title };
-    }
+  if (!root) throw new PageDeletionError(ERROR_CODES.PAGE_NOT_FOUND);
+  if (!root.deletedAt) {
+    return { restoredPageIds: [], rootTitle: root.title };
+  }
 
-    const subtreeIds = await collectDescendantPageIds(
-      tx,
-      workspaceId,
-      rootPageId,
-      { includeDeleted: true },
-    );
+  const subtreeIds = await collectDescendantPageIds(
+    tx,
+    workspaceId,
+    rootPageId,
+    { includeDeleted: true },
+  );
 
-    const subtreePages = await tx
-      .select({
-        id: pages.id,
-        title: pages.title,
-        slug: pages.slug,
-        deletedAt: pages.deletedAt,
-      })
-      .from(pages)
-      .where(inArray(pages.id, subtreeIds));
+  const subtreePages = await tx
+    .select({
+      id: pages.id,
+      title: pages.title,
+      slug: pages.slug,
+      deletedAt: pages.deletedAt,
+    })
+    .from(pages)
+    .where(inArray(pages.id, subtreeIds));
 
-    const restoringPages = selectPagesDeletedWithRoot(
-      subtreePages,
-      root.deletedAt,
-    );
-    const restoringIds = restoringPages.map((page) => page.id);
+  const restoringPages = selectPagesDeletedWithRoot(
+    subtreePages,
+    root.deletedAt,
+  );
+  const restoringIds = restoringPages.map((page) => page.id);
 
-    if (restoringIds.length === 0) {
-      return { restoredPageIds: [], rootTitle: root.title };
-    }
+  if (restoringIds.length === 0) {
+    return { restoredPageIds: [], rootTitle: root.title };
+  }
 
-    await tx.execute(
-      sql`SELECT 1 FROM "pages" WHERE "id" IN (${sqlUuidList(restoringIds)}) FOR UPDATE`,
-    );
+  await tx.execute(
+    sql`SELECT 1 FROM "pages" WHERE "id" IN (${sqlUuidList(restoringIds)}) FOR UPDATE`,
+  );
 
-    const activePages = await tx
-      .select({ id: pages.id, title: pages.title, slug: pages.slug })
-      .from(pages)
-      .where(
-        and(
-          eq(pages.workspaceId, workspaceId),
-          inArray(
-            pages.slug,
-            restoringPages.map((page) => page.slug),
-          ),
-          isNull(pages.deletedAt),
+  const activePages = await tx
+    .select({ id: pages.id, title: pages.title, slug: pages.slug })
+    .from(pages)
+    .where(
+      and(
+        eq(pages.workspaceId, workspaceId),
+        inArray(
+          pages.slug,
+          restoringPages.map((page) => page.slug),
         ),
-      );
+        isNull(pages.deletedAt),
+      ),
+    );
 
-    const latestPaths = await tx.execute(sql`
+  const latestPaths = await tx.execute(sql`
       SELECT DISTINCT ON (pp."page_id")
         pp."page_id" AS "pageId",
         pp."path" AS "path"
@@ -371,15 +377,15 @@ export async function restoreSubtree(
       ORDER BY pp."page_id", pp."created_at" DESC
     `);
 
-    const latestPathRows =
-      (latestPaths as unknown as {
-        rows?: Array<{ pageId: string; path: string }>;
-      }).rows ??
-      (latestPaths as Array<{ pageId: string; path: string }>);
-    const restoringPaths = Array.isArray(latestPathRows) ? latestPathRows : [];
+  const latestPathRows =
+    (latestPaths as unknown as {
+      rows?: Array<{ pageId: string; path: string }>;
+    }).rows ?? (latestPaths as Array<{ pageId: string; path: string }>);
+  const restoringPaths = Array.isArray(latestPathRows) ? latestPathRows : [];
 
-    const activePathValues = restoringPaths.map((path) => path.path);
-    const activePathsResult = activePathValues.length === 0
+  const activePathValues = restoringPaths.map((path) => path.path);
+  const activePathsResult =
+    activePathValues.length === 0
       ? []
       : await tx.execute(sql`
         SELECT pp."page_id" AS "pageId", pp."path" AS "path", p."title" AS "title"
@@ -391,68 +397,68 @@ export async function restoreSubtree(
           AND p."deleted_at" IS NULL
       `);
 
-    const activePathRows = Array.isArray(activePathsResult)
-      ? activePathsResult
-      : ((activePathsResult as unknown as {
-          rows?: Array<{ pageId: string; path: string; title: string }>;
-        }).rows ?? []);
+  const activePathRows = Array.isArray(activePathsResult)
+    ? activePathsResult
+    : ((activePathsResult as unknown as {
+        rows?: Array<{ pageId: string; path: string; title: string }>;
+      }).rows ?? []);
 
-    const conflict = findRestoreConflict({
-      restoringPages,
-      restoringPaths,
-      activePages,
-      activePaths: activePathRows,
+  const conflict = findRestoreConflict({
+    restoringPages,
+    restoringPaths,
+    activePages,
+    activePaths: activePathRows,
+  });
+
+  if (conflict) {
+    throw new PageDeletionError(ERROR_CODES.SLUG_CONFLICT, {
+      kind: conflict.kind,
+      restoringPageId: conflict.restoringPageId,
+      restoringTitle: conflict.restoringTitle,
+      conflictingPageId: conflict.conflictingPageId,
+      conflictingTitle: conflict.conflictingTitle,
+      slug: conflict.slug,
+      path: conflict.path,
     });
+  }
 
-    if (conflict) {
-      throw new PageDeletionError(ERROR_CODES.SLUG_CONFLICT, {
-        kind: conflict.kind,
-        restoringPageId: conflict.restoringPageId,
-        restoringTitle: conflict.restoringTitle,
-        conflictingPageId: conflict.conflictingPageId,
-        conflictingTitle: conflict.conflictingTitle,
-        slug: conflict.slug,
-        path: conflict.path,
-      });
+  let detachedFromParent: string | null = null;
+  if (root.parentPageId) {
+    const [parent] = await tx
+      .select({ id: pages.id, deletedAt: pages.deletedAt })
+      .from(pages)
+      .where(eq(pages.id, root.parentPageId))
+      .limit(1);
+    if (parent && parent.deletedAt) {
+      detachedFromParent = parent.id;
+      await tx
+        .update(pages)
+        .set({ parentPageId: null, updatedAt: sql`now()` })
+        .where(eq(pages.id, rootPageId));
     }
+  }
 
-    let detachedFromParent: string | null = null;
-    if (root.parentPageId) {
-      const [parent] = await tx
-        .select({ id: pages.id, deletedAt: pages.deletedAt })
-        .from(pages)
-        .where(eq(pages.id, root.parentPageId))
-        .limit(1);
-      if (parent && parent.deletedAt) {
-        detachedFromParent = parent.id;
-        await tx
-          .update(pages)
-          .set({ parentPageId: null, updatedAt: sql`now()` })
-          .where(eq(pages.id, rootPageId));
-      }
-    }
+  await tx
+    .update(pages)
+    .set({
+      deletedAt: null,
+      deletedByUserId: null,
+      updatedAt: sql`now()`,
+    })
+    .where(inArray(pages.id, restoringIds));
 
-    await tx
-      .update(pages)
-      .set({
-        deletedAt: null,
-        deletedByUserId: null,
-        updatedAt: sql`now()`,
-      })
-      .where(inArray(pages.id, restoringIds));
+  await tx
+    .update(triples)
+    .set({ status: "active" })
+    .where(
+      and(
+        inArray(triples.sourcePageId, restoringIds),
+        eq(triples.status, "page_deleted"),
+      ),
+    );
 
-    await tx
-      .update(triples)
-      .set({ status: "active" })
-      .where(
-        and(
-          inArray(triples.sourcePageId, restoringIds),
-          eq(triples.status, "page_deleted"),
-        ),
-      );
-
-    // Flip is_current back on for the newest path per restored page in one go.
-    await tx.execute(sql`
+  // Flip is_current back on for the newest path per restored page in one go.
+  await tx.execute(sql`
       UPDATE "page_paths" SET "is_current" = true
       WHERE "id" IN (
         SELECT DISTINCT ON ("page_id") "id"
@@ -462,22 +468,21 @@ export async function restoreSubtree(
       )
     `);
 
-    await tx.insert(auditLogs).values({
-      workspaceId,
-      userId,
-      entityType: "page",
-      entityId: rootPageId,
-      action: "restore",
-      afterJson: {
-        id: root.id,
-        title: root.title,
-        restoredIds: restoringIds,
-        detachedFromParent,
-      },
-    });
-
-    return { restoredPageIds: restoringIds, rootTitle: root.title };
+  await tx.insert(auditLogs).values({
+    workspaceId,
+    userId,
+    entityType: "page",
+    entityId: rootPageId,
+    action: "restore",
+    afterJson: {
+      id: root.id,
+      title: root.title,
+      restoredIds: restoringIds,
+      detachedFromParent,
+    },
   });
+
+  return { restoredPageIds: restoringIds, rootTitle: root.title };
 }
 
 export interface PurgeInput {

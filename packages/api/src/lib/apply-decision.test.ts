@@ -38,6 +38,7 @@ class FakeDb {
         this.insertedValues.push(values);
         return {
           returning: async () => [values],
+          onConflictDoNothing: async () => undefined,
           then: (resolve: (value: unknown) => unknown) => resolve(values),
         };
       },
@@ -216,6 +217,7 @@ describe("approveDecision destructive decisions", () => {
         [{ id: proposedRevisionId, pageId: canonicalPageId }],
         [{ id: sourcePageId }],
         [],
+        [{ fromPageId: sourcePageId, fromPath: "source" }],
         deletedPageRoot(sourcePageId, "Source"),
         [],
       ],
@@ -264,6 +266,16 @@ describe("approveDecision destructive decisions", () => {
         (value) =>
           (value as { action?: string }).action === "approve_merge",
       ),
+    );
+    assert.ok(
+      db.insertedValues.some((value) => {
+        const row = Array.isArray(value) ? value[0] : value;
+        return (
+          (row as { fromPageId?: string; toPageId?: string }).fromPageId ===
+            sourcePageId &&
+          (row as { toPageId?: string }).toPageId === canonicalPageId
+        );
+      }),
     );
   });
 });

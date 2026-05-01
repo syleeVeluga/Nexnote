@@ -73,6 +73,7 @@ function input(overrides: Partial<CreateMutateToolsInput> = {}): CreateMutateToo
     origin: "scheduled",
     scheduledRunId,
     scheduledAutoApply: true,
+    allowDestructiveScheduledAgent: true,
     ...overrides,
   };
 }
@@ -101,6 +102,12 @@ describe("createMutateTools destructive scheduled tools", () => {
     const scheduledTools = createMutateTools(input({ origin: "scheduled" }));
     assert.ok(scheduledTools.delete_page);
     assert.ok(scheduledTools.merge_pages);
+
+    const disabledTools = createMutateTools(
+      input({ allowDestructiveScheduledAgent: false }),
+    );
+    assert.equal(disabledTools.delete_page, undefined);
+    assert.equal(disabledTools.merge_pages, undefined);
 
     const ingestionTools = createMutateTools(input({ origin: "ingestion" }));
     assert.equal(ingestionTools.delete_page, undefined);

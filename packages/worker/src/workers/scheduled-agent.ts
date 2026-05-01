@@ -233,6 +233,8 @@ export function createScheduledAgentWorker(): Worker {
           id: workspaces.id,
           scheduledEnabled: workspaces.scheduledEnabled,
           scheduledAutoApply: workspaces.scheduledAutoApply,
+          allowDestructiveScheduledAgent:
+            workspaces.allowDestructiveScheduledAgent,
           scheduledDailyTokenCap: workspaces.scheduledDailyTokenCap,
           scheduledPerRunPageLimit: workspaces.scheduledPerRunPageLimit,
           agentInstructions: workspaces.agentInstructions,
@@ -468,6 +470,8 @@ export function createScheduledAgentWorker(): Worker {
           instruction: runInput.instruction,
           scheduledRunId: scheduledRun.id,
           scheduledAutoApply: workspace.scheduledAutoApply,
+          allowDestructiveScheduledAgent:
+            workspace.allowDestructiveScheduledAgent,
           workspaceAgentInstructions: workspace.agentInstructions,
           workspaceTokenUsage: {
             usedToday: workspaceTokensUsedToday,
@@ -527,6 +531,8 @@ export function createScheduledAgentWorker(): Worker {
                 pageCount: adapted.seedPageIds.length,
                 scopeTruncated: adapted.truncated,
                 scheduledAutoApply: workspace.scheduledAutoApply,
+                allowDestructiveScheduledAgent:
+                  workspace.allowDestructiveScheduledAgent,
               },
               completedAt: new Date(),
             })

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -12,7 +12,10 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { DecisionDetail } from "../../lib/api-client.js";
+import {
+  decisions as decisionsApi,
+  type DecisionDetail,
+} from "../../lib/api-client.js";
 import { classifyLine } from "../revisions/DiffViewer.js";
 import { Badge, type BadgeTone } from "../ui/Badge.js";
 import { DecisionOverrideForm } from "./DecisionOverrideForm.js";
@@ -83,6 +86,10 @@ export function ReviewDetail({
   >(null);
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [mergePreviewContent, setMergePreviewContent] = useState(
+    decision.proposedRevision?.contentMd ?? "",
+  );
+  const [savingPreview, setSavingPreview] = useState(false);
 
   const resolved =
     decision.status === "approved" ||
@@ -91,11 +98,17 @@ export function ReviewDetail({
     decision.status === "undone" ||
     decision.status === "noop";
   const canUndo =
-    decision.status === "auto_applied" &&
-    Boolean(decision.targetPageId && decision.proposedRevisionId) &&
-    (decision.action === "create" ||
-      decision.action === "update" ||
-      decision.action === "append");
+    (decision.status === "auto_applied" &&
+      Boolean(decision.targetPageId && decision.proposedRevisionId) &&
+      (decision.action === "create" ||
+        decision.action === "update" ||
+        decision.action === "append")) ||
+    (decision.status === "approved" &&
+      decision.action === "delete" &&
+      Boolean(decision.targetPageId)) ||
+    (decision.status === "approved" &&
+      decision.action === "merge" &&
+      Boolean(decision.targetPageId && decision.proposedRevisionId));
   const destructive =
     decision.action === "delete" || decision.action === "merge";
   const rationale = rationaleRecord(decision);
@@ -135,6 +148,35 @@ export function ReviewDetail({
   const diffLines = decision.proposedRevision?.diffMd
     ? decision.proposedRevision.diffMd.split("\n")
     : [];
+  const canEditMergePreview =
+    decision.action === "merge" &&
+    !resolved &&
+    Boolean(decision.proposedRevision);
+
+  useEffect(() => {
+    setMergePreviewContent(decision.proposedRevision?.contentMd ?? "");
+  }, [decision.id, decision.proposedRevision?.contentMd]);
+
+  const saveMergePreview = async () => {
+    if (!decision.proposedRevision) return;
+    setSavingPreview(true);
+    try {
+      await decisionsApi.updateProposedRevision(
+        workspaceId,
+        decision.id,
+        mergePreviewContent,
+      );
+      await onDecisionChanged();
+    } catch (err) {
+      window.alert(
+        err instanceof Error
+          ? err.message
+          : t("actionFailed", { defaultValue: "Action failed" }),
+      );
+    } finally {
+      setSavingPreview(false);
+    }
+  };
 
   return (
     <div className="review-detail-body">
@@ -298,8 +340,44 @@ export function ReviewDetail({
           </div>
           <div className="review-conflict-hint">
             {t("destructive.warning", {
-              defaultValue: "This approval cannot be undone in v1.",
+              defaultValue:
+                "Approval moves pages to trash. It can be undone while there are no restore conflicts.",
             })}
+          </div>
+        </div>
+      )}
+
+      {canEditMergePreview && (
+        <div className="review-detail-section">
+          <div className="review-detail-label">
+            <FileText size={12} aria-hidden="true" />
+            {t("mergePreview.title", {
+              defaultValue: "Merge preview",
+            })}
+          </div>
+          <textarea
+            className="review-merge-preview-editor"
+            rows={14}
+            value={mergePreviewContent}
+            onChange={(event) => setMergePreviewContent(event.target.value)}
+          />
+          <div className="review-detail-actions">
+            <button
+              className="btn btn-secondary"
+              onClick={() => void saveMergePreview()}
+              disabled={
+                savingPreview ||
+                mergePreviewContent.trim().length === 0 ||
+                mergePreviewContent === decision.proposedRevision?.contentMd
+              }
+            >
+              <Check size={13} aria-hidden="true" />
+              {savingPreview
+                ? t("mergePreview.saving", { defaultValue: "Saving..." })
+                : t("mergePreview.save", {
+                    defaultValue: "Update preview",
+                  })}
+            </button>
           </div>
         </div>
       )}

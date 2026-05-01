@@ -61,6 +61,7 @@ export interface CreateMutateToolsInput {
   origin?: "ingestion" | "scheduled";
   scheduledRunId?: string | null;
   scheduledAutoApply?: boolean;
+  allowDestructiveScheduledAgent?: boolean;
   patchQueue?: QueueLike<PatchGeneratorJobData>;
   extractionQueue?: QueueLike<TripleExtractorJobData>;
   searchQueue?: QueueLike<SearchIndexUpdaterJobData>;
@@ -1116,7 +1117,7 @@ export function createMutateTools(
     },
   };
 
-  if (input.origin === "scheduled") {
+  if (input.origin === "scheduled" && input.allowDestructiveScheduledAgent) {
     tools.delete_page = {
       name: "delete_page",
       description:
