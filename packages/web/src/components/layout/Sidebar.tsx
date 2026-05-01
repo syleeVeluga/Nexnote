@@ -40,6 +40,8 @@ import {
   type Page,
   type Workspace,
   type ReorderIntent,
+  type DecisionCounts,
+  type DecisionStatus,
 } from "../../lib/api-client.js";
 import {
   bucketFolders,
@@ -69,6 +71,13 @@ import { slugify } from "@wekiflow/shared";
 const ROOT_PAGE_VALUE = "__root__";
 const DRAG_MIME = "application/wekiflow-explorer-node";
 const AUTO_EXPAND_DELAY_MS = 500;
+const RECENT_KNOWLEDGE_DAYS = 7;
+const RECENT_KNOWLEDGE_STATUSES: DecisionStatus[] = [
+  "auto_applied",
+  "approved",
+  "rejected",
+  "undone",
+];
 
 interface MoveDialogState {
   pageId: string;
@@ -327,7 +336,7 @@ export function Sidebar({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [renaming, setRenaming] = useState<RenamingState>(null);
-  const [pendingCount, setPendingCount] = useState(0);
+  const [knowledgeIndicatorCount, setKnowledgeIndicatorCount] = useState(0);
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(
     null,
   );
@@ -372,18 +381,26 @@ export function Sidebar({
 
   useEffect(() => {
     let cancelled = false;
-    decisionsApi
-      .counts(workspace.id)
-      .then((res) => {
-        if (cancelled) return;
-        const next = res.counts.pending ?? 0;
-        setPendingCount((prev) => (prev === next ? prev : next));
-      })
-      .catch(() => {});
+
+    const refreshKnowledgeIndicator = async (counts?: DecisionCounts) => {
+      const [countsRes, recentRes] = await Promise.all([
+        counts ? Promise.resolve({ counts }) : decisionsApi.counts(workspace.id),
+        decisionsApi.list(workspace.id, {
+          status: RECENT_KNOWLEDGE_STATUSES,
+          sinceDays: RECENT_KNOWLEDGE_DAYS,
+          limit: 1,
+        }),
+      ]);
+
+      if (cancelled) return;
+      const next = (countsRes.counts.pending ?? 0) + recentRes.total;
+      setKnowledgeIndicatorCount((prev) => (prev === next ? prev : next));
+    };
+
+    refreshKnowledgeIndicator().catch(() => {});
     const unsubscribe = subscribeDecisionCountsUpdated((detail) => {
       if (cancelled || detail.workspaceId !== workspace.id) return;
-      const next = detail.counts.pending ?? 0;
-      setPendingCount((prev) => (prev === next ? prev : next));
+      refreshKnowledgeIndicator(detail.counts).catch(() => {});
     });
     return () => {
       cancelled = true;
@@ -1029,7 +1046,7 @@ export function Sidebar({
           to="/review"
           icon={<GraduationCap size={15} />}
           label={t("review")}
-          badge={pendingCount}
+          badge={knowledgeIndicatorCount}
         />
         <SidebarNavLink
           to="/wiki"
