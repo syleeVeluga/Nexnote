@@ -1,0 +1,119 @@
+{
+  "title": "Scheduled Agent",
+  "eyebrow": "Workspace automation",
+  "description": "Run wiki reorganize jobs manually or from cron schedules. Decisions still land in review unless auto-apply is enabled.",
+  "restrictedDescription": "Only workspace owners and admins can manage scheduled agent runs.",
+  "restrictedRole": "Insufficient workspace role.",
+  "actions": {
+    "refresh": "Refresh",
+    "newTask": "New schedule",
+    "manualRun": "Run once now",
+    "edit": "Edit",
+    "runNow": "Run now",
+    "delete": "Delete",
+    "viewTrace": "View trace"
+  },
+  "values": {
+    "on": "On",
+    "off": "Off"
+  },
+  "disabled": {
+    "title": "Scheduled Agent is off",
+    "description": "Enable it in AI Settings before creating cron schedules or manual reorganize runs.",
+    "settingsLink": "Open AI Settings"
+  },
+  "tasks": {
+    "title": "Cron Tasks",
+    "description": "Workspace-level schedules that target selected pages and optional descendants.",
+    "enabled": "Enabled",
+    "name": "Name",
+    "cron": "Cron",
+    "targets": "Targets",
+    "nextRun": "Next run",
+    "actions": "Actions",
+    "empty": "No scheduled tasks yet."
+  },
+  "runs": {
+    "title": "Immediate Runs and Recent History",
+    "description": "Manual and cron-triggered scheduled agent runs.",
+    "triggeredBy": "Trigger",
+    "task": "Task",
+    "status": "Status",
+    "decisions": "decisions",
+    "tokens": "Tokens",
+    "cost": "Cost",
+    "started": "Started",
+    "duration": "Duration",
+    "trace": "Trace",
+    "empty": "No scheduled runs yet."
+  },
+  "triggeredBy": {
+    "manual": "Manual",
+    "cron": "Cron"
+  },
+  "manualRun": {
+    "title": "Run Scheduled Agent Once",
+    "description": "Select target pages and queue one reorganize run."
+  },
+  "folderRun": {
+    "title": "Reorganize {{folderName}}",
+    "description": "The current folder's direct pages and child-folder pages will seed the scheduled agent.",
+    "submit": "Queue folder run",
+    "tooManyPages": "{{count}} pages were found, above the per-run limit of {{max}}. Open a smaller child folder and try again."
+  },
+  "forms": {
+    "targetPages": "Target pages",
+    "includeDescendants": "Include descendants",
+    "instruction": "Instruction",
+    "instructionPlaceholder": "Deduplicate repeated sections, normalize headings, and keep reviewer-facing changes small.",
+    "seededTargetCount": "{{count}} seeded target pages",
+    "runNow": "Queue run",
+    "queueing": "Queueing..."
+  },
+  "pagePicker": {
+    "searchPlaceholder": "Search pages",
+    "empty": "No pages found.",
+    "selected": "Selected",
+    "removePage": "Remove {{title}}",
+    "selectionCount": "{{count}} / {{max}} selected",
+    "largeSelectionWarning": "{{count}} pages selected. Consider narrowing the target set for a clearer review queue."
+  },
+  "taskForm": {
+    "createTitle": "New Schedule",
+    "editTitle": "Edit Schedule",
+    "description": "Cron syntax is checked lightly here and validated by the server before registration.",
+    "name": "Name",
+    "cronExpression": "Cron expression",
+    "enabled": "Enabled",
+    "save": "Save",
+    "saving": "Saving...",
+    "errors": {
+      "nameRequired": "Name is required.",
+      "invalidCron": "Enter a 5- or 6-field cron expression.",
+      "save": "Could not save the scheduled task."
+    }
+  },
+  "deleteTask": {
+    "title": "Delete scheduled task",
+    "message": "Delete '{{name}}'? The repeatable queue registration will be removed."
+  },
+  "trace": {
+    "title": "Scheduled Run Trace",
+    "close": "Close trace",
+    "missingRun": "Run not found in the recent history.",
+    "waitingForAgentRun": "The worker has not attached an agent trace yet.",
+    "loadFailed": "Could not load the agent trace."
+  },
+  "notices": {
+    "runQueued": "Scheduled agent run queued."
+  },
+  "errors": {
+    "loadTasks": "Could not load scheduled tasks.",
+    "loadRuns": "Could not load scheduled runs.",
+    "updateTask": "Could not update the scheduled task.",
+    "deleteTask": "Could not delete the scheduled task.",
+    "queueRunFailed": "Could not queue the scheduled run.",
+    "noTargetPages": "Select at least one target page.",
+    "tooManyPages": "{{count}} pages exceeds the per-run limit of {{max}}."
+  }
+}

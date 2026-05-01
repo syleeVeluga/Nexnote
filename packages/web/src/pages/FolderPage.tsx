@@ -7,6 +7,7 @@ import {
   Folder as FolderIcon,
   Plus,
   UploadCloud,
+  Wand2,
 } from "lucide-react";
 import { useWorkspace } from "../hooks/use-workspace.js";
 import { useTimeAgo } from "../hooks/use-time-ago.js";
@@ -18,6 +19,7 @@ import {
 } from "../lib/api-client.js";
 import { PageShell } from "../components/ui/PageShell.js";
 import { IconButton } from "../components/ui/IconButton.js";
+import { FolderReorganizeModal } from "../components/scheduled/FolderReorganizeModal.js";
 import { WikiDocumentTable } from "../components/wiki/WikiDocumentTable.js";
 
 const FETCH_LIMIT = 200;
@@ -47,6 +49,10 @@ export function FolderPage() {
   const [data, setData] = useState<FolderData>(EMPTY_DATA);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reorganizeOpen, setReorganizeOpen] = useState(false);
+  const [reorganizePageIds, setReorganizePageIds] = useState<string[]>([]);
+  const [collectingReorganizePages, setCollectingReorganizePages] =
+    useState(false);
 
   useEffect(() => {
     if (!current || !folderId) return;
@@ -117,6 +123,85 @@ export function FolderPage() {
   const truncated =
     data.childFolderTotal > data.childFolders.length ||
     data.directPageTotal > data.directPages.length;
+  const canTriggerScheduled =
+    current.scheduledEnabled &&
+    (current.role === "owner" ||
+      current.role === "admin" ||
+      current.role === "editor");
+
+  async function collectFolderPageIds(rootFolderId: string, depth = 0) {
+    if (!current) return [];
+    const pageRes = await pagesApi.list(current.id, {
+      parentFolderId: rootFolderId,
+      limit: FETCH_LIMIT,
+    });
+    if (pageRes.total > pageRes.data.length) {
+      throw new Error(
+        t("wiki.reorganizeTooLarge", {
+          defaultValue:
+            "This folder is too large. Open a smaller child folder and run the reorganize action there.",
+        }),
+      );
+    }
+
+    const ids = pageRes.data.map((page) => page.id);
+    if (depth >= 2) return ids;
+
+    const childFolderRes = await foldersApi.list(current.id, {
+      parentFolderId: rootFolderId,
+      limit: FETCH_LIMIT,
+    });
+    if (childFolderRes.total > childFolderRes.data.length) {
+      throw new Error(
+        t("wiki.reorganizeTooLarge", {
+          defaultValue:
+            "This folder is too large. Open a smaller child folder and run the reorganize action there.",
+        }),
+      );
+    }
+
+    for (const child of childFolderRes.data) {
+      ids.push(...(await collectFolderPageIds(child.id, depth + 1)));
+      if (ids.length > FETCH_LIMIT) {
+        throw new Error(
+          t("wiki.reorganizeTooLarge", {
+            defaultValue:
+              "This folder is too large. Open a smaller child folder and run the reorganize action there.",
+          }),
+        );
+      }
+    }
+    return [...new Set(ids)];
+  }
+
+  async function openReorganizeModal() {
+    if (!current || !folder) return;
+    setCollectingReorganizePages(true);
+    setError(null);
+    try {
+      const pageIds = await collectFolderPageIds(folder.id);
+      if (pageIds.length === 0) {
+        setError(
+          t("wiki.reorganizeNoPages", {
+            defaultValue: "This folder has no pages for the scheduled agent.",
+          }),
+        );
+        return;
+      }
+      setReorganizePageIds(pageIds);
+      setReorganizeOpen(true);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("wiki.reorganizeCollectFailed", {
+              defaultValue: "Could not collect pages in this folder.",
+            }),
+      );
+    } finally {
+      setCollectingReorganizePages(false);
+    }
+  }
 
   return (
     <PageShell
@@ -157,6 +242,18 @@ export function FolderPage() {
             tone="quiet"
             onClick={() => navigate("/import")}
           />
+          {canTriggerScheduled && (
+            <IconButton
+              icon={<Wand2 size={15} />}
+              label={t("wiki.reorganize", {
+                defaultValue: "Reorganize this folder with AI",
+              })}
+              showLabel
+              tone="quiet"
+              onClick={() => void openReorganizeModal()}
+              disabled={collectingReorganizePages || loading || !folder}
+            />
+          )}
           <IconButton
             icon={<Plus size={15} />}
             label={t("common:newPage")}
@@ -281,6 +378,20 @@ export function FolderPage() {
             />
           </section>
         </div>
+      )}
+      {folder && (
+        <FolderReorganizeModal
+          open={reorganizeOpen}
+          workspaceId={current.id}
+          folderName={folder.name}
+          pageIds={reorganizePageIds}
+          maxPageLimit={current.scheduledPerRunPageLimit}
+          onClose={() => setReorganizeOpen(false)}
+          onQueued={(scheduledRunId) => {
+            setReorganizeOpen(false);
+            navigate(`/settings/scheduled-agent?run=${scheduledRunId}`);
+          }}
+        />
       )}
     </PageShell>
   );

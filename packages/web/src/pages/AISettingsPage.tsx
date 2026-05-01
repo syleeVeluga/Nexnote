@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import {
   Bot,
+  CalendarClock,
   ChevronDown,
   Gauge,
   RefreshCw,
@@ -108,6 +109,12 @@ export function AISettingsPage() {
   const [parityCountInput, setParityCountInput] = useState("");
   const [parityActionRateInput, setParityActionRateInput] = useState("");
   const [parityTargetRateInput, setParityTargetRateInput] = useState("");
+  const [scheduledEnabled, setScheduledEnabled] = useState(false);
+  const [scheduledAutoApply, setScheduledAutoApply] = useState(false);
+  const [scheduledDailyTokenCapInput, setScheduledDailyTokenCapInput] =
+    useState("");
+  const [scheduledPerRunPageLimitInput, setScheduledPerRunPageLimitInput] =
+    useState("");
   const [parityPanelOpen, setParityPanelOpen] = useState(false);
   const [diagnostics, setDiagnostics] = useState<AgentDiagnostics | null>(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
@@ -182,6 +189,14 @@ export function AISettingsPage() {
     setParityTargetRateInput(
       rateInputFromValue(current.agentParityMinTargetPageAgreementRate),
     );
+    setScheduledEnabled(current.scheduledEnabled);
+    setScheduledAutoApply(current.scheduledAutoApply);
+    setScheduledDailyTokenCapInput(
+      current.scheduledDailyTokenCap == null
+        ? ""
+        : String(current.scheduledDailyTokenCap),
+    );
+    setScheduledPerRunPageLimitInput(String(current.scheduledPerRunPageLimit));
   }, [current]);
 
   const modelOptions = useMemo(
@@ -243,6 +258,8 @@ export function AISettingsPage() {
     let parityMinComparableCount: number | null;
     let parityMinActionAgreementRate: number | null;
     let parityMinTargetPageAgreementRate: number | null;
+    let scheduledDailyTokenCap: number | null;
+    let scheduledPerRunPageLimit: number | null;
     try {
       fastThresholdTokens = parseOptionalInteger(
         fastThresholdInput,
@@ -280,6 +297,37 @@ export function AISettingsPage() {
         parityTargetRateInput,
         t("errors.percentRange", { field: t("fields.targetAgreement") }),
       );
+      scheduledDailyTokenCap = parseOptionalInteger(
+        scheduledDailyTokenCapInput,
+        t("errors.positiveInteger", {
+          field: t("scheduledAgent.fields.dailyTokenCap", {
+            defaultValue: "Scheduled daily token cap",
+          }),
+        }),
+      );
+      scheduledPerRunPageLimit = parseOptionalIntegerInRange(
+        scheduledPerRunPageLimitInput,
+        t("errors.integerRange", {
+          field: t("scheduledAgent.fields.perRunPageLimit", {
+            defaultValue: "Scheduled per-run page limit",
+          }),
+          min: 1,
+          max: 500,
+        }),
+        1,
+        500,
+      );
+      if (scheduledPerRunPageLimit == null) {
+        throw new Error(
+          t("errors.integerRange", {
+            field: t("scheduledAgent.fields.perRunPageLimit", {
+              defaultValue: "Scheduled per-run page limit",
+            }),
+            min: 1,
+            max: 500,
+          }),
+        );
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : t("errors.invalidSettings"),
@@ -302,6 +350,10 @@ export function AISettingsPage() {
         agentParityMinComparableCount: parityMinComparableCount,
         agentParityMinActionAgreementRate: parityMinActionAgreementRate,
         agentParityMinTargetPageAgreementRate: parityMinTargetPageAgreementRate,
+        scheduledEnabled,
+        scheduledAutoApply: scheduledEnabled ? scheduledAutoApply : false,
+        scheduledDailyTokenCap,
+        scheduledPerRunPageLimit,
       });
       await refresh();
       await loadDiagnostics();
@@ -442,6 +494,129 @@ export function AISettingsPage() {
             />
           </label>
         </div>
+      </section>
+
+      <section className="ai-settings-panel">
+        <header className="ai-settings-panel-header">
+          <span className="system-overview-icon" aria-hidden="true">
+            <CalendarClock size={17} />
+          </span>
+          <div>
+            <h2>
+              {t("scheduledAgent.title", {
+                defaultValue: "Scheduled Agent",
+              })}
+            </h2>
+            <p>
+              {t("scheduledAgent.description", {
+                defaultValue:
+                  "Let the agent reorganize selected wiki areas on demand or on a schedule.",
+              })}
+            </p>
+          </div>
+        </header>
+
+        <div className="ai-settings-fields ai-scheduled-settings-fields">
+          <label className="ai-settings-check-field">
+            <input
+              type="checkbox"
+              checked={scheduledEnabled}
+              onChange={(event) => setScheduledEnabled(event.target.checked)}
+            />
+            <span>
+              <strong>
+                {t("scheduledAgent.fields.enabled", {
+                  defaultValue: "Enable Scheduled Agent",
+                })}
+              </strong>
+              <small>
+                {t("scheduledAgent.help.enabled", {
+                  defaultValue:
+                    "Allow manual and cron-based scheduled reorganize runs.",
+                })}
+              </small>
+            </span>
+          </label>
+
+          <label className="ai-settings-check-field">
+            <input
+              type="checkbox"
+              checked={scheduledAutoApply}
+              disabled={!scheduledEnabled}
+              onChange={(event) => setScheduledAutoApply(event.target.checked)}
+            />
+            <span>
+              <strong>
+                {t("scheduledAgent.fields.autoApply", {
+                  defaultValue: "Auto-apply scheduled decisions",
+                })}
+              </strong>
+              <small>
+                {t("scheduledAgent.help.autoApply", {
+                  defaultValue:
+                    "Keep this off unless scheduled runs are trusted for this workspace.",
+                })}
+              </small>
+            </span>
+          </label>
+
+          <label className="ai-settings-field">
+            <span>
+              {t("scheduledAgent.fields.dailyTokenCap", {
+                defaultValue: "Scheduled daily token cap",
+              })}
+            </span>
+            <input
+              type="number"
+              min={10_000}
+              step={10_000}
+              inputMode="numeric"
+              value={scheduledDailyTokenCapInput}
+              placeholder={t("scheduledAgent.placeholders.dailyTokenCap", {
+                defaultValue: "System default",
+              })}
+              onChange={(event) =>
+                setScheduledDailyTokenCapInput(event.target.value)
+              }
+            />
+            <small>
+              {t("scheduledAgent.help.dailyTokenCap", {
+                defaultValue:
+                  "Optional override. Values of 10,000 or more are recommended.",
+              })}
+            </small>
+          </label>
+
+          <label className="ai-settings-field">
+            <span>
+              {t("scheduledAgent.fields.perRunPageLimit", {
+                defaultValue: "Pages per run",
+              })}
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={500}
+              step={1}
+              inputMode="numeric"
+              value={scheduledPerRunPageLimitInput}
+              onChange={(event) =>
+                setScheduledPerRunPageLimitInput(event.target.value)
+              }
+            />
+            <small>
+              {t("scheduledAgent.help.perRunPageLimit", {
+                defaultValue: "Allowed range: 1 to 500 pages.",
+              })}
+            </small>
+          </label>
+        </div>
+
+        <Link to="/settings/scheduled-agent" className="ai-settings-link">
+          {t("scheduledAgent.manageLink", {
+            defaultValue: "Manage schedules and runs",
+          })}
+        </Link>
       </section>
 
       <section
