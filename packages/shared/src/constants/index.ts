@@ -180,6 +180,11 @@ export type TripleStatus = (typeof TRIPLE_STATUSES)[number];
 export const CONFIDENCE = {
   AUTO_APPLY: 0.85,
   SUGGESTION_MIN: 0.6,
+  // Used only when a workspace explicitly opts into Scheduled Agent auto-apply
+  // (workspaces.scheduled_auto_apply = true). The agent self-reports confidence
+  // and we trust it more aggressively in that mode — the workspace operator has
+  // already taken responsibility for autonomous edits including delete/merge.
+  SCHEDULED_AUTO_APPLY: 0.5,
 } as const;
 
 // Per-model input budget (in tokens) for large-context-first prompt assembly.

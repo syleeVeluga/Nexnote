@@ -128,7 +128,10 @@ describe("createMutateTools destructive scheduled tools", () => {
     );
   });
 
-  it("creates delete decisions as suggested even when auto-apply is enabled", async () => {
+  it("creates delete decisions as suggested when scheduled_auto_apply is off", async () => {
+    // Without scheduled_auto_apply, destructive proposals always land in /review
+    // — workspace operators must explicitly opt into autonomous deletes via the
+    // settings toggle. Auto-apply path is exercised in integration tests.
     const db = new FakeDb({
       selectQueue: [
         currentPage(canonicalPageId, "Duplicate", baseRevisionId),
@@ -136,7 +139,7 @@ describe("createMutateTools destructive scheduled tools", () => {
         [],
       ],
     });
-    const tools = createMutateTools(input({ scheduledAutoApply: true }));
+    const tools = createMutateTools(input({ scheduledAutoApply: false }));
 
     const result = await tools.delete_page.execute(ctx(db, [canonicalPageId]), {
       pageId: canonicalPageId,
@@ -164,6 +167,8 @@ describe("createMutateTools destructive scheduled tools", () => {
   });
 
   it("creates merge decisions with a proposed canonical revision and source metadata", async () => {
+    // Without scheduled_auto_apply the merge proposal lands in /review with the
+    // canonical revision pre-built and ready for human approval.
     const db = new FakeDb({
       selectQueue: [
         currentPage(canonicalPageId, "Canonical", baseRevisionId, "# Old"),
@@ -175,7 +180,7 @@ describe("createMutateTools destructive scheduled tools", () => {
       ],
       returningIds: ["decision-id", "revision-id"],
     });
-    const tools = createMutateTools(input({ scheduledAutoApply: true }));
+    const tools = createMutateTools(input({ scheduledAutoApply: false }));
 
     const result = await tools.merge_pages.execute(
       ctx(db, [canonicalPageId, sourcePageId]),
