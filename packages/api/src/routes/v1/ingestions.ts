@@ -139,6 +139,8 @@ function mapDecisionDto(row: IngestionDecision) {
     targetPageId: row.targetPageId,
     proposedRevisionId: row.proposedRevisionId,
     modelRunId: row.modelRunId,
+    scheduledRunId: row.scheduledRunId,
+    origin: row.scheduledRunId ? "scheduled" : "ingestion",
     action: row.action,
     status: row.status,
     proposedPageTitle: row.proposedPageTitle,

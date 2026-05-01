@@ -29,6 +29,12 @@
   "loading": "Loading...",
   "confidence": "Confidence",
   "source": "Source",
+  "origin": {
+    "filterLabel": "Decision origin",
+    "all": "All origins",
+    "ingestion": "Ingestions",
+    "scheduled": "Scheduled Agent"
+  },
   "receivedAt": "Received",
   "reason": "AI reasoning",
   "target": "Target",
@@ -78,6 +84,7 @@
   "detail": {
     "backToReview": "Back to review queue",
     "viewFullDetail": "View full ingestion detail",
+    "viewScheduledRun": "View scheduled run",
     "payload": "Ingestion payload",
     "decisions": "Decisions",
     "candidates": "Candidate pages",

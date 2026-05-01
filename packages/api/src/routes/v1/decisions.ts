@@ -66,6 +66,7 @@ const listQuerySchema = paginationSchema.extend({
         .pipe(z.array(z.enum(DECISION_STATUSES))),
     ])
     .optional(),
+  origin: z.enum(["ingestion", "scheduled"]).optional(),
   // "recent" tab wants auto_applied from the last N days
   sinceDays: z.coerce.number().int().min(1).max(365).optional(),
 });
@@ -115,7 +116,7 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
       const role = await getMemberRole(fastify.db, workspaceId, userId);
       if (!role) return forbidden(reply);
 
-      const { limit, offset, status, sinceDays } = query.data;
+      const { limit, offset, status, origin, sinceDays } = query.data;
 
       const conditions = [eq(ingestions.workspaceId, workspaceId)];
       if (status) {
@@ -129,6 +130,11 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
       if (sinceDays) {
         const since = new Date(Date.now() - sinceDays * 86400_000);
         conditions.push(gte(ingestionDecisions.createdAt, since));
+      }
+      if (origin === "scheduled") {
+        conditions.push(isNotNull(ingestionDecisions.scheduledRunId));
+      } else if (origin === "ingestion") {
+        conditions.push(isNull(ingestionDecisions.scheduledRunId));
       }
       conditions.push(
         or(
@@ -153,6 +159,7 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
             targetPageId: ingestionDecisions.targetPageId,
             proposedRevisionId: ingestionDecisions.proposedRevisionId,
             modelRunId: ingestionDecisions.modelRunId,
+            scheduledRunId: ingestionDecisions.scheduledRunId,
             action: ingestionDecisions.action,
             status: ingestionDecisions.status,
             proposedPageTitle: ingestionDecisions.proposedPageTitle,
@@ -275,6 +282,7 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
           targetPageId: ingestionDecisions.targetPageId,
           proposedRevisionId: ingestionDecisions.proposedRevisionId,
           modelRunId: ingestionDecisions.modelRunId,
+          scheduledRunId: ingestionDecisions.scheduledRunId,
           action: ingestionDecisions.action,
           status: ingestionDecisions.status,
           proposedPageTitle: ingestionDecisions.proposedPageTitle,
@@ -364,6 +372,8 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
         targetPageId: row.targetPageId,
         proposedRevisionId: row.proposedRevisionId,
         modelRunId: row.modelRunId,
+        scheduledRunId: row.scheduledRunId,
+        origin: row.scheduledRunId ? "scheduled" : "ingestion",
         action: row.action,
         status: row.status,
         proposedPageTitle: row.proposedPageTitle,
@@ -742,6 +752,8 @@ async function loadDecision(
       targetPageId: ingestionDecisions.targetPageId,
       proposedRevisionId: ingestionDecisions.proposedRevisionId,
       modelRunId: ingestionDecisions.modelRunId,
+      agentRunId: ingestionDecisions.agentRunId,
+      scheduledRunId: ingestionDecisions.scheduledRunId,
       action: ingestionDecisions.action,
       status: ingestionDecisions.status,
       proposedPageTitle: ingestionDecisions.proposedPageTitle,

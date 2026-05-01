@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   Bot,
+  CalendarClock,
   CheckCircle2,
   Inbox,
   RotateCcw,
@@ -28,6 +29,7 @@ import { PageShell } from "../components/ui/PageShell.js";
 import { SegmentedTabs } from "../components/ui/SegmentedTabs.js";
 
 type TabKey = "all" | "needs_review" | "failed";
+type OriginFilter = "all" | "ingestion" | "scheduled";
 
 interface TabConfig {
   key: TabKey;
@@ -121,6 +123,7 @@ export function ReviewQueuePage() {
   const { current } = useWorkspace();
   const timeAgo = useTimeAgo();
   const [activeTab, setActiveTab] = useState<TabKey>("all");
+  const [originFilter, setOriginFilter] = useState<OriginFilter>("all");
   const [items, setItems] = useState<DecisionListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -128,10 +131,12 @@ export function ReviewQueuePage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [counts, setCounts] = useState<DecisionCounts | null>(null);
   const [allTotal, setAllTotal] = useState<number | null>(null);
+  const [activeTotal, setActiveTotal] = useState<number | null>(null);
   const refreshSeqRef = useRef(0);
 
   const tabConfig = TABS.find((tab) => tab.key === activeTab) ?? TABS[0];
   const workspaceId = current?.id;
+  const originParam = originFilter === "all" ? undefined : originFilter;
 
   const refresh = useCallback(
     async (options?: { broadcastCounts?: boolean }) => {
@@ -148,10 +153,12 @@ export function ReviewQueuePage() {
           const [pendingRes, recentDoneRes, nextCountsRes] = await Promise.all([
             decisionsApi.list(workspaceId, {
               status: PENDING_STATUSES,
+              origin: originParam,
               limit: 50,
             }),
             decisionsApi.list(workspaceId, {
               status: RECENT_DONE_STATUSES,
+              origin: originParam,
               sinceDays: RECENT_DONE_DAYS,
               limit: 50,
             }),
@@ -176,6 +183,7 @@ export function ReviewQueuePage() {
             await Promise.all([
               decisionsApi.list(workspaceId, {
                 status: tabConfig.statuses,
+                origin: originParam,
                 sinceDays: tabConfig.sinceDays,
                 limit: 50,
               }),
@@ -183,6 +191,7 @@ export function ReviewQueuePage() {
               decisionsApi
                 .list(workspaceId, {
                   status: RECENT_DONE_STATUSES,
+                  origin: originParam,
                   sinceDays: RECENT_DONE_DAYS,
                   limit: 1,
                 })
@@ -198,6 +207,7 @@ export function ReviewQueuePage() {
         setItems(listRes.data);
         setCounts(countsRes.counts);
         setAllTotal(nextAllTotal);
+        setActiveTotal(listRes.total);
         if (options?.broadcastCounts) {
           dispatchDecisionCountsUpdated({
             workspaceId,
@@ -215,6 +225,7 @@ export function ReviewQueuePage() {
         if (seq !== refreshSeqRef.current) return [];
         setItems([]);
         setCounts(null);
+        setActiveTotal(null);
         return [];
       } finally {
         if (seq === refreshSeqRef.current) {
@@ -222,7 +233,7 @@ export function ReviewQueuePage() {
         }
       }
     },
-    [activeTab, workspaceId, tabConfig],
+    [activeTab, workspaceId, tabConfig, originParam],
   );
 
   useEffect(() => {
@@ -405,6 +416,13 @@ export function ReviewQueuePage() {
 
   if (!current) return null;
 
+  const displayTabCount = (key: TabKey) => {
+    if (originFilter !== "all") {
+      return key === activeTab ? (activeTotal ?? undefined) : undefined;
+    }
+    return tabCount(key, counts, allTotal);
+  };
+
   return (
     <PageShell
       className="review-page"
@@ -431,10 +449,41 @@ export function ReviewQueuePage() {
                   ? t("tabs.needs_review")
                   : t("tabs.failed"),
           }),
-          count: tabCount(tab.key, counts, allTotal),
+          count: displayTabCount(tab.key),
           icon: tabIcon(tab.key),
         }))}
       />
+
+      <div
+        className="review-origin-filter"
+        role="group"
+        aria-label={t("origin.filterLabel", {
+          defaultValue: "Decision origin",
+        })}
+      >
+        {(["all", "ingestion", "scheduled"] as const).map((origin) => (
+          <button
+            key={origin}
+            type="button"
+            className={`review-origin-filter-button${
+              originFilter === origin ? " active" : ""
+            }`}
+            onClick={() => setOriginFilter(origin)}
+          >
+            {origin === "scheduled" && (
+              <CalendarClock size={13} aria-hidden="true" />
+            )}
+            {t(`origin.${origin}`, {
+              defaultValue:
+                origin === "all"
+                  ? "All origins"
+                  : origin === "scheduled"
+                    ? "Scheduled Agent"
+                    : "Ingestions",
+            })}
+          </button>
+        ))}
+      </div>
 
       <div className="review-body">
         <div className="review-list">
@@ -462,6 +511,14 @@ export function ReviewQueuePage() {
                         defaultValue: item.status,
                       })}
                     </Badge>
+                    {item.origin === "scheduled" && (
+                      <span className="review-origin-chip">
+                        <CalendarClock size={11} aria-hidden="true" />
+                        {t("origin.scheduled", {
+                          defaultValue: "Scheduled Agent",
+                        })}
+                      </span>
+                    )}
                     {item.hasConflict && (
                       <span
                         className="review-conflict-chip"

@@ -3,6 +3,7 @@ import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import {
   ERROR_CODES,
+  QUEUE_NAMES,
   paginationSchema,
   scheduledTaskBodySchema,
   updateScheduledTaskBodySchema,
@@ -28,6 +29,7 @@ import {
   registerScheduledTaskScheduler,
   removeScheduledTaskScheduler,
 } from "../../lib/scheduled-agent-scheduler.js";
+import { enqueueScheduledAgentRun } from "../../lib/scheduled-agent-enqueue.js";
 import { validateScheduledCronExpression } from "../../lib/scheduled-cron.js";
 
 const taskParamsSchema = workspaceParamsSchema.extend({
@@ -314,6 +316,59 @@ const scheduledTaskRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
     return reply.send({ data: await toScheduledTaskDto(fastify, task) });
+  });
+
+  fastify.post("/:taskId/trigger", async (request, reply) => {
+    const params = taskParamsSchema.safeParse(request.params);
+    if (!params.success) return sendValidationError(reply, params.error.issues);
+    const { workspaceId, taskId } = params.data;
+    const userId = request.user.sub;
+    if (!(await requireAdmin(fastify, workspaceId, userId, reply))) return;
+    if (!(await assertScheduledEnabled(fastify, workspaceId, reply))) return;
+
+    const [task] = await fastify.db
+      .select()
+      .from(scheduledTasks)
+      .where(
+        and(
+          eq(scheduledTasks.id, taskId),
+          eq(scheduledTasks.workspaceId, workspaceId),
+        ),
+      )
+      .limit(1);
+    if (!task) {
+      return reply.code(404).send({
+        error: "Not found",
+        code: ERROR_CODES.NOT_FOUND,
+        details: "Scheduled task not found",
+      });
+    }
+
+    const targetPageIds = await validateActiveTargetPages({
+      db: fastify.db,
+      workspaceId,
+      pageIds: task.targetPageIds,
+      reply,
+    });
+    if (!targetPageIds) return;
+
+    const result = await enqueueScheduledAgentRun({
+      db: fastify.db,
+      queue: fastify.queues[QUEUE_NAMES.SCHEDULED_AGENT],
+      workspaceId,
+      taskId: task.id,
+      triggeredBy: "manual",
+      pageIds: targetPageIds,
+      includeDescendants: task.includeDescendants,
+      instruction: task.instruction,
+      requestedByUserId: userId,
+    });
+
+    return reply.code(202).send({
+      status: "queued",
+      scheduledRunId: result.scheduledRunId,
+      jobId: result.jobId,
+    });
   });
 
   fastify.patch("/:taskId", async (request, reply) => {
