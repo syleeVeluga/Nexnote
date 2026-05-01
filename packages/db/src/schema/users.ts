@@ -45,6 +45,14 @@ export const workspaces = pgTable(
       "agent_parity_min_target_page_agreement_rate",
       { precision: 4, scale: 3 },
     ),
+    scheduledEnabled: boolean("scheduled_enabled").notNull().default(false),
+    scheduledAutoApply: boolean("scheduled_auto_apply")
+      .notNull()
+      .default(false),
+    scheduledDailyTokenCap: integer("scheduled_daily_token_cap"),
+    scheduledPerRunPageLimit: integer("scheduled_per_run_page_limit")
+      .notNull()
+      .default(50),
     useReconciliationDefault: boolean("use_reconciliation_default")
       .notNull()
       .default(true),
@@ -88,6 +96,14 @@ export const workspaces = pgTable(
     check(
       "workspaces_agent_parity_min_target_page_agreement_rate_chk",
       sql`${t.agentParityMinTargetPageAgreementRate} IS NULL OR (${t.agentParityMinTargetPageAgreementRate} BETWEEN 0 AND 1)`,
+    ),
+    check(
+      "workspaces_scheduled_daily_token_cap_chk",
+      sql`${t.scheduledDailyTokenCap} IS NULL OR ${t.scheduledDailyTokenCap} > 0`,
+    ),
+    check(
+      "workspaces_scheduled_per_run_page_limit_chk",
+      sql`${t.scheduledPerRunPageLimit} BETWEEN 1 AND 500`,
     ),
   ],
 );

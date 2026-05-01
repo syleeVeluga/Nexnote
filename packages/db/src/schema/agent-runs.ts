@@ -17,7 +17,8 @@ export const agentRuns = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     // FK to ingestions is enforced in migration SQL to avoid a schema module
     // cycle with ingestion_decisions.agent_run_id.
-    ingestionId: uuid("ingestion_id").notNull(),
+    // Scheduled agent runs do not have an ingestion row, so this is nullable.
+    ingestionId: uuid("ingestion_id"),
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),

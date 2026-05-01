@@ -10,6 +10,7 @@ export const REVISION_SOURCES = [
   "rollback",
   "publish",
   "ai_synthesis",
+  "scheduled",
 ] as const;
 export type RevisionSource = (typeof REVISION_SOURCES)[number];
 
@@ -32,6 +33,17 @@ export const AGENT_RUN_STATUSES = [
   "shadow",
 ] as const;
 export type AgentRunStatus = (typeof AGENT_RUN_STATUSES)[number];
+
+export const SCHEDULED_RUN_STATUSES = [
+  "running",
+  "completed",
+  "failed",
+] as const;
+export type ScheduledRunStatus = (typeof SCHEDULED_RUN_STATUSES)[number];
+
+export const SCHEDULED_RUN_TRIGGERED_BY = ["cron", "manual"] as const;
+export type ScheduledRunTriggeredBy =
+  (typeof SCHEDULED_RUN_TRIGGERED_BY)[number];
 
 export const AGENT_TRACE_CHANNEL_PREFIX = "agent-runs:trace:" as const;
 
@@ -237,6 +249,7 @@ export const DEFAULT_JOB_OPTIONS = {
 export const QUEUE_NAMES = {
   INGESTION: "ingestion",
   INGESTION_AGENT: "ingestion-agent",
+  SCHEDULED_AGENT: "scheduled-agent-queue",
   PATCH: "patch",
   EXTRACTION: "extraction",
   PUBLISH: "publish",
@@ -248,6 +261,7 @@ export const QUEUE_NAMES = {
 export const QUEUE_KEYS = [
   QUEUE_NAMES.INGESTION,
   QUEUE_NAMES.INGESTION_AGENT,
+  QUEUE_NAMES.SCHEDULED_AGENT,
   QUEUE_NAMES.PATCH,
   QUEUE_NAMES.EXTRACTION,
   QUEUE_NAMES.PUBLISH,
@@ -260,6 +274,7 @@ export type QueueKey = (typeof QUEUE_KEYS)[number];
 export const JOB_NAMES = {
   ROUTE_CLASSIFIER: "route-classifier",
   INGESTION_AGENT: "ingestion-agent",
+  SCHEDULED_AGENT: "scheduled-agent",
   PATCH_GENERATOR: "patch-generator",
   TRIPLE_EXTRACTOR: "triple-extractor",
   PUBLISH_RENDERER: "publish-renderer",

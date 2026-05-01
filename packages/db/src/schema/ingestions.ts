@@ -16,6 +16,7 @@ import { pages, folders } from "./pages.js";
 import { pageRevisions } from "./revisions.js";
 import { modelRuns } from "./audit.js";
 import { agentRuns } from "./agent-runs.js";
+import { scheduledRuns } from "./scheduled.js";
 
 export const apiTokens = pgTable("api_tokens", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -106,6 +107,10 @@ export const ingestionDecisions = pgTable(
     agentRunId: uuid("agent_run_id").references(() => agentRuns.id, {
       onDelete: "set null",
     }),
+    scheduledRunId: uuid("scheduled_run_id").references(
+      () => scheduledRuns.id,
+      { onDelete: "set null" },
+    ),
     action: text("action").notNull(),
     status: text("status").notNull().default("suggested"),
     proposedPageTitle: text("proposed_page_title"),
@@ -120,6 +125,7 @@ export const ingestionDecisions = pgTable(
     index("ingestion_decisions_status_idx").on(t.status, t.createdAt),
     index("ingestion_decisions_target_page_idx").on(t.targetPageId),
     index("ingestion_decisions_agent_run_idx").on(t.agentRunId),
+    index("ingestion_decisions_scheduled_run_idx").on(t.scheduledRunId),
   ],
 );
 
@@ -176,6 +182,10 @@ export const ingestionDecisionsRelations = relations(
     agentRun: one(agentRuns, {
       fields: [ingestionDecisions.agentRunId],
       references: [agentRuns.id],
+    }),
+    scheduledRun: one(scheduledRuns, {
+      fields: [ingestionDecisions.scheduledRunId],
+      references: [scheduledRuns.id],
     }),
   }),
 );

@@ -66,6 +66,10 @@ export const updateWorkspaceSchema = createWorkspaceSchema
       .max(1)
       .nullable()
       .optional(),
+    scheduledEnabled: z.boolean().optional(),
+    scheduledAutoApply: z.boolean().optional(),
+    scheduledDailyTokenCap: z.number().int().min(1).nullable().optional(),
+    scheduledPerRunPageLimit: z.number().int().min(1).max(500).optional(),
   })
   .partial();
 

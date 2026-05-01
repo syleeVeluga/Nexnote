@@ -268,7 +268,7 @@ export type AgentRunTraceStep = z.infer<typeof agentRunTraceStepSchema>;
 
 export const agentRunDtoSchema = z.object({
   id: uuidSchema,
-  ingestionId: uuidSchema,
+  ingestionId: uuidSchema.nullable(),
   workspaceId: uuidSchema,
   status: z.enum(AGENT_RUN_STATUSES),
   plan: z.unknown().nullable(),
