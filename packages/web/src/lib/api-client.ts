@@ -855,6 +855,8 @@ interface DecisionBase {
   targetPageId: string | null;
   proposedRevisionId: string | null;
   modelRunId: string;
+  scheduledRunId: string | null;
+  origin: "ingestion" | "scheduled";
   action: IngestionAction;
   status: DecisionStatus;
   proposedPageTitle: string | null;
@@ -1122,6 +1124,7 @@ export const decisions = {
     workspaceId: string,
     params?: {
       status?: DecisionStatus | DecisionStatus[];
+      origin?: "ingestion" | "scheduled";
       sinceDays?: number;
       limit?: number;
       offset?: number;
@@ -1132,6 +1135,7 @@ export const decisions = {
       : params?.status;
     const q = buildQuery({
       status: statusParam,
+      origin: params?.origin,
       sinceDays: params?.sinceDays,
       limit: params?.limit,
       offset: params?.offset,

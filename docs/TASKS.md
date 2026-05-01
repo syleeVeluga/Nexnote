@@ -136,13 +136,13 @@ Scheduled Agent runs the existing ingestion-agent loop against selected wiki pag
 - UI: `/settings/ai` Scheduled Agent controls, `/settings/scheduled-agent` task/run page, manual run modal, task modal, trace drawer, sidebar/breadcrumb navigation, folder-level reorganize trigger.
 - Policy: scheduled mutations are forced to `suggested` unless `scheduled_auto_apply=true`.
 
-### SCHED-2 · [HIGH] Review Queue origin surfacing
+### SCHED-2 · [DONE · 2026-05-01] Review Queue origin surfacing
 
-`ingestion_decisions.scheduled_run_id` exists, but `/decisions` DTOs and `/review` do not expose scheduled origin as a first-class filter/badge. Add `origin: "ingestion" | "scheduled"` and `scheduledRunId` to list/detail responses, add optional `origin` query filtering, then render Scheduled Agent badges/filter chips in ReviewQueuePage.
+`/decisions` list/detail DTOs now expose `origin: "ingestion" | "scheduled"` and `scheduledRunId`; `GET /workspaces/:id/decisions` accepts an optional `origin` filter; `/review` has origin filter chips, Scheduled Agent badges, and a direct scheduled-run link from the detail pane.
 
-### SCHED-3 · [MED] Resolve task-trigger route mismatch
+### SCHED-3 · [DONE · 2026-05-01] Resolve task-trigger route mismatch
 
-`api-client.ts` exposes `scheduledAgent.triggerTask()` for `POST /scheduled-tasks/:taskId/trigger`, but `scheduled-tasks.ts` does not implement that backend route. Either implement the route and use it from the UI, or remove the dead client method. Current UI works by reusing `triggerReorganize()` with the task payload.
+`POST /workspaces/:id/scheduled-tasks/:taskId/trigger` is implemented and queues a manual scheduled-agent run from the persisted task payload. `/settings/scheduled-agent` now uses `scheduledAgent.triggerTask()` for "run now".
 
 ### SCHED-4 · [MED] Validate manual reorganize targets synchronously
 

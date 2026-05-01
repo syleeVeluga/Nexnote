@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
+  CalendarClock,
   Check,
   ExternalLink,
   FileText,
@@ -140,6 +141,14 @@ export function ReviewDetail({
             <span>
               {t("source")}: {decision.ingestion.sourceName}
             </span>
+            {decision.origin === "scheduled" && (
+              <span className="review-origin-chip">
+                <CalendarClock size={11} aria-hidden="true" />
+                {t("origin.scheduled", {
+                  defaultValue: "Scheduled Agent",
+                })}
+              </span>
+            )}
           </div>
         </div>
         <div className="review-detail-links">
@@ -159,6 +168,17 @@ export function ReviewDetail({
             <ExternalLink size={12} aria-hidden="true" />
             {t("detail.viewFullDetail")}
           </Link>
+          {decision.scheduledRunId && (
+            <Link
+              to={`/settings/scheduled-agent?run=${decision.scheduledRunId}`}
+              className="review-detail-link"
+            >
+              <CalendarClock size={12} aria-hidden="true" />
+              {t("detail.viewScheduledRun", {
+                defaultValue: "View scheduled run",
+              })}
+            </Link>
+          )}
         </div>
       </div>
 

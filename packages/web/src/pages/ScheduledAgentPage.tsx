@@ -134,11 +134,7 @@ export function ScheduledAgentPage() {
     setBusyTaskId(task.id);
     setError(null);
     try {
-      const result = await scheduledAgent.triggerReorganize(workspaceId, {
-        pageIds: task.targetPageIds,
-        includeDescendants: task.includeDescendants,
-        instruction: task.instruction,
-      });
+      const result = await scheduledAgent.triggerTask(workspaceId, task.id);
       await loadRuns();
       setNotice(t("notices.runQueued"));
       openRun(result.scheduledRunId);

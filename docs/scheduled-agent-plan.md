@@ -97,10 +97,12 @@ Implemented route surfaces:
 - `GET /workspaces/:id/scheduled-tasks`
 - `POST /workspaces/:id/scheduled-tasks`
 - `GET /workspaces/:id/scheduled-tasks/:taskId`
+- `POST /workspaces/:id/scheduled-tasks/:taskId/trigger`
+  - queues a manual run from the persisted task payload
 - `PATCH /workspaces/:id/scheduled-tasks/:taskId`
 - `DELETE /workspaces/:id/scheduled-tasks/:taskId`
 
-Important implementation note: the current frontend "run now" path for a task reuses `POST /workspaces/:id/reorganize-runs` with the task target pages. `api-client.ts` still exposes `triggerTask()` for `POST /scheduled-tasks/:taskId/trigger`, but the backend route is not currently implemented. Either add the route or remove the dead client method.
+Important implementation note: the frontend task "run now" path uses `POST /workspaces/:id/scheduled-tasks/:taskId/trigger`. Ad-hoc manual runs still use `POST /workspaces/:id/reorganize-runs`.
 
 Cron validation is server-side and intentionally conservative: `validateScheduledCronExpression()` rejects expressions that run more than once per hour.
 
@@ -173,36 +175,24 @@ This is implemented in `packages/worker/src/lib/agent/tools/mutate.ts`.
 
 ## Known Gaps
 
-These are the remaining Scheduled Agent-specific tasks from the current code review.
+These are the Scheduled Agent-specific tasks from the current code review. Completed items are retained here for traceability.
 
 ### 1. Review Queue origin surfacing
 
-Current gap:
+Status: done 2026-05-01.
 
-- `ingestion_decisions.scheduled_run_id` exists.
-- `/review` still mostly shows scheduled output as a normal ingestion from `sourceName="scheduled-agent"`.
-- `/decisions` list/detail DTOs do not expose a first-class `origin` or `scheduledRunId`.
-- ReviewQueue has no ingestion/scheduled filter chip and no Scheduled Agent badge.
-
-Recommended fix:
-
-- Add `scheduledRunId` and `origin: "ingestion" | "scheduled"` to decision list/detail DTOs.
-- Add optional `origin` filter to `GET /workspaces/:id/decisions`.
-- Add origin badge/filter in `ReviewQueuePage`.
-- Keep `sourceName` visible, but do not rely on it as the only origin signal.
+- `GET /workspaces/:id/decisions` list/detail DTOs expose `scheduledRunId` and `origin: "ingestion" | "scheduled"`.
+- Decision list accepts optional `origin=ingestion|scheduled` filtering.
+- `/review` renders origin filter chips, Scheduled Agent badges, and a scheduled-run deep link from the detail pane.
+- `sourceName` remains visible as payload provenance, but is no longer the only scheduled-origin signal.
 
 ### 2. Backend/client route mismatch for task trigger
 
-Current gap:
+Status: done 2026-05-01.
 
-- `scheduledAgent.triggerTask()` exists in `api-client.ts`.
-- `POST /workspaces/:id/scheduled-tasks/:taskId/trigger` is not implemented in `scheduled-tasks.ts`.
-- Current UI avoids the mismatch by calling `triggerReorganize()` with task fields.
-
-Acceptable resolutions:
-
-- Implement `POST /scheduled-tasks/:taskId/trigger` and use it from the UI, or
-- remove `triggerTask()` from `api-client.ts` until the backend route is needed.
+- `POST /workspaces/:id/scheduled-tasks/:taskId/trigger` is implemented.
+- The route queues a manual scheduled-agent run using the persisted task scope, instruction, include-descendants flag, and task id.
+- `/settings/scheduled-agent` uses `scheduledAgent.triggerTask()` for task "run now".
 
 ### 3. Manual reorganize page validation
 

@@ -21,6 +21,8 @@ export const dashboardDecisionListItemSchema = z.object({
   targetPageId: uuidSchema.nullable(),
   proposedRevisionId: uuidSchema.nullable(),
   modelRunId: uuidSchema,
+  scheduledRunId: uuidSchema.nullable(),
+  origin: z.enum(["ingestion", "scheduled"]),
   action: z.enum(INGESTION_ACTIONS),
   status: z.enum(DECISION_STATUSES),
   proposedPageTitle: z.string().nullable(),

@@ -8,6 +8,10 @@ export interface DecisionListRow extends IngestionDecision {
   targetPageSlug: string | null;
 }
 
+function decisionOrigin(row: Pick<IngestionDecision, "scheduledRunId">) {
+  return row.scheduledRunId ? "scheduled" : "ingestion";
+}
+
 export function mapDecisionListItem(row: DecisionListRow) {
   const rationale = row.rationaleJson as {
     reason?: string;
@@ -23,6 +27,8 @@ export function mapDecisionListItem(row: DecisionListRow) {
     targetPageId: row.targetPageId,
     proposedRevisionId: row.proposedRevisionId,
     modelRunId: row.modelRunId,
+    scheduledRunId: row.scheduledRunId,
+    origin: decisionOrigin(row),
     action: row.action,
     status: row.status,
     proposedPageTitle: row.proposedPageTitle,
