@@ -1,0 +1,119 @@
+{
+  "title": "Scheduled Agent",
+  "eyebrow": "워크스페이스 자동화",
+  "description": "위키 정리 작업을 수동 또는 cron 일정으로 실행합니다. 자동 반영을 켜지 않으면 결정은 검토 큐로 이동합니다.",
+  "restrictedDescription": "워크스페이스 소유자와 관리자만 Scheduled Agent를 관리할 수 있습니다.",
+  "restrictedRole": "워크스페이스 권한이 부족합니다.",
+  "actions": {
+    "refresh": "새로고침",
+    "newTask": "새 스케줄",
+    "manualRun": "지금 한 번 실행",
+    "edit": "편집",
+    "runNow": "지금 실행",
+    "delete": "삭제",
+    "viewTrace": "트레이스 보기"
+  },
+  "values": {
+    "on": "켜짐",
+    "off": "꺼짐"
+  },
+  "disabled": {
+    "title": "Scheduled Agent가 꺼져 있습니다",
+    "description": "cron 스케줄이나 수동 정리 실행을 만들기 전에 AI 설정에서 활성화하세요.",
+    "settingsLink": "AI 설정 열기"
+  },
+  "tasks": {
+    "title": "Cron Tasks",
+    "description": "선택한 페이지와 하위 페이지를 대상으로 실행되는 워크스페이스 스케줄입니다.",
+    "enabled": "활성",
+    "name": "이름",
+    "cron": "Cron",
+    "targets": "대상",
+    "nextRun": "다음 실행",
+    "actions": "작업",
+    "empty": "등록된 스케줄이 없습니다."
+  },
+  "runs": {
+    "title": "즉시 실행 및 최근 기록",
+    "description": "수동 또는 cron으로 트리거된 Scheduled Agent 실행입니다.",
+    "triggeredBy": "트리거",
+    "task": "작업",
+    "status": "상태",
+    "decisions": "결정",
+    "tokens": "토큰",
+    "cost": "비용",
+    "started": "시작",
+    "duration": "소요",
+    "trace": "트레이스",
+    "empty": "아직 실행 기록이 없습니다."
+  },
+  "triggeredBy": {
+    "manual": "수동",
+    "cron": "Cron"
+  },
+  "manualRun": {
+    "title": "Scheduled Agent 한 번 실행",
+    "description": "대상 페이지를 선택해 정리 실행을 큐에 넣습니다."
+  },
+  "folderRun": {
+    "title": "{{folderName}} 정리",
+    "description": "현재 폴더의 직속 페이지와 하위 폴더 페이지를 Scheduled Agent 입력으로 사용합니다.",
+    "submit": "폴더 실행 큐잉",
+    "tooManyPages": "{{count}}개 페이지가 발견되어 실행당 한도 {{max}}개를 넘었습니다. 더 작은 하위 폴더에서 다시 시도하세요."
+  },
+  "forms": {
+    "targetPages": "대상 페이지",
+    "includeDescendants": "하위 페이지 포함",
+    "instruction": "지시사항",
+    "instructionPlaceholder": "중복 섹션 정리, 표제 통일, 리뷰하기 쉬운 작은 변경 유지 등",
+    "seededTargetCount": "시드 대상 {{count}}개 페이지",
+    "runNow": "실행 큐잉",
+    "queueing": "큐잉 중..."
+  },
+  "pagePicker": {
+    "searchPlaceholder": "페이지 검색",
+    "empty": "페이지가 없습니다.",
+    "selected": "선택됨",
+    "removePage": "{{title}} 제거",
+    "selectionCount": "{{count}} / {{max}} 선택됨",
+    "largeSelectionWarning": "{{count}}개 페이지가 선택되었습니다. 검토 큐를 명확히 하려면 범위를 좁히는 것이 좋습니다."
+  },
+  "taskForm": {
+    "createTitle": "새 스케줄",
+    "editTitle": "스케줄 편집",
+    "description": "여기서는 cron 문법을 1차로만 확인하고, 등록 전 서버가 다시 검증합니다.",
+    "name": "이름",
+    "cronExpression": "Cron 표현식",
+    "enabled": "활성",
+    "save": "저장",
+    "saving": "저장 중...",
+    "errors": {
+      "nameRequired": "이름을 입력하세요.",
+      "invalidCron": "5개 또는 6개 필드의 cron 표현식을 입력하세요.",
+      "save": "스케줄을 저장하지 못했습니다."
+    }
+  },
+  "deleteTask": {
+    "title": "스케줄 삭제",
+    "message": "'{{name}}' 스케줄을 삭제할까요? 반복 큐 등록도 제거됩니다."
+  },
+  "trace": {
+    "title": "Scheduled Run 트레이스",
+    "close": "트레이스 닫기",
+    "missingRun": "최근 실행 기록에서 해당 실행을 찾을 수 없습니다.",
+    "waitingForAgentRun": "워커가 아직 agent trace를 연결하지 않았습니다.",
+    "loadFailed": "agent trace를 불러오지 못했습니다."
+  },
+  "notices": {
+    "runQueued": "Scheduled Agent 실행을 큐에 넣었습니다."
+  },
+  "errors": {
+    "loadTasks": "스케줄 목록을 불러오지 못했습니다.",
+    "loadRuns": "실행 기록을 불러오지 못했습니다.",
+    "updateTask": "스케줄을 수정하지 못했습니다.",
+    "deleteTask": "스케줄을 삭제하지 못했습니다.",
+    "queueRunFailed": "실행을 큐에 넣지 못했습니다.",
+    "noTargetPages": "대상 페이지를 하나 이상 선택하세요.",
+    "tooManyPages": "{{count}}개 페이지가 실행당 한도 {{max}}개를 초과합니다."
+  }
+}

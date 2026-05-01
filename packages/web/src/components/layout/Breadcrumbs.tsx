@@ -146,6 +146,17 @@ export function useWorkspaceBreadcrumbs(
       ];
     }
 
+    if (path.startsWith("/settings/scheduled-agent")) {
+      return [
+        ...root,
+        {
+          label: t("scheduledAgent", {
+            defaultValue: "Scheduled Agent",
+          }),
+        },
+      ];
+    }
+
     if (path.startsWith("/system/tokens")) {
       return [
         ...root,

@@ -16,6 +16,7 @@ import { QueueHealthPage } from "./pages/QueueHealthPage.js";
 import { SystemStatusPage } from "./pages/SystemStatusPage.js";
 import { ApiTokensPage } from "./pages/ApiTokensPage.js";
 import { AISettingsPage } from "./pages/AISettingsPage.js";
+import { ScheduledAgentPage } from "./pages/ScheduledAgentPage.js";
 import { TrashPage } from "./pages/TrashPage.js";
 import { PublicDocPage } from "./pages/PublicDocPage.js";
 import { PublicDocListPage } from "./pages/PublicDocListPage.js";
@@ -94,6 +95,10 @@ export function App() {
         />
         <Route path="import" element={<ImportPage />} />
         <Route path="settings/ai" element={<AISettingsPage />} />
+        <Route
+          path="settings/scheduled-agent"
+          element={<ScheduledAgentPage />}
+        />
         <Route path="system" element={<SystemStatusPage />} />
         <Route
           path="system/ai"

@@ -13,6 +13,7 @@ import enImport from "./locales/en/import.json";
 import enActivity from "./locales/en/activity.json";
 import enDashboard from "./locales/en/dashboard.json";
 import enAiSettings from "./locales/en/ai-settings.json";
+import enScheduledAgent from "./locales/en/scheduled-agent.json";
 import koCommon from "./locales/ko/common.json";
 import koAuth from "./locales/ko/auth.json";
 import koEditor from "./locales/ko/editor.json";
@@ -24,6 +25,7 @@ import koImport from "./locales/ko/import.json";
 import koActivity from "./locales/ko/activity.json";
 import koDashboard from "./locales/ko/dashboard.json";
 import koAiSettings from "./locales/ko/ai-settings.json";
+import koScheduledAgent from "./locales/ko/scheduled-agent.json";
 
 i18n
   .use(LanguageDetector)
@@ -42,6 +44,7 @@ i18n
         activity: enActivity,
         dashboard: enDashboard,
         aiSettings: enAiSettings,
+        scheduledAgent: enScheduledAgent,
       },
       ko: {
         common: koCommon,
@@ -55,6 +58,7 @@ i18n
         activity: koActivity,
         dashboard: koDashboard,
         aiSettings: koAiSettings,
+        scheduledAgent: koScheduledAgent,
       },
     },
     fallbackLng: "ko",

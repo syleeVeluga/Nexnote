@@ -13,6 +13,7 @@ import {
   Activity,
   BookOpen,
   Bot,
+  CalendarClock,
   ChevronDown,
   ChevronRight,
   ChevronsLeft,
@@ -1056,6 +1057,13 @@ export function Sidebar({
               to="/settings/ai"
               icon={<Bot size={15} />}
               label={t("aiSettings", { defaultValue: "AI Settings" })}
+            />
+            <SidebarNavLink
+              to="/settings/scheduled-agent"
+              icon={<CalendarClock size={15} />}
+              label={t("scheduledAgent", {
+                defaultValue: "Scheduled Agent",
+              })}
             />
             <SidebarNavLink
               to="/system/tokens"

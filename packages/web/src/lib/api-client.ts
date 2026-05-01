@@ -29,6 +29,9 @@ import {
   type AgentModelPreset,
   type DecisionStatus,
   type ApiTokenScope,
+  type ScheduledRunStatus,
+  type ScheduledRunTriggeredBy,
+  type ScheduledTaskDto,
 } from "@wekiflow/shared";
 
 export type { ReorderIntent } from "@wekiflow/shared";
@@ -396,6 +399,115 @@ export type {
   DecisionStatus,
 } from "@wekiflow/shared";
 export type { AgentRunDto, AgentRunTraceEvent, AgentRunTraceStep };
+
+// ---------------------------------------------------------------------------
+// Scheduled Agent
+// ---------------------------------------------------------------------------
+
+export interface ScheduledRun {
+  id: string;
+  taskId: string | null;
+  workspaceId: string;
+  agentRunId: string | null;
+  triggeredBy: ScheduledRunTriggeredBy;
+  status: ScheduledRunStatus;
+  decisionCount: number;
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: string;
+  diagnostics: unknown | null;
+  startedAt: string;
+  completedAt: string | null;
+}
+
+export type ScheduledTask = ScheduledTaskDto;
+
+export interface ScheduledTaskBody {
+  name: string;
+  cronExpression: string;
+  targetPageIds: string[];
+  includeDescendants?: boolean;
+  instruction?: string | null;
+  enabled?: boolean;
+}
+
+export type UpdateScheduledTaskBody = Partial<ScheduledTaskBody>;
+
+export const scheduledAgent = {
+  triggerReorganize(
+    workspaceId: string,
+    body: {
+      pageIds: string[];
+      includeDescendants?: boolean;
+      instruction?: string | null;
+    },
+  ) {
+    return request<{
+      status: "queued";
+      scheduledRunId: string;
+      jobId: string | null;
+    }>(`/workspaces/${workspaceId}/reorganize-runs`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+  listRuns(workspaceId: string, params?: { limit?: number }) {
+    const q = buildQuery({ limit: params?.limit });
+    return request<{ data: ScheduledRun[] }>(
+      `/workspaces/${workspaceId}/scheduled-runs${q}`,
+    );
+  },
+  listTasks(
+    workspaceId: string,
+    params?: { limit?: number; offset?: number },
+  ) {
+    const q = buildQuery({ limit: params?.limit, offset: params?.offset });
+    return request<{
+      data: ScheduledTask[];
+      total: number;
+      limit: number;
+      offset: number;
+    }>(`/workspaces/${workspaceId}/scheduled-tasks${q}`);
+  },
+  createTask(workspaceId: string, body: ScheduledTaskBody) {
+    return request<{ data: ScheduledTask }>(
+      `/workspaces/${workspaceId}/scheduled-tasks`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+  },
+  updateTask(
+    workspaceId: string,
+    taskId: string,
+    partial: UpdateScheduledTaskBody,
+  ) {
+    return request<{ data: ScheduledTask }>(
+      `/workspaces/${workspaceId}/scheduled-tasks/${taskId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(partial),
+      },
+    );
+  },
+  deleteTask(workspaceId: string, taskId: string) {
+    return request<void>(
+      `/workspaces/${workspaceId}/scheduled-tasks/${taskId}`,
+      { method: "DELETE" },
+    );
+  },
+  triggerTask(workspaceId: string, taskId: string) {
+    return request<{
+      status: "queued";
+      scheduledRunId: string;
+      jobId: string | null;
+    }>(`/workspaces/${workspaceId}/scheduled-tasks/${taskId}/trigger`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  },
+};
 
 export const pages = {
   list(
