@@ -1,9 +1,9 @@
 # WekiFlow — Task Backlog
 
-> **Snapshot:** 2026-04-30
+> **Snapshot:** 2026-05-01
 > **North-star goal:** External signals flow in continuously; the wiki stays automatically up-to-date under human supervision. AI classifies/merges/deduplicates; humans review/correct/approve.
 >
-> **Status of the core loop** — see [CLAUDE.md](../CLAUDE.md#current-implementation-status-snapshot-2026-04-24-docs-reviewed). The ingest/classify/apply path works, AGENT-1~7 + AGENT-4.5 and AGENT-8 start (tool-calling ingestion agent backend, parity gate, mutate tier 1·2·3, settings UI, fan-out review surfaces, pre-promotion hardening) have landed, and remaining trust gaps are conflict breadth (concurrent ingestions / triple contradictions), API-token management, sidebar/digest surfacing, parity observation, and eventual classic retirement.
+> **Status of the core loop** — see [CLAUDE.md](../CLAUDE.md#current-implementation-status-snapshot-2026-05-01-docs-reviewed). The ingest/classify/apply path works, AGENT-1~7 + AGENT-4.5 and AGENT-8 start (tool-calling ingestion agent backend, parity gate, mutate tier 1·2·3, settings UI, fan-out review surfaces, pre-promotion hardening) have landed, and Scheduled Agent now has backend worker/API, settings UI, cron task UI, manual/folder triggers, and live trace viewing. Remaining trust gaps are conflict breadth (concurrent ingestions / triple contradictions), Scheduled Agent review-origin surfacing, API-token management, sidebar/digest surfacing, parity observation, and eventual classic retirement.
 
 Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH] / [MED] / [LOW]** marks urgency toward the goal.
 
@@ -24,6 +24,8 @@ Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH]
 > **Doc reorg + Ingestion Agent RFC (2026-04-29):** all product/design/RFC docs moved from repo root into [`docs/`](.); orchestrator guides (`AGENTS.md`, `CLAUDE.md`) stay at root and got a Documentation map. The single-shot Classify stage is slated to be replaced by a tool-calling ingestion agent — see new epic **AGENT-1..AGENT-8** below. RFC: [`docs/ingestion-agent-plan.md`](ingestion-agent-plan.md).
 >
 > **Ingestion agent through AGENT-8 start landed (2026-04-29 → 2026-04-30):** AGENT-1 (gateway tool-calling normalization), AGENT-2 (`agent_runs` schema + `workspaces.ingestion_mode`), AGENT-3 (read-only dispatcher), AGENT-4 (shadow loop + budgeter), **AGENT-4.5** (parity SQL view + diagnostics API + AISettingsPage dashboard, daily token cap enforcement, dedupe system-message hint, Redis pub/sub SSE live trace, `workspaces.agent_instructions` + system prompt prepend), **AGENT-5** (mutate tier 1·2·3 direct revisions + update_page/append_to_page fallback + create_page/noop/request_human_review, oldest-first 80% context compaction with cache invalidation, mutate self-correction repair turn), **AGENT-6** (`/settings/ai` mode toggle + workspace-scoped model picker + token cap + parity dashboard with server-side promotion gate), **AGENT-7** (IngestionDetailPage fan-out decisions, AgentTracePanel post-hoc/live trace, ReviewQueuePage sibling badge, Activity feed `agent_run_completed` row), and **AGENT-8 start** (`read_page` large-markdown auto blocks fallback, agent-mode execute smoke coverage, model diagnostic strip, BullMQ-safe agent job IDs). Production 'agent' promotion is now mainly gated by parity observation / staged rollout; global classic retirement still requires 2 weeks of clean `agent` operation.
+>
+> **Scheduled Agent UI/backend landed (observed 2026-05-01):** migration `0019_scheduled_agent`, scheduled task/run schema, scheduled-agent queue/worker, manual `POST /workspaces/:id/reorganize-runs`, cron task CRUD under `/workspaces/:id/scheduled-tasks`, BullMQ scheduler registration/removal, `/settings/ai` Scheduled Agent controls, `/settings/scheduled-agent` task/run UI, folder-level reorganize trigger, and trace drawer reuse of `AgentTracePanel` are in the codebase. The old plan was rewritten as current status + remaining work in [`docs/scheduled-agent-plan.md`](scheduled-agent-plan.md).
 
 ---
 
@@ -119,6 +121,40 @@ _Phase D · Size S · Blocked by: 2 weeks of clean `agent`-mode operation · No 
 Promote one workspace at a time after parity ≥ target. Retire `route-classifier.ts` after 2 weeks of clean `agent`-mode operation. Existing classic decision rows preserved via NULL `agent_run_id` FK.
 
 - Started: removed the remaining pre-promotion hard blockers discovered before cutover: large `read_page(format="markdown")` calls now auto-return compact blocks, agent-mode enqueue uses BullMQ-safe job IDs, `/settings/ai` shows the effective provider/base/fast/large model strip, and smoke coverage now exercises agent-mode direct create plus human-conflict downgrade. Classic retirement itself is intentionally deferred until clean production observation.
+
+---
+
+## Stage ②/③ scheduled maintenance — Scheduled Agent
+
+Scheduled Agent runs the existing ingestion-agent loop against selected wiki pages without an external payload. It is documented in [`docs/scheduled-agent-plan.md`](scheduled-agent-plan.md), which now reflects the current code rather than the older backend-first plan.
+
+### SCHED-1 · [DONE · 2026-05-01] Scheduled Agent v1 product surface
+
+- DB: `0019_scheduled_agent.sql` adds workspace policy columns, `scheduled_tasks`, `scheduled_runs`, and `ingestion_decisions.scheduled_run_id`.
+- API: manual run endpoint, scheduled run listing, scheduled task CRUD, cron validation, BullMQ job scheduler registration/removal.
+- Worker: `scheduled-agent` creates internal ingestion/provenance, creates an `agent_runs` trace, calls `runIngestionAgentShadow()` in `mode="agent"` with `origin="scheduled"`, stamps scheduled decisions, records token totals and activity.
+- UI: `/settings/ai` Scheduled Agent controls, `/settings/scheduled-agent` task/run page, manual run modal, task modal, trace drawer, sidebar/breadcrumb navigation, folder-level reorganize trigger.
+- Policy: scheduled mutations are forced to `suggested` unless `scheduled_auto_apply=true`.
+
+### SCHED-2 · [HIGH] Review Queue origin surfacing
+
+`ingestion_decisions.scheduled_run_id` exists, but `/decisions` DTOs and `/review` do not expose scheduled origin as a first-class filter/badge. Add `origin: "ingestion" | "scheduled"` and `scheduledRunId` to list/detail responses, add optional `origin` query filtering, then render Scheduled Agent badges/filter chips in ReviewQueuePage.
+
+### SCHED-3 · [MED] Resolve task-trigger route mismatch
+
+`api-client.ts` exposes `scheduledAgent.triggerTask()` for `POST /scheduled-tasks/:taskId/trigger`, but `scheduled-tasks.ts` does not implement that backend route. Either implement the route and use it from the UI, or remove the dead client method. Current UI works by reusing `triggerReorganize()` with the task payload.
+
+### SCHED-4 · [MED] Validate manual reorganize targets synchronously
+
+`POST /reorganize-runs` validates UUID shape but not whether all page IDs exist in the workspace and are not deleted. Scheduled task create/update already does this. Move that validation into a shared helper and reuse it for manual runs so bad requests fail before queueing.
+
+### SCHED-5 · [LOW] Cost display consistency
+
+`scheduled_runs.cost_usd` and the UI cost column exist, but the worker only writes token totals. Either calculate/write cost summaries from provider/model pricing or hide the cost column until real cost data exists.
+
+### SCHED-6 · [MED] Scheduled Agent e2e coverage
+
+Add coverage for enabling settings, creating/disabling/deleting a task, manual run queueing + trace drawer, folder-trigger payloads, and scheduled decisions landing as `suggested` when `scheduled_auto_apply=false`.
 
 ---
 
