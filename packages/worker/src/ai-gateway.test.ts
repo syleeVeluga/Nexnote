@@ -332,6 +332,68 @@ describe("AI gateway tool-calling normalization", () => {
     assert.equal(geminiBody.toolConfig?.functionCallingConfig?.mode, "ANY");
   });
 
+  it("strips additionalProperties and rewrites nullable type unions for Gemini tools", async () => {
+    clearAIEnv();
+    process.env["GEMINI_API_KEY"] = "gem-test-key";
+
+    let capturedBody: Record<string, unknown> | null = null;
+    globalThis.fetch = (async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}")) as Record<
+        string,
+        unknown
+      >;
+      void input;
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            { finishReason: "STOP", content: { parts: [{ text: "ok" }] } },
+          ],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof globalThis.fetch;
+
+    await getAIAdapter("gemini").chat({
+      provider: "gemini",
+      model: "gemini-3.1-pro",
+      mode: "agent_plan",
+      promptVersion: "test-gemini-schema-sanitize",
+      messages: [{ role: "user", content: "go" }],
+      tools: [
+        {
+          name: "list_folder",
+          parameters: {
+            type: "object",
+            properties: {
+              folderId: { type: ["string", "null"], format: "uuid" },
+            },
+            additionalProperties: false,
+          },
+        },
+      ],
+    });
+
+    const body = capturedBody as {
+      tools?: Array<{
+        functionDeclarations?: Array<{ parameters?: Record<string, unknown> }>;
+      }>;
+    } | null;
+    const params = body?.tools?.[0]?.functionDeclarations?.[0]?.parameters as
+      | {
+          additionalProperties?: unknown;
+          properties?: { folderId?: { type?: unknown; nullable?: unknown } };
+        }
+      | undefined;
+    assert.ok(params, "expected sanitized parameters");
+    assert.equal(params.additionalProperties, undefined);
+    assert.equal(params.properties?.folderId?.type, "string");
+    assert.equal(params.properties?.folderId?.nullable, true);
+  });
+
   it("translates prior tool calls and tool results into provider-native messages", async () => {
     clearAIEnv();
     process.env["OPENAI_API_KEY"] = "sk-test-key";

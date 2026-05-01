@@ -247,11 +247,35 @@ function toOpenAIMessage(message: AIMessage): OpenAIWireMessage {
   };
 }
 
+function sanitizeSchemaForGemini(schema: unknown): unknown {
+  if (Array.isArray(schema)) {
+    return schema.map(sanitizeSchemaForGemini);
+  }
+  if (!schema || typeof schema !== "object") {
+    return schema;
+  }
+
+  const result: JsonRecord = {};
+  for (const [key, value] of Object.entries(schema as JsonRecord)) {
+    if (key === "additionalProperties") continue;
+    if (key === "type" && Array.isArray(value)) {
+      const types = value.filter((t): t is string => typeof t === "string");
+      const nonNull = types.filter((t) => t !== "null");
+      const nullable = types.includes("null");
+      result["type"] = nonNull[0] ?? "string";
+      if (nullable) result["nullable"] = true;
+      continue;
+    }
+    result[key] = sanitizeSchemaForGemini(value);
+  }
+  return result;
+}
+
 function toGeminiTool(tool: AIToolDefinition): JsonRecord {
   return {
     name: tool.name,
     ...(tool.description ? { description: tool.description } : {}),
-    parameters: tool.parameters,
+    parameters: sanitizeSchemaForGemini(tool.parameters) as JsonRecord,
   };
 }
 
