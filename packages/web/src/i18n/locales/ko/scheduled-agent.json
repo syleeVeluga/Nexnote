@@ -65,7 +65,7 @@
     "targetPages": "대상 페이지",
     "includeDescendants": "하위 페이지 포함",
     "instruction": "지시사항",
-    "instructionPlaceholder": "중복 섹션 정리, 표제 통일, 리뷰하기 쉬운 작은 변경 유지 등",
+    "instructionPlaceholder": "• 중복·유사 페이지는 대표 페이지로 통합하고 잔여 페이지 정리\n• 섹션 중복 제거, 헤딩 위계·용어·표 형식 일관되게 통일\n• 자주 다뤄지지만 흩어진 주제는 새 페이지로 분리하고 누락 정보 보강\n• 오래된 내용·끊긴 링크는 갱신하거나 사람 검토로 회부\n• 한 번에 크게 바꾸지 말고 리뷰하기 쉬운 작은 변경으로 진행",
     "seededTargetCount": "시드 대상 {{count}}개 페이지",
     "runNow": "실행 큐잉",
     "queueing": "큐잉 중..."
