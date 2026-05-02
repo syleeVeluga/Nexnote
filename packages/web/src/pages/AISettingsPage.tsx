@@ -354,7 +354,7 @@ export function AISettingsPage() {
         agentParityMinActionAgreementRate: parityMinActionAgreementRate,
         agentParityMinTargetPageAgreementRate: parityMinTargetPageAgreementRate,
         scheduledEnabled,
-        scheduledAutoApply: scheduledEnabled ? scheduledAutoApply : false,
+        scheduledAutoApply: scheduledEnabled ? true : false,
         allowDestructiveScheduledAgent: scheduledEnabled
           ? allowDestructiveScheduledAgent
           : false,
@@ -547,20 +547,20 @@ export function AISettingsPage() {
           <label className="ai-settings-check-field">
             <input
               type="checkbox"
-              checked={scheduledAutoApply}
-              disabled={!scheduledEnabled}
-              onChange={(event) => setScheduledAutoApply(event.target.checked)}
+              checked={scheduledEnabled || scheduledAutoApply}
+              disabled
+              readOnly
             />
             <span>
               <strong>
                 {t("scheduledAgent.fields.autoApply", {
-                  defaultValue: "Auto-apply scheduled decisions",
+                  defaultValue: "Scheduled decisions apply automatically",
                 })}
               </strong>
               <small>
                 {t("scheduledAgent.help.autoApply", {
                   defaultValue:
-                    "Keep this off unless scheduled runs are trusted for this workspace.",
+                    "Scheduled Agent bypasses the approval queue; use scope and token caps as guardrails.",
                 })}
               </small>
             </span>
@@ -584,7 +584,7 @@ export function AISettingsPage() {
               <small>
                 {t("scheduledAgent.help.destructiveTools", {
                   defaultValue:
-                    "When enabled, Scheduled Agent can propose page deletes and merges for review.",
+                    "When enabled, Scheduled Agent can auto-apply page deletes and merges.",
                 })}
               </small>
             </span>

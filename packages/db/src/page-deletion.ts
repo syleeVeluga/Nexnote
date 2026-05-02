@@ -134,9 +134,7 @@ export async function collectDescendantPageIds(
   rootId: string,
   opts: { includeDeleted?: boolean } = {},
 ): Promise<string[]> {
-  const filter = opts.includeDeleted
-    ? sql``
-    : sql`AND p."deleted_at" IS NULL`;
+  const filter = opts.includeDeleted ? sql`` : sql`AND p."deleted_at" IS NULL`;
   const rows = await db.execute(sql`
     WITH RECURSIVE descendants AS (
       SELECT p."id", 0 AS depth
@@ -174,6 +172,19 @@ export interface SoftDeleteResult {
   rootTitle: string;
 }
 
+export interface PurgeDeletedInput {
+  workspaceId: string;
+  rootPageId: string;
+  userId?: string | null;
+  modelRunId?: string | null;
+  auditExtra?: Record<string, unknown>;
+}
+
+export interface PurgeDeletedResult {
+  purgedPageIds: string[];
+  rootTitle: string;
+}
+
 /** Throws `PageDeletionError(PUBLISHED_BLOCK)` if any subtree page is live — */
 /** the caller must unpublish first. Triples transition to 'page_deleted' so  */
 /** the graph drops them atomically with the page soft-delete.                */
@@ -197,9 +208,7 @@ export async function softDeleteSubtreeInTransaction(
   const [root] = await tx
     .select({ id: pages.id, title: pages.title, deletedAt: pages.deletedAt })
     .from(pages)
-    .where(
-      and(eq(pages.id, rootPageId), eq(pages.workspaceId, workspaceId)),
-    )
+    .where(and(eq(pages.id, rootPageId), eq(pages.workspaceId, workspaceId)))
     .limit(1);
 
   if (!root) throw new PageDeletionError(ERROR_CODES.PAGE_NOT_FOUND);
@@ -263,10 +272,7 @@ export async function softDeleteSubtreeInTransaction(
     .update(pagePaths)
     .set({ isCurrent: false })
     .where(
-      and(
-        inArray(pagePaths.pageId, subtreeIds),
-        eq(pagePaths.isCurrent, true),
-      ),
+      and(inArray(pagePaths.pageId, subtreeIds), eq(pagePaths.isCurrent, true)),
     );
 
   await tx.insert(auditLogs).values({
@@ -285,6 +291,84 @@ export async function softDeleteSubtreeInTransaction(
   });
 
   return { deletedPageIds: subtreeIds, rootTitle: root.title };
+}
+
+/**
+ * Permanently removes a page subtree without leaving rows in the trash. This is
+ * reserved for autonomous Scheduled Agent destructive actions where restore
+ * conflicts would be worse than immediate removal.
+ */
+export async function purgeDeletedSubtreeInTransaction(
+  tx: AnyDb,
+  input: PurgeDeletedInput,
+): Promise<PurgeDeletedResult> {
+  const { workspaceId, rootPageId } = input;
+  const userId = input.userId ?? null;
+  const modelRunId = input.modelRunId ?? null;
+
+  const [root] = await tx
+    .select({ id: pages.id, title: pages.title })
+    .from(pages)
+    .where(and(eq(pages.id, rootPageId), eq(pages.workspaceId, workspaceId)))
+    .limit(1);
+
+  if (!root) throw new PageDeletionError(ERROR_CODES.PAGE_NOT_FOUND);
+
+  const subtreeIds = await collectDescendantPageIds(
+    tx,
+    workspaceId,
+    rootPageId,
+    {
+      includeDeleted: true,
+    },
+  );
+  if (subtreeIds.length === 0) {
+    return { purgedPageIds: [], rootTitle: root.title };
+  }
+
+  const liveRows = await tx
+    .select({ pageId: publishedSnapshots.pageId, id: publishedSnapshots.id })
+    .from(publishedSnapshots)
+    .where(
+      and(
+        inArray(publishedSnapshots.pageId, subtreeIds),
+        eq(publishedSnapshots.isLive, true),
+      ),
+    );
+
+  if (liveRows.length > 0) {
+    throw new PageDeletionError(ERROR_CODES.PUBLISHED_BLOCK, {
+      liveSnapshots: liveRows,
+    });
+  }
+
+  await tx
+    .update(pages)
+    .set({ currentRevisionId: null, latestPublishedSnapshotId: null })
+    .where(inArray(pages.id, subtreeIds));
+
+  await tx
+    .delete(publishedSnapshots)
+    .where(inArray(publishedSnapshots.pageId, subtreeIds));
+
+  await tx.insert(auditLogs).values({
+    workspaceId,
+    userId,
+    modelRunId,
+    entityType: "page",
+    entityId: rootPageId,
+    action: "purge",
+    beforeJson: {
+      id: root.id,
+      title: root.title,
+      purgedIds: subtreeIds,
+      ...(input.auditExtra ?? {}),
+    },
+  });
+
+  await tx.delete(pages).where(inArray(pages.id, subtreeIds));
+
+  return { purgedPageIds: subtreeIds, rootTitle: root.title };
 }
 
 export interface RestoreInput {
@@ -389,10 +473,11 @@ export async function restoreSubtreeInTransaction(
     `);
 
   const latestPathRows =
-    (latestPaths as unknown as {
-      rows?: Array<{ pageId: string; path: string }>;
-    }).rows ??
-    (latestPaths as Array<{ pageId: string; path: string }>);
+    (
+      latestPaths as unknown as {
+        rows?: Array<{ pageId: string; path: string }>;
+      }
+    ).rows ?? (latestPaths as Array<{ pageId: string; path: string }>);
   const restoringPaths = Array.isArray(latestPathRows) ? latestPathRows : [];
 
   const activePathValues = restoringPaths.map((path) => path.path);

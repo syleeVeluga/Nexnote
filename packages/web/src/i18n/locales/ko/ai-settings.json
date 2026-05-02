@@ -89,15 +89,15 @@
     "description": "선택한 위키 영역을 요청 시점이나 일정에 따라 에이전트가 재구성하도록 합니다.",
     "fields": {
       "enabled": "Scheduled Agent 활성화",
-      "autoApply": "예약 실행 결정을 자동 적용",
+      "autoApply": "예약 실행 결정은 자동 반영됨",
       "destructiveTools": "삭제 및 병합 도구 허용",
       "dailyTokenCap": "Scheduled Agent 일일 토큰 한도",
       "perRunPageLimit": "실행당 페이지 수"
     },
     "help": {
       "enabled": "수동 실행과 cron 기반 예약 재구성 실행을 허용합니다.",
-      "autoApply": "이 워크스페이스에서 예약 실행을 신뢰할 수 있을 때만 켜세요.",
-      "destructiveTools": "켜면 Scheduled Agent가 검토용 페이지 삭제 및 병합 제안을 만들 수 있습니다.",
+      "autoApply": "Scheduled Agent는 승인 대기열을 건너뜁니다. 실행 범위와 토큰 한도를 안전장치로 사용하세요.",
+      "destructiveTools": "켜면 Scheduled Agent가 페이지 삭제 및 병합을 자동 반영할 수 있습니다.",
       "dailyTokenCap": "선택 입력값입니다. 10,000 이상의 값을 권장합니다.",
       "perRunPageLimit": "허용 범위: 1~500페이지."
     },
