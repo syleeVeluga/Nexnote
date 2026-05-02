@@ -2,6 +2,8 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { ERROR_CODES } from "@wekiflow/shared";
 import {
   auditLogs,
+  ingestionDecisions,
+  ingestions,
   pagePaths,
   pages,
   publishedSnapshots,
@@ -183,6 +185,8 @@ export interface PurgeDeletedInput {
 export interface PurgeDeletedResult {
   purgedPageIds: string[];
   rootTitle: string;
+  /** Archived original object keys associated with decisions for purged pages. */
+  storageKeys: string[];
 }
 
 /** Throws `PageDeletionError(PUBLISHED_BLOCK)` if any subtree page is live — */
@@ -323,8 +327,12 @@ export async function purgeDeletedSubtreeInTransaction(
     },
   );
   if (subtreeIds.length === 0) {
-    return { purgedPageIds: [], rootTitle: root.title };
+    return { purgedPageIds: [], rootTitle: root.title, storageKeys: [] };
   }
+
+  await tx.execute(
+    sql`SELECT 1 FROM "pages" WHERE "id" IN (${sqlUuidList(subtreeIds)}) FOR UPDATE`,
+  );
 
   const liveRows = await tx
     .select({ pageId: publishedSnapshots.pageId, id: publishedSnapshots.id })
@@ -341,6 +349,23 @@ export async function purgeDeletedSubtreeInTransaction(
       liveSnapshots: liveRows,
     });
   }
+
+  const blobRows = await tx
+    .selectDistinct({ storageKey: ingestions.storageKey })
+    .from(ingestions)
+    .innerJoin(
+      ingestionDecisions,
+      eq(ingestionDecisions.ingestionId, ingestions.id),
+    )
+    .where(
+      and(
+        inArray(ingestionDecisions.targetPageId, subtreeIds),
+        sql`${ingestions.storageKey} IS NOT NULL`,
+      ),
+    );
+  const storageKeys = (blobRows as Array<{ storageKey: string | null }>)
+    .map((r) => r.storageKey)
+    .filter((key): key is string => typeof key === "string" && key.length > 0);
 
   await tx
     .update(pages)
@@ -368,7 +393,23 @@ export async function purgeDeletedSubtreeInTransaction(
 
   await tx.delete(pages).where(inArray(pages.id, subtreeIds));
 
-  return { purgedPageIds: subtreeIds, rootTitle: root.title };
+  await cleanupOrphanEntities(tx, workspaceId);
+
+  return { purgedPageIds: subtreeIds, rootTitle: root.title, storageKeys };
+}
+
+/** After FK-cascade wipes triples, remove entities no longer used by active triples. */
+export async function cleanupOrphanEntities(db: AnyDb, workspaceId: string) {
+  await db.execute(sql`
+    DELETE FROM "entities" e
+    WHERE e."workspace_id" = ${workspaceId}
+      AND NOT EXISTS (
+        SELECT 1 FROM "triples" t
+        WHERE t."workspace_id" = ${workspaceId}
+          AND (t."subject_entity_id" = e."id" OR t."object_entity_id" = e."id")
+          AND t."status" = 'active'
+      )
+  `);
 }
 
 export interface RestoreInput {

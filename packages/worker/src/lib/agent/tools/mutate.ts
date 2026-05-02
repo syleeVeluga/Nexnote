@@ -40,6 +40,7 @@ import {
 import { applyBlockPatch } from "../patch/block-patch.js";
 import { applyReplaceInPagePatch } from "../patch/inline-patch.js";
 import { applySectionPatch } from "../patch/section-patch.js";
+import { deleteOriginals, storageEnabled } from "../../storage/s3.js";
 import {
   AgentToolError,
   type AgentDb,
@@ -99,6 +100,22 @@ function activitySource(input: CreateMutateToolsInput, source: string): string {
   return input.origin === "scheduled"
     ? source.replace("ingestion_agent", "scheduled_agent")
     : source;
+}
+
+async function deleteArchivedOriginals(
+  storageKeys: string[],
+  context: string,
+): Promise<void> {
+  const uniqueStorageKeys = [...new Set(storageKeys)];
+  if (!storageEnabled || uniqueStorageKeys.length === 0) return;
+  try {
+    await deleteOriginals(uniqueStorageKeys);
+  } catch (err) {
+    console.warn(
+      `[agent-mutate] Failed to delete ${uniqueStorageKeys.length} archived originals after ${context}`,
+      err,
+    );
+  }
 }
 
 function scheduledAutoApplyStatus(
@@ -867,6 +884,7 @@ async function deletePage(
 
   let appliedStatus = status;
   let deletedPageIds: string[] | undefined;
+  let purgeStorageKeys: string[] = [];
   if (status === "auto_applied") {
     try {
       const result = await ctx.db.transaction(async (tx) =>
@@ -883,6 +901,7 @@ async function deletePage(
         }),
       );
       deletedPageIds = result.purgedPageIds;
+      purgeStorageKeys = result.storageKeys;
       await ctx.db.insert(auditLogs).values({
         workspaceId: ctx.workspaceId,
         modelRunId: input.modelRunId,
@@ -899,6 +918,7 @@ async function deletePage(
           purgedPageIds: result.purgedPageIds,
         },
       });
+      await deleteArchivedOriginals(purgeStorageKeys, "delete_page");
     } catch (err) {
       if (!(err instanceof PageDeletionError)) throw err;
       appliedStatus = "failed";
@@ -1086,6 +1106,7 @@ async function mergePages(
           );
 
         const collected: string[] = [];
+        const storageKeys: string[] = [];
         for (const sourcePageId of args.sourcePageIds) {
           const result = await purgeDeletedSubtreeInTransaction(tx, {
             workspaceId: ctx.workspaceId,
@@ -1100,6 +1121,7 @@ async function mergePages(
             },
           });
           collected.push(...result.purgedPageIds);
+          storageKeys.push(...result.storageKeys);
         }
 
         const now = new Date();
@@ -1148,11 +1170,12 @@ async function mergePages(
           }),
         ]);
 
-        return { deletedPageIds: collected };
+        return { deletedPageIds: collected, storageKeys };
       });
       deletedPageIds = applyResult.deletedPageIds;
 
       await enqueuePostApply(ctx, input, args.canonicalPageId, revision.id);
+      await deleteArchivedOriginals(applyResult.storageKeys, "merge_pages");
     } catch (err) {
       if (!(err instanceof PageDeletionError)) throw err;
       appliedStatus = "failed";
