@@ -120,11 +120,21 @@ export async function deleteOriginals(keys: string[]): Promise<void> {
   // DeleteObjects caps at 1000 keys per request; batch defensively.
   for (let i = 0; i < keys.length; i += 1000) {
     const batch = keys.slice(i, i + 1000);
-    await client().send(
+    const result = await client().send(
       new DeleteObjectsCommand({
         Bucket: BUCKET,
         Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
       }),
     );
+    if (result.Errors?.length) {
+      const details = result.Errors.map((err) => {
+        const key = err.Key ?? "(unknown key)";
+        const code = err.Code ?? "UnknownError";
+        return `${key}: ${code}${err.Message ? ` (${err.Message})` : ""}`;
+      }).join("; ");
+      throw new Error(
+        `S3 DeleteObjects failed for ${result.Errors.length} archived originals: ${details}`,
+      );
+    }
   }
 }

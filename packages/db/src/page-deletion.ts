@@ -180,6 +180,7 @@ export interface PurgeDeletedInput {
   userId?: string | null;
   modelRunId?: string | null;
   auditExtra?: Record<string, unknown>;
+  cleanupOrphanEntities?: boolean;
 }
 
 export interface PurgeDeletedResult {
@@ -393,7 +394,9 @@ export async function purgeDeletedSubtreeInTransaction(
 
   await tx.delete(pages).where(inArray(pages.id, subtreeIds));
 
-  await cleanupOrphanEntities(tx, workspaceId);
+  if (input.cleanupOrphanEntities ?? true) {
+    await cleanupOrphanEntities(tx, workspaceId);
+  }
 
   return { purgedPageIds: subtreeIds, rootTitle: root.title, storageKeys };
 }

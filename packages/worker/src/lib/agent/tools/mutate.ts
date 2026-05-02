@@ -3,6 +3,7 @@ import { and, desc, eq, gt, inArray, isNull } from "drizzle-orm";
 import {
   auditLogs,
   collectDescendantPageIds,
+  cleanupOrphanEntities,
   folders,
   ingestionDecisions,
   insertPageWithUniqueSlug,
@@ -1112,6 +1113,7 @@ async function mergePages(
             workspaceId: ctx.workspaceId,
             rootPageId: sourcePageId,
             modelRunId: input.modelRunId,
+            cleanupOrphanEntities: false,
             auditExtra: {
               source: activitySource(input, "ingestion_agent_merge"),
               ingestionId: input.ingestion.id,
@@ -1123,6 +1125,7 @@ async function mergePages(
           collected.push(...result.purgedPageIds);
           storageKeys.push(...result.storageKeys);
         }
+        await cleanupOrphanEntities(tx, ctx.workspaceId);
 
         const now = new Date();
         const redirectValues = redirectRows

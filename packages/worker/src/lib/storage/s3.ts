@@ -13,6 +13,10 @@ type S3Runtime = {
   DeleteObjectsCommand: new (input: unknown) => unknown;
 };
 
+interface DeleteObjectsResult {
+  Errors?: Array<{ Key?: string; Code?: string; Message?: string }>;
+}
+
 let cached: S3Runtime | null = null;
 async function client(): Promise<S3Runtime> {
   if (!cached) {
@@ -41,11 +45,21 @@ export async function deleteOriginals(keys: string[]): Promise<void> {
   const s3 = await client();
   for (let i = 0; i < keys.length; i += 1000) {
     const batch = keys.slice(i, i + 1000);
-    await s3.client.send(
+    const result = (await s3.client.send(
       new s3.DeleteObjectsCommand({
         Bucket: BUCKET,
         Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
       }),
-    );
+    )) as DeleteObjectsResult;
+    if (result.Errors?.length) {
+      const details = result.Errors.map((err) => {
+        const key = err.Key ?? "(unknown key)";
+        const code = err.Code ?? "UnknownError";
+        return `${key}: ${code}${err.Message ? ` (${err.Message})` : ""}`;
+      }).join("; ");
+      throw new Error(
+        `S3 DeleteObjects failed for ${result.Errors.length} archived originals: ${details}`,
+      );
+    }
   }
 }
