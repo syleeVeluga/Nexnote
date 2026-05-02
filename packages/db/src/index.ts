@@ -10,6 +10,7 @@ export {
 export { insertPageWithUniqueSlug } from "./slug.js";
 export {
   collectDescendantPageIds,
+  cleanupOrphanEntities,
   findRestoreConflict,
   notDeleted,
   PageDeletionError,

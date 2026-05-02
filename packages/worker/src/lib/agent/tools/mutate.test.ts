@@ -39,6 +39,12 @@ class FakeDb {
     };
   }
 
+  selectDistinct(_fields?: unknown) {
+    return {
+      from: () => this.selectChain(),
+    };
+  }
+
   insert(_table: unknown) {
     return {
       values: (values: unknown) => {
@@ -81,6 +87,7 @@ class FakeDb {
     const finish = async () => this.selectQueue.shift() ?? [];
     const chain = {
       leftJoin: () => this.selectChain(),
+      innerJoin: () => this.selectChain(),
       where: () => this.selectChain(),
       orderBy: () => this.selectChain(),
       limit: finish,
