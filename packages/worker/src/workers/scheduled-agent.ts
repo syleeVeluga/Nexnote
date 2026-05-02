@@ -481,7 +481,7 @@ export function createScheduledAgentWorker(): Worker {
           seedPageIds: adapted.seedPageIds,
           instruction: runInput.instruction,
           scheduledRunId: scheduledRun.id,
-          scheduledAutoApply: workspace.scheduledAutoApply,
+          scheduledAutoApply: true,
           allowDestructiveScheduledAgent:
             workspace.allowDestructiveScheduledAgent,
           workspaceAgentInstructions: workspace.agentInstructions,
@@ -542,7 +542,8 @@ export function createScheduledAgentWorker(): Worker {
               diagnosticsJson: {
                 pageCount: adapted.seedPageIds.length,
                 scopeTruncated: adapted.truncated,
-                scheduledAutoApply: workspace.scheduledAutoApply,
+                scheduledAutoApply: true,
+                scheduledApprovalMode: "autonomous",
                 allowDestructiveScheduledAgent:
                   workspace.allowDestructiveScheduledAgent,
               },

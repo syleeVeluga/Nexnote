@@ -325,6 +325,7 @@ Produce the merged Markdown:`,
         targetPageId,
         baseRevisionId,
       );
+      const shouldDeferForConflict = Boolean(conflict && !scheduledRunId);
 
       const [revision] = await db
         .insert(pageRevisions)
@@ -337,7 +338,7 @@ Produce the merged Markdown:`,
           sourceIngestionId: ingestionId,
           sourceDecisionId: decisionId,
           contentMd: newContent,
-          revisionNote: conflict
+          revisionNote: shouldDeferForConflict
             ? `Conflict-deferred ${action} from ingestion ${ingestion.sourceName}`
             : `Auto-${action} from ingestion ${ingestion.sourceName}`,
         })
@@ -346,7 +347,7 @@ Produce the merged Markdown:`,
       const diff = computeDiff(existingContent, newContent, null, null);
       const now = new Date();
 
-      if (conflict) {
+      if (shouldDeferForConflict && conflict) {
         // Human edit intervened since the classifier snapshot. Write the
         // proposed revision + diff, downgrade the decision to `suggested`,
         // and do NOT promote to current. Triple extraction waits until the
@@ -440,7 +441,28 @@ Produce the merged Markdown:`,
           .where(eq(pages.id, targetPageId)),
         db
           .update(ingestionDecisions)
-          .set({ proposedRevisionId: revision.id, status: "auto_applied" })
+          .set({
+            proposedRevisionId: revision.id,
+            status: "auto_applied",
+            ...(conflict
+              ? {
+                  rationaleJson: sql`
+                    jsonb_set(
+                      COALESCE(${ingestionDecisions.rationaleJson}, '{}'::jsonb),
+                      '{conflict}',
+                      ${JSON.stringify({
+                        type: "conflict_with_human_edit_auto_applied",
+                        humanRevisionId: conflict.id,
+                        humanUserId: conflict.actorUserId,
+                        humanEditedAt: conflict.createdAt.toISOString(),
+                        humanRevisionNote: conflict.revisionNote,
+                        baseRevisionId,
+                      })}::jsonb
+                    )
+                  `,
+                }
+              : {}),
+          })
           .where(eq(ingestionDecisions.id, decisionId)),
         db
           .update(ingestions)

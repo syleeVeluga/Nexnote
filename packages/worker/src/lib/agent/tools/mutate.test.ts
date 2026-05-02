@@ -16,11 +16,20 @@ const sourceRevisionId = "99999999-9999-4999-8999-999999999999";
 class FakeDb {
   readonly insertedValues: unknown[] = [];
   readonly updatedValues: unknown[] = [];
+  readonly deletedTables: unknown[] = [];
   private readonly selectQueue: unknown[][];
+  private readonly executeQueue: unknown[];
   private readonly returningIds: string[];
 
-  constructor(input: { selectQueue?: unknown[][]; returningIds?: string[] } = {}) {
+  constructor(
+    input: {
+      selectQueue?: unknown[][];
+      executeQueue?: unknown[];
+      returningIds?: string[];
+    } = {},
+  ) {
     this.selectQueue = input.selectQueue ?? [];
+    this.executeQueue = input.executeQueue ?? [];
     this.returningIds = input.returningIds ?? ["decision-id", "revision-id"];
   }
 
@@ -36,6 +45,7 @@ class FakeDb {
         this.insertedValues.push(values);
         return {
           returning: async () => [{ id: this.returningIds.shift() ?? "id" }],
+          onConflictDoNothing: async () => [],
         };
       },
     };
@@ -50,18 +60,42 @@ class FakeDb {
     };
   }
 
+  delete(table: unknown) {
+    return {
+      where: async () => {
+        this.deletedTables.push(table);
+        return [];
+      },
+    };
+  }
+
+  execute() {
+    return this.executeQueue.shift() ?? [{ id: canonicalPageId }];
+  }
+
+  transaction<T>(fn: (tx: FakeDb) => Promise<T>) {
+    return fn(this);
+  }
+
   private selectChain() {
     const finish = async () => this.selectQueue.shift() ?? [];
-    return {
+    const chain = {
       leftJoin: () => this.selectChain(),
       where: () => this.selectChain(),
       orderBy: () => this.selectChain(),
       limit: finish,
+      then: (
+        resolve: (value: unknown[]) => unknown,
+        reject?: (reason: unknown) => unknown,
+      ) => finish().then(resolve, reject),
     };
+    return chain;
   }
 }
 
-function input(overrides: Partial<CreateMutateToolsInput> = {}): CreateMutateToolsInput {
+function input(
+  overrides: Partial<CreateMutateToolsInput> = {},
+): CreateMutateToolsInput {
   return {
     ingestion: {
       id: ingestionId,
@@ -123,21 +157,23 @@ describe("createMutateTools destructive scheduled tools", () => {
         reason: "redundant page",
       }),
       (err) =>
-        err instanceof AgentToolError &&
-        err.code === "invalid_target_page",
+        err instanceof AgentToolError && err.code === "invalid_target_page",
     );
   });
 
-  it("creates delete decisions as suggested when scheduled_auto_apply is off", async () => {
-    // Without scheduled_auto_apply, destructive proposals always land in /review
+  it("auto-applies delete decisions even when scheduled_auto_apply is off", async () => {
+    // Scheduled Agent destructive tools are autonomous; the legacy
     // — workspace operators must explicitly opt into autonomous deletes via the
-    // settings toggle. Auto-apply path is exercised in integration tests.
+    // scheduled_auto_apply toggle no longer creates approval work.
     const db = new FakeDb({
       selectQueue: [
         currentPage(canonicalPageId, "Duplicate", baseRevisionId),
         [{ createdAt: new Date("2026-05-01T00:00:00Z") }],
         [],
+        [{ id: canonicalPageId, title: "Duplicate" }],
+        [],
       ],
+      executeQueue: [[{ id: canonicalPageId }]],
     });
     const tools = createMutateTools(input({ scheduledAutoApply: false }));
 
@@ -149,7 +185,7 @@ describe("createMutateTools destructive scheduled tools", () => {
     const data = result.data as { action: string; status: string };
 
     assert.equal(data.action, "delete");
-    assert.equal(data.status, "suggested");
+    assert.equal(data.status, "auto_applied");
     const decision = db.insertedValues.find(
       (value) => (value as { action?: string }).action === "delete",
     ) as {
@@ -158,17 +194,24 @@ describe("createMutateTools destructive scheduled tools", () => {
       scheduledRunId: string;
       rationaleJson: { kind: string; origin: string; tool: string };
     };
-    assert.equal(decision.status, "suggested");
+    assert.equal(decision.status, "auto_applied");
     assert.equal(decision.targetPageId, canonicalPageId);
     assert.equal(decision.scheduledRunId, scheduledRunId);
     assert.equal(decision.rationaleJson.kind, "delete");
     assert.equal(decision.rationaleJson.origin, "scheduled");
     assert.equal(decision.rationaleJson.tool, "delete_page");
+    assert.ok(
+      db.insertedValues.some(
+        (value) =>
+          (value as { action?: string }).action === "auto_apply_delete",
+      ),
+    );
+    assert.ok(db.deletedTables.length > 0);
   });
 
-  it("creates merge decisions with a proposed canonical revision and source metadata", async () => {
-    // Without scheduled_auto_apply the merge proposal lands in /review with the
-    // canonical revision pre-built and ready for human approval.
+  it("auto-applies merge decisions with a canonical revision and purged source metadata", async () => {
+    // Scheduled Agent merges promote the canonical revision immediately and
+    // permanently purge source pages to avoid trash restore conflicts.
     const db = new FakeDb({
       selectQueue: [
         currentPage(canonicalPageId, "Canonical", baseRevisionId, "# Old"),
@@ -177,7 +220,11 @@ describe("createMutateTools destructive scheduled tools", () => {
         [],
         [{ createdAt: new Date("2026-05-01T00:00:00Z") }],
         [],
+        [{ pageId: sourcePageId, path: "source" }],
+        [{ id: sourcePageId, title: "Source" }],
+        [],
       ],
+      executeQueue: [[{ id: sourcePageId }], [{ id: sourcePageId }]],
       returningIds: ["decision-id", "revision-id"],
     });
     const tools = createMutateTools(input({ scheduledAutoApply: false }));
@@ -200,7 +247,7 @@ describe("createMutateTools destructive scheduled tools", () => {
 
     assert.deepEqual(result.mutatedPageIds, [canonicalPageId, sourcePageId]);
     assert.equal(data.action, "merge");
-    assert.equal(data.status, "suggested");
+    assert.equal(data.status, "auto_applied");
     assert.equal(data.revisionId, "revision-id");
 
     const decision = db.insertedValues.find(
@@ -214,16 +261,15 @@ describe("createMutateTools destructive scheduled tools", () => {
         sourcePageIds: string[];
       };
     };
-    assert.equal(decision.status, "suggested");
+    assert.equal(decision.status, "auto_applied");
     assert.equal(decision.targetPageId, canonicalPageId);
     assert.equal(decision.rationaleJson.kind, "merge");
     assert.deepEqual(decision.rationaleJson.sourcePageIds, [sourcePageId]);
 
-    const revision = db.insertedValues.find(
-      (value) =>
-        (value as { revisionNote?: string }).revisionNote?.includes(
-          "merge_pages",
-        ),
+    const revision = db.insertedValues.find((value) =>
+      (value as { revisionNote?: string }).revisionNote?.includes(
+        "merge_pages",
+      ),
     ) as {
       pageId: string;
       baseRevisionId: string;
@@ -244,5 +290,18 @@ describe("createMutateTools destructive scheduled tools", () => {
           "revision-id",
       ),
     );
+    assert.ok(
+      db.updatedValues.some(
+        (value) =>
+          (value as { currentRevisionId?: string }).currentRevisionId ===
+          "revision-id",
+      ),
+    );
+    assert.ok(
+      db.insertedValues.some(
+        (value) => (value as { action?: string }).action === "auto_apply_merge",
+      ),
+    );
+    assert.ok(db.deletedTables.length > 0);
   });
 });

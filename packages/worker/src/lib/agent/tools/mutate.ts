@@ -11,15 +11,13 @@ import {
   pageRevisions,
   pages,
   PageDeletionError,
+  purgeDeletedSubtreeInTransaction,
   revisionDiffs,
-  softDeleteSubtree,
-  softDeleteSubtreeInTransaction,
 } from "@wekiflow/db";
 import {
   agentMutateToolInputSchemas,
   classifyDecisionStatus,
   computeDiff,
-  CONFIDENCE,
   DEFAULT_JOB_OPTIONS,
   JOB_NAMES,
   slugify,
@@ -97,10 +95,7 @@ function revisionSource(
   return input.origin === "scheduled" ? "scheduled" : "ingest_api";
 }
 
-function activitySource(
-  input: CreateMutateToolsInput,
-  source: string,
-): string {
+function activitySource(input: CreateMutateToolsInput, source: string): string {
   return input.origin === "scheduled"
     ? source.replace("ingestion_agent", "scheduled_agent")
     : source;
@@ -110,10 +105,10 @@ function scheduledAutoApplyStatus(
   action: IngestionAction,
   confidence: number,
 ): ReturnType<typeof classifyDecisionStatus> {
+  void confidence;
   if (action === "noop") return "noop";
-  if (action === "needs_review") return "needs_review";
-  if (confidence >= CONFIDENCE.SCHEDULED_AUTO_APPLY) return "auto_applied";
-  return "suggested";
+  if (action === "needs_review") return "noop";
+  return "auto_applied";
 }
 
 function mutationDecisionStatus(
@@ -122,7 +117,6 @@ function mutationDecisionStatus(
   confidence: number,
 ): ReturnType<typeof classifyDecisionStatus> {
   if (input.origin === "scheduled") {
-    if (!input.scheduledAutoApply) return "suggested";
     return scheduledAutoApplyStatus(action, confidence);
   }
   return classifyDecisionStatus(action, confidence);
@@ -134,22 +128,23 @@ function destructiveDecisionStatus(
   confidence: number,
 ): ReturnType<typeof classifyDecisionStatus> {
   // Destructive tools are only exposed to scheduled-origin runs (mutate-tools
-  // builder enforces the gate). Without scheduled_auto_apply opt-in, every
-  // destructive proposal lands in /review for human approval.
-  if (!input.scheduledAutoApply) return "suggested";
+  // builder enforces the gate). Scheduled Agent runs are autonomous: delete and
+  // merge must not create approval work or trash-restore conflicts.
   return scheduledAutoApplyStatus(action, confidence);
 }
 
 function assertObservedPage(ctx: AgentToolContext, pageId: string): void {
-  if (!ctx.state.seenPageIds.has(pageId) && !ctx.state.createdPageIds.has(pageId)) {
+  if (
+    !ctx.state.seenPageIds.has(pageId) &&
+    !ctx.state.createdPageIds.has(pageId)
+  ) {
     const observedPageIds = [...ctx.state.seenPageIds].slice(0, 100);
     throw new AgentToolError(
       "invalid_target_page",
       `Page ${pageId} was not observed earlier in this agent run`,
       { pageId, observedPageIds },
       {
-        hint:
-          "Mutate tools can only target page IDs returned by read/search tools in this run. Search or read the page first, then retry with an observed pageId.",
+        hint: "Mutate tools can only target page IDs returned by read/search tools in this run. Search or read the page first, then retry with an observed pageId.",
         candidates: observedPageIds,
       },
     );
@@ -350,11 +345,7 @@ async function persistDirectPatch(
   const status = mutationDecisionStatus(input, "update", params.confidence);
   const conflict =
     status === "auto_applied"
-      ? await detectHumanConflict(
-          ctx.db,
-          params.pageId,
-          observedBaseRevisionId,
-        )
+      ? await detectHumanConflict(ctx.db, params.pageId, observedBaseRevisionId)
       : null;
   const decisionStatus =
     conflict && !(input.origin === "scheduled" && input.scheduledAutoApply)
@@ -528,8 +519,7 @@ async function editPageBlocks(
         `Block ${op.blockId} was not observed earlier in this agent run`,
         { blockId: op.blockId, observedBlockIds },
         {
-          hint:
-            "Use one of the observed block IDs from read_page(format='blocks'), or call read_page again in blocks format before retrying.",
+          hint: "Use one of the observed block IDs from read_page(format='blocks'), or call read_page again in blocks format before retrying.",
           candidates: observedBlockIds,
         },
       );
@@ -609,7 +599,7 @@ async function enqueuePatchFallback(
     targetPageId: args.pageId,
     rationale: {
       baseRevisionId: page.currentRevisionId,
-      sectionHint: "sectionHint" in args ? args.sectionHint ?? null : null,
+      sectionHint: "sectionHint" in args ? (args.sectionHint ?? null) : null,
     },
   });
 
@@ -633,7 +623,7 @@ async function enqueuePatchFallback(
         agentRunId: input.agentRunId,
         scheduledRunId: input.scheduledRunId ?? null,
         contentOverrideMd,
-        sectionHint: "sectionHint" in args ? args.sectionHint ?? null : null,
+        sectionHint: "sectionHint" in args ? (args.sectionHint ?? null) : null,
       },
       DEFAULT_JOB_OPTIONS,
     );
@@ -879,18 +869,20 @@ async function deletePage(
   let deletedPageIds: string[] | undefined;
   if (status === "auto_applied") {
     try {
-      const result = await softDeleteSubtree(ctx.db, {
-        workspaceId: ctx.workspaceId,
-        rootPageId: args.pageId,
-        modelRunId: input.modelRunId,
-        auditExtra: {
-          source: activitySource(input, "ingestion_agent_delete"),
-          ingestionId: input.ingestion.id,
-          scheduledRunId: input.scheduledRunId ?? null,
-          decisionId: decision.id,
-        },
-      });
-      deletedPageIds = result.deletedPageIds;
+      const result = await ctx.db.transaction(async (tx) =>
+        purgeDeletedSubtreeInTransaction(tx, {
+          workspaceId: ctx.workspaceId,
+          rootPageId: args.pageId,
+          modelRunId: input.modelRunId,
+          auditExtra: {
+            source: activitySource(input, "ingestion_agent_delete"),
+            ingestionId: input.ingestion.id,
+            scheduledRunId: input.scheduledRunId ?? null,
+            decisionId: decision.id,
+          },
+        }),
+      );
+      deletedPageIds = result.purgedPageIds;
       await ctx.db.insert(auditLogs).values({
         workspaceId: ctx.workspaceId,
         modelRunId: input.modelRunId,
@@ -903,33 +895,31 @@ async function deletePage(
           scheduledRunId: input.scheduledRunId ?? null,
           decisionId: decision.id,
           pageId: args.pageId,
-          deletedPageIds: result.deletedPageIds,
+          deletedPageIds: result.purgedPageIds,
+          purgedPageIds: result.purgedPageIds,
         },
       });
     } catch (err) {
-      if (err instanceof PageDeletionError) {
-        appliedStatus = "suggested";
-        await ctx.db
-          .update(ingestionDecisions)
-          .set({
-            status: "suggested",
-            rationaleJson: {
-              reason: args.reason,
-              tool: "delete_page",
-              agentRunId: input.agentRunId,
-              scheduledRunId: input.scheduledRunId ?? null,
-              origin: input.origin ?? "ingestion",
-              ...baseRationale,
-              autoApplyDowngrade: {
-                code: err.code,
-                details: err.details,
-              },
+      if (!(err instanceof PageDeletionError)) throw err;
+      appliedStatus = "failed";
+      await ctx.db
+        .update(ingestionDecisions)
+        .set({
+          status: "failed",
+          rationaleJson: {
+            reason: args.reason,
+            tool: "delete_page",
+            agentRunId: input.agentRunId,
+            scheduledRunId: input.scheduledRunId ?? null,
+            origin: input.origin ?? "ingestion",
+            ...baseRationale,
+            autoApplyFailure: {
+              code: err.code,
+              details: err.details,
             },
-          })
-          .where(eq(ingestionDecisions.id, decision.id));
-      } else {
-        throw err;
-      }
+          },
+        })
+        .where(eq(ingestionDecisions.id, decision.id));
     }
   }
 
@@ -972,6 +962,27 @@ async function mergePages(
       getCurrentPage(ctx.db, ctx.workspaceId, pageId),
     ),
   );
+  // Preflight before persisting the decision/revision: a source page cannot be
+  // an ancestor of the canonical, because purging that source would remove the
+  // canonical page too.
+  const sourceSubtreeIds = await Promise.all(
+    args.sourcePageIds.map((pageId) =>
+      collectDescendantPageIds(ctx.db, ctx.workspaceId, pageId).then((ids) => ({
+        sourcePageId: pageId,
+        descendantPageIds: ids,
+      })),
+    ),
+  );
+  const protectedSubtree = sourceSubtreeIds.find((s) =>
+    s.descendantPageIds.includes(args.canonicalPageId),
+  );
+  if (protectedSubtree) {
+    throw new PageDeletionError("PAGE_PARENT_CONFLICT", {
+      sourcePageId: protectedSubtree.sourcePageId,
+      canonicalPageId: args.canonicalPageId,
+    });
+  }
+
   const observedBaseRevisionId = observedRevisionIdForPage(ctx, canonical);
   const conflictRows = await Promise.all([
     detectHumanConflict(ctx.db, canonical.id, observedBaseRevisionId).then(
@@ -1061,27 +1072,8 @@ async function mergePages(
   let deletedPageIds: string[] | undefined;
   if (status === "auto_applied") {
     try {
-      // Preflight: a source page cannot be an ancestor of the canonical (would
-      // delete the canonical with the source subtree).
-      const sourceSubtreeIds = await Promise.all(
-        args.sourcePageIds.map((pageId) =>
-          collectDescendantPageIds(ctx.db, ctx.workspaceId, pageId).then(
-            (ids) => ({ sourcePageId: pageId, descendantPageIds: ids }),
-          ),
-        ),
-      );
-      const protectedSubtree = sourceSubtreeIds.find((s) =>
-        s.descendantPageIds.includes(args.canonicalPageId),
-      );
-      if (protectedSubtree) {
-        throw new PageDeletionError("PAGE_PARENT_CONFLICT", {
-          sourcePageId: protectedSubtree.sourcePageId,
-          canonicalPageId: args.canonicalPageId,
-        });
-      }
-
       const applyResult = await ctx.db.transaction(async (tx) => {
-        // Capture redirect paths before soft-delete flips is_current to false.
+        // Capture redirect paths before purge removes source page_paths rows.
         const redirectRows = await tx
           .select({ pageId: pagePaths.pageId, path: pagePaths.path })
           .from(pagePaths)
@@ -1095,7 +1087,7 @@ async function mergePages(
 
         const collected: string[] = [];
         for (const sourcePageId of args.sourcePageIds) {
-          const result = await softDeleteSubtreeInTransaction(tx, {
+          const result = await purgeDeletedSubtreeInTransaction(tx, {
             workspaceId: ctx.workspaceId,
             rootPageId: sourcePageId,
             modelRunId: input.modelRunId,
@@ -1107,7 +1099,7 @@ async function mergePages(
               mergeCanonicalPageId: args.canonicalPageId,
             },
           });
-          collected.push(...result.deletedPageIds);
+          collected.push(...result.purgedPageIds);
         }
 
         const now = new Date();
@@ -1115,7 +1107,7 @@ async function mergePages(
           .filter((row) => row.pageId !== args.canonicalPageId)
           .map((row) => ({
             workspaceId: ctx.workspaceId,
-            fromPageId: row.pageId,
+            fromPageId: null,
             toPageId: args.canonicalPageId,
             fromPath: row.path,
             createdByDecisionId: decision.id,
@@ -1150,6 +1142,7 @@ async function mergePages(
               canonicalPageId: args.canonicalPageId,
               sourcePageIds: args.sourcePageIds,
               deletedPageIds: collected,
+              purgedPageIds: collected,
               revisionId: revision.id,
             },
           }),
@@ -1161,29 +1154,26 @@ async function mergePages(
 
       await enqueuePostApply(ctx, input, args.canonicalPageId, revision.id);
     } catch (err) {
-      if (err instanceof PageDeletionError) {
-        appliedStatus = "suggested";
-        await ctx.db
-          .update(ingestionDecisions)
-          .set({
-            status: "suggested",
-            rationaleJson: {
-              reason: args.reason,
-              tool: "merge_pages",
-              agentRunId: input.agentRunId,
-              scheduledRunId: input.scheduledRunId ?? null,
-              origin: input.origin ?? "ingestion",
-              ...baseRationale,
-              autoApplyDowngrade: {
-                code: err.code,
-                details: err.details,
-              },
+      if (!(err instanceof PageDeletionError)) throw err;
+      appliedStatus = "failed";
+      await ctx.db
+        .update(ingestionDecisions)
+        .set({
+          status: "failed",
+          rationaleJson: {
+            reason: args.reason,
+            tool: "merge_pages",
+            agentRunId: input.agentRunId,
+            scheduledRunId: input.scheduledRunId ?? null,
+            origin: input.origin ?? "ingestion",
+            ...baseRationale,
+            autoApplyFailure: {
+              code: err.code,
+              details: err.details,
             },
-          })
-          .where(eq(ingestionDecisions.id, decision.id));
-      } else {
-        throw err;
-      }
+          },
+        })
+        .where(eq(ingestionDecisions.id, decision.id));
     }
   }
 
@@ -1227,6 +1217,29 @@ async function requestHumanReview(
   ctx: AgentToolContext,
   args: RequestHumanReviewToolInput,
 ): Promise<AgentToolResult> {
+  if (input.origin === "scheduled") {
+    const decision = await createDecision(ctx, input, {
+      action: "noop",
+      status: "noop",
+      confidence: args.confidence,
+      reason: args.reason,
+      tool: "request_human_review",
+      rationale: {
+        scheduledAutonomy: true,
+        convertedFrom: "needs_review",
+        suggestedAction: args.suggestedAction ?? null,
+        suggestedPageIds: args.suggestedPageIds,
+      },
+    });
+    return {
+      data: {
+        decisionId: decision.id,
+        status: "noop",
+        action: "noop",
+      },
+    };
+  }
+
   const decision = await createDecision(ctx, input, {
     action: "needs_review",
     status: "needs_review",
@@ -1316,13 +1329,19 @@ export function createMutateTools(
       description: "Queue an append fallback through patch-generator.",
       schema: agentMutateToolInputSchemas.append_to_page,
       execute: (ctx, args) =>
-        enqueuePatchFallback(input, ctx, args as AppendToPageToolInput, "append"),
+        enqueuePatchFallback(
+          input,
+          ctx,
+          args as AppendToPageToolInput,
+          "append",
+        ),
     },
     create_page: {
       name: "create_page",
       description: "Create a new page or create a review decision for it.",
       schema: agentMutateToolInputSchemas.create_page,
-      execute: (ctx, args) => createPage(input, ctx, args as CreatePageToolInput),
+      execute: (ctx, args) =>
+        createPage(input, ctx, args as CreatePageToolInput),
     },
     noop: {
       name: "noop",
@@ -1343,7 +1362,7 @@ export function createMutateTools(
     tools.delete_page = {
       name: "delete_page",
       description:
-        "Create a human-reviewable suggestion to delete an observed redundant page.",
+        "Auto-apply deletion of an observed redundant page and permanently remove its subtree.",
       schema: agentMutateToolInputSchemas.delete_page,
       execute: (ctx, args) =>
         deletePage(input, ctx, args as DeletePageToolInput),
@@ -1351,7 +1370,7 @@ export function createMutateTools(
     tools.merge_pages = {
       name: "merge_pages",
       description:
-        "Create a human-reviewable suggestion to merge observed source pages into a canonical page.",
+        "Auto-apply merging observed source pages into a canonical page and permanently remove source subtrees.",
       schema: agentMutateToolInputSchemas.merge_pages,
       execute: (ctx, args) =>
         mergePages(input, ctx, args as MergePagesToolInput),

@@ -89,15 +89,15 @@
     "description": "Let the agent reorganize selected wiki areas on demand or on a schedule.",
     "fields": {
       "enabled": "Enable Scheduled Agent",
-      "autoApply": "Auto-apply scheduled decisions",
+      "autoApply": "Scheduled decisions apply automatically",
       "destructiveTools": "Allow delete and merge tools",
       "dailyTokenCap": "Scheduled daily token cap",
       "perRunPageLimit": "Pages per run"
     },
     "help": {
       "enabled": "Allow manual and cron-based scheduled reorganize runs.",
-      "autoApply": "Keep this off unless scheduled runs are trusted for this workspace.",
-      "destructiveTools": "When enabled, Scheduled Agent can propose page deletes and merges for review.",
+      "autoApply": "Scheduled Agent bypasses the approval queue; use scope and token caps as guardrails.",
+      "destructiveTools": "When enabled, Scheduled Agent can auto-apply page deletes and merges.",
       "dailyTokenCap": "Optional override. Values of 10,000 or more are recommended.",
       "perRunPageLimit": "Allowed range: 1 to 500 pages."
     },

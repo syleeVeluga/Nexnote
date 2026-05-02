@@ -18,7 +18,7 @@ The older v1 plan in this file assumed backend work existed but UI did not. That
 - `scheduled_runs` / `scheduled_tasks` schema
 - live/post-hoc trace drawer through the existing `AgentTracePanel`
 
-The intended product surface is still the same: an admin enables Scheduled Agent, sets conservative policy, schedules recurring maintenance, or triggers a selected-page/folder-scoped reorganize run. By default, scheduled mutations land in `/review` as human-visible suggestions.
+The intended product surface is still the same: an admin enables Scheduled Agent, sets conservative policy, schedules recurring maintenance, or triggers a selected-page/folder-scoped reorganize run. Scheduled mutations now apply autonomously and do not create `/review` approval work.
 
 ## Current Architecture
 
@@ -65,7 +65,8 @@ existing ingestion-agent dispatcher + read/mutate tools
 ingestion_decisions / page_revisions / audit_logs / model_runs
   - scheduled decisions are linked by ingestion_decisions.scheduled_run_id
   - revisions use source="scheduled" when applied
-  - scheduled_auto_apply=false forces suggestions regardless of confidence
+  - scheduled mutation decisions auto-apply without approval
+  - delete_page / merge_pages permanently purge affected source subtrees
 ```
 
 ## Implemented
@@ -134,7 +135,7 @@ Implemented UI:
 
 - `/settings/ai`
   - Scheduled Agent enable toggle
-  - scheduled auto-apply toggle
+  - scheduled auto-apply toggle (legacy; backend now runs scheduled mutations autonomously)
   - scheduled daily token cap
   - per-run page limit
   - link to `/settings/scheduled-agent`
@@ -159,17 +160,12 @@ The plan changed from the earlier page-header button idea: the entry points are 
 
 ## Auto-apply Policy
 
-Default behavior:
+Current behavior:
 
-- If `origin === "scheduled"` and `workspace.scheduled_auto_apply === false`, all mutation decisions are forced to `suggested`.
-- Humans approve/reject in the existing `/review` queue.
-
-Override:
-
-- If `workspace.scheduled_auto_apply === true`, scheduled decisions follow the normal confidence policy:
-  - confidence >= 0.85 can auto-apply
-  - 0.60-0.84 becomes suggested
-  - lower confidence goes to review/failure paths depending on tool result
+- If `origin === "scheduled"`, mutation decisions auto-apply regardless of confidence and regardless of the legacy `workspace.scheduled_auto_apply` value.
+- `request_human_review` from a scheduled run is converted to `noop`, so Scheduled Agent does not create approval work.
+- Human-edit conflicts are recorded in decision rationale but do not downgrade scheduled mutations to `/review`.
+- `delete_page` and `merge_pages` permanently purge affected source subtrees after applying, so deleted/merged pages do not remain in trash and cannot create restore conflicts.
 
 This is implemented in `packages/worker/src/lib/agent/tools/mutate.ts`.
 
@@ -231,22 +227,22 @@ Recommended coverage:
 - `/settings/scheduled-agent` creates/disables/deletes a task.
 - manual run queues and opens a trace drawer.
 - folder action sends the expected page IDs.
-- scheduled decisions appear in review as `suggested` when auto-apply is off.
+- scheduled decisions auto-apply and do not create `/review` approval items.
 
 ## Verification Checklist
 
 Manual verification:
 
 1. Enable Scheduled Agent in `/settings/ai`.
-2. Set `scheduled_auto_apply=false`, a daily token cap, and a per-run page limit.
+2. Set a daily token cap and a per-run page limit.
 3. Open `/settings/scheduled-agent`.
 4. Create a task with a valid hourly-or-slower cron expression and one or more target pages.
 5. Confirm the task appears with a `nextRunAt` value.
 6. Trigger a one-off run from the task or manual run modal.
 7. Confirm `scheduled_runs` moves `running -> completed`.
 8. Open the trace drawer and verify live/post-hoc `AgentTracePanel` steps.
-9. Open `/review` and confirm scheduled decisions are visible as suggestions.
-10. Approve one scheduled decision and verify a new revision with `source="scheduled"` and updated `last_ai_updated_at`.
+9. Confirm scheduled decisions are `auto_applied` or `noop`, not `suggested` / `needs_review`.
+10. Verify a new revision with `source="scheduled"` and updated `last_ai_updated_at`.
 11. Disable/delete the task and verify the BullMQ scheduler is removed.
 
 Useful commands:
@@ -273,7 +269,7 @@ pnpm --filter web dev
 
 These remain out of v1 scope:
 
-- dry-run preview and approval modal
+- optional dry-run preview mode
 - scheduled-specific dry-run/shadow/live promotion gate
 - richer schedule builder presets instead of raw cron only
 - stronger `must_block_commit` signal for dangerous maintenance actions
@@ -286,6 +282,6 @@ These remain out of v1 scope:
 ## Operational Notes
 
 - Cron schedules should remain conservative; server validation currently enforces at least one hour between runs.
-- Scheduled Agent should normally start with `scheduled_auto_apply=false`.
+- Scheduled Agent runs autonomously once enabled; use page scope and token caps as the primary guardrails.
 - `scheduled_daily_token_cap` should be set for every workspace that enables cron.
-- Scheduled output shares the same review/provenance/activity model as ingestion output. Avoid introducing a parallel approval path.
+- Scheduled output shares the same provenance/activity model as ingestion output, but not its approval queue.

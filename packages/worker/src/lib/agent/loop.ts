@@ -60,7 +60,7 @@ const PLAN_SYSTEM_PROMPT = `You are planning wiki maintenance mutations for Weki
 Use the ingestion and read-only context to propose exact wiki changes.
 Prefer the narrowest safe mutate tool to creating duplicate pages. Keep confidence calibrated.
 Honor workspace operator instructions about where knowledge belongs, source-specific routing, aliases, and forbidden create/update paths.
-If context is insufficient to avoid a duplicate or unsafe rewrite, return request_human_review instead of create_page.
+If context is insufficient to avoid a duplicate or unsafe rewrite, return request_human_review instead of create_page. In scheduled mode, prefer noop over request_human_review when no safe autonomous change exists.
 
 When you can make an exact edit, return a typed tool plan:
 {
@@ -79,8 +79,8 @@ Tool argument contracts:
 - update_page: { pageId, newContentMd, confidence, reason }
 - append_to_page: { pageId, contentMd, sectionHint?, confidence, reason }
 - create_page: { title, contentMd, parentFolderId?, parentPageId?, confidence, reason }
-- delete_page: { pageId, confidence, reason } (Scheduled reorganize mode only; always becomes a human-reviewable suggestion)
-- merge_pages: { canonicalPageId, sourcePageIds, mergedContentMd, confidence, reason } (Scheduled reorganize mode only; always becomes a human-reviewable suggestion)
+- delete_page: { pageId, confidence, reason } (Scheduled reorganize mode only; auto-applies and permanently removes the page subtree)
+- merge_pages: { canonicalPageId, sourcePageIds, mergedContentMd, confidence, reason } (Scheduled reorganize mode only; auto-applies and permanently removes source page subtrees)
 - noop: { reason, confidence? }
 - request_human_review: { reason, suggestedAction?, suggestedPageIds?, confidence? } where suggestedAction must be one of "create", "update", "append", "delete", "merge", "noop", "needs_review"; put free-form guidance in reason, not suggestedAction.
 
@@ -276,8 +276,8 @@ function scheduledPromptPrefix(input: RunIngestionAgentShadowInput): string {
     input.allowDestructiveScheduledAgent
       ? "- Use merge_pages to consolidate 2+ short pages into one canonical page; include full mergedContentMd."
       : "- Destructive tools are disabled for this workspace; do not plan merge_pages.",
-    "- delete_page and merge_pages always land as suggestions for human review even if scheduled auto-apply is enabled.",
-    "- Unless scheduled auto-apply is enabled for this workspace, mutations must remain human-reviewable suggestions.",
+    "- Scheduled mutations apply autonomously; do not route cleanup work to human approval.",
+    "- If no safe autonomous change exists, use noop with a clear reason instead of request_human_review.",
   ];
   if (seedPageIds.length > 0) {
     lines.push(
