@@ -182,6 +182,27 @@ describe("createMutateTools reorganize tools", () => {
     assert.equal(result.success, false);
   });
 
+  it("rejects move_page reorderIntent='explicit' without a newSortOrder", () => {
+    const result = agentMutateToolInputSchemas.move_page.safeParse({
+      pageId: canonicalPageId,
+      newParentFolderId: folderId,
+      reorderIntent: "explicit",
+      confidence: 0.95,
+      reason: "drop into folder at a specific index",
+    });
+
+    assert.equal(result.success, false);
+    assert.ok(
+      !result.success &&
+        result.error.issues.some(
+          (issue) =>
+            issue.path.includes("newSortOrder") &&
+            issue.message.includes("newSortOrder"),
+        ),
+      "expected an issue on newSortOrder",
+    );
+  });
+
   it("rejects move_page when the target folder was not observed", async () => {
     const tools = createMutateTools(input());
     await assert.rejects(

@@ -40,6 +40,9 @@ export const folders = pgTable(
       t.parentFolderId,
       t.slug,
     ),
+    uniqueIndex("folders_workspace_root_slug_uk")
+      .on(t.workspaceId, t.slug)
+      .where(sql`${t.parentFolderId} IS NULL`),
   ],
 );
 

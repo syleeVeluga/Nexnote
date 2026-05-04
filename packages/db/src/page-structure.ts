@@ -582,12 +582,15 @@ export async function updatePageStructure(
         intent: input.reorderIntent,
       });
     } else if (parentChanged) {
-      const nextSort = await nextPageSortOrder(
-        tx,
-        input.workspaceId,
-        nextParentPageId,
-        nextParentFolderId,
-      );
+      const nextSort =
+        input.sortOrder !== undefined
+          ? input.sortOrder
+          : await nextPageSortOrder(
+              tx,
+              input.workspaceId,
+              nextParentPageId,
+              nextParentFolderId,
+            );
       await tx
         .update(pages)
         .set({
@@ -694,33 +697,44 @@ export async function createFolderStructure(
   });
 
   const baseSlug = input.slug ?? slugify(input.name);
-  const slug = input.allocateUniqueSlug
-    ? await allocateFolderSlug(
-        input.db,
+
+  return withMaybeTransaction(input.db, async (tx) => {
+    // Serialize concurrent slug allocations within the same (workspace, parent).
+    // Root folders (parent_folder_id IS NULL) are protected by a partial unique
+    // index, but the application-side allocate-then-insert pattern still needs
+    // an advisory lock to keep the read-before-write check from racing.
+    if (typeof tx.execute === "function") {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${input.workspaceId}::text)::bigint, hashtext(${parentFolderId ?? ""}::text)::bigint)`,
+      );
+    }
+
+    let slug: string;
+    if (input.allocateUniqueSlug) {
+      slug = await allocateFolderSlug(
+        tx,
         input.workspaceId,
         parentFolderId,
         baseSlug,
-      )
-    : baseSlug;
-
-  if (!input.allocateUniqueSlug) {
-    const available = await ensureFolderSlugAvailable(
-      input.db,
-      input.workspaceId,
-      parentFolderId,
-      slug,
-    );
-    if (!available) {
-      throw new PageStructureError(
-        "slug_conflict",
-        "A folder with this slug already exists in the same parent",
-        409,
-        ERROR_CODES.SLUG_CONFLICT,
       );
+    } else {
+      const available = await ensureFolderSlugAvailable(
+        tx,
+        input.workspaceId,
+        parentFolderId,
+        baseSlug,
+      );
+      if (!available) {
+        throw new PageStructureError(
+          "slug_conflict",
+          "A folder with this slug already exists in the same parent",
+          409,
+          ERROR_CODES.SLUG_CONFLICT,
+        );
+      }
+      slug = baseSlug;
     }
-  }
 
-  return withMaybeTransaction(input.db, async (tx) => {
     const sortOrder =
       input.sortOrder ??
       (await nextFolderSortOrder(tx, input.workspaceId, parentFolderId));

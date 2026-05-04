@@ -12,6 +12,10 @@ export const AGENT_READ_TOOL_NAMES = [
   "list_folder",
   "find_related_entities",
   "list_recent_pages",
+  "read_page_metadata",
+  "find_backlinks",
+  "read_revision_history",
+  "read_revision",
 ] as const;
 export type AgentReadToolName = (typeof AGENT_READ_TOOL_NAMES)[number];
 
@@ -68,12 +72,45 @@ export type ListRecentPagesToolInput = z.infer<
   typeof listRecentPagesToolInputSchema
 >;
 
+export const readPageMetadataToolInputSchema = z.object({
+  pageId: uuidSchema,
+});
+export type ReadPageMetadataToolInput = z.infer<
+  typeof readPageMetadataToolInputSchema
+>;
+
+export const findBacklinksToolInputSchema = z.object({
+  pageId: uuidSchema,
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+export type FindBacklinksToolInput = z.infer<
+  typeof findBacklinksToolInputSchema
+>;
+
+export const readRevisionHistoryToolInputSchema = z.object({
+  pageId: uuidSchema,
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type ReadRevisionHistoryToolInput = z.infer<
+  typeof readRevisionHistoryToolInputSchema
+>;
+
+export const readRevisionToolInputSchema = z.object({
+  revisionId: uuidSchema,
+  includeContent: z.coerce.boolean().default(true),
+});
+export type ReadRevisionToolInput = z.infer<typeof readRevisionToolInputSchema>;
+
 export const agentReadToolInputSchemas = {
   search_pages: searchPagesToolInputSchema,
   read_page: readPageToolInputSchema,
   list_folder: listFolderToolInputSchema,
   find_related_entities: findRelatedEntitiesToolInputSchema,
   list_recent_pages: listRecentPagesToolInputSchema,
+  read_page_metadata: readPageMetadataToolInputSchema,
+  find_backlinks: findBacklinksToolInputSchema,
+  read_revision_history: readRevisionHistoryToolInputSchema,
+  read_revision: readRevisionToolInputSchema,
 } as const;
 
 const confidenceSchema = z.coerce.number().min(0).max(1);
@@ -212,6 +249,16 @@ export const movePageToolInputSchema = z
         path: ["reorderAnchorPageId"],
         message:
           "reorderAnchorPageId is required for before/after reorderIntent",
+      });
+    }
+    if (
+      value.reorderIntent === "explicit" &&
+      value.newSortOrder === undefined
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["newSortOrder"],
+        message: "newSortOrder is required when reorderIntent is 'explicit'",
       });
     }
   });
