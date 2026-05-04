@@ -28,7 +28,7 @@ export function WorkspaceLayout() {
     try {
       const slug = slugify(name);
       const workspace = await wsApi.create({ name, slug });
-      select(workspace);
+      select({ ...workspace, role: workspace.role ?? "owner" });
       navigate("/");
       void refresh();
     } catch (err) {

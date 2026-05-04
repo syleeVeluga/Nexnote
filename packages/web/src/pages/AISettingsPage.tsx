@@ -2,21 +2,26 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import {
+  AlertTriangle,
   Bot,
   CalendarClock,
   ChevronDown,
   Gauge,
+  PauseCircle,
+  PlayCircle,
   RefreshCw,
   RotateCcw,
   Save,
   Settings2,
   ShieldAlert,
   SlidersHorizontal,
+  Trash2,
 } from "lucide-react";
 import {
   AGENT_MODEL_PRESETS_BY_PROVIDER,
   type AgentModelPreset,
   type AIProvider,
+  type AutonomyMode,
   type IngestionMode,
 } from "@wekiflow/shared";
 import { useWorkspace } from "../hooks/use-workspace.js";
@@ -30,6 +35,11 @@ import { Badge, type BadgeTone } from "../components/ui/Badge.js";
 import { IconButton } from "../components/ui/IconButton.js";
 
 const INGESTION_MODES: IngestionMode[] = ["classic", "shadow", "agent"];
+const AUTONOMY_MODES: AutonomyMode[] = [
+  "supervised",
+  "autonomous_shadow",
+  "autonomous",
+];
 const AGENT_PROVIDERS: AIProvider[] = ["openai", "gemini"];
 type ProviderChoice = AIProvider | "inherit";
 
@@ -66,6 +76,20 @@ function parseOptionalIntegerInRange(
   return parsed;
 }
 
+function parseRequiredIntegerInRange(
+  value: string,
+  errorMessage: string,
+  min: number,
+  max: number,
+): number {
+  const trimmed = value.trim();
+  const parsed = Number(trimmed);
+  if (!trimmed || !Number.isInteger(parsed) || parsed < min || parsed > max) {
+    throw new Error(errorMessage);
+  }
+  return parsed;
+}
+
 function parseOptionalPercent(
   value: string,
   errorMessage: string,
@@ -91,6 +115,15 @@ function gateTone(status: AgentDiagnostics["gate"]["status"]): BadgeTone {
   return "warm";
 }
 
+function remainingTimeLabel(until: Date, nowMs: number): string {
+  const remainingMs = Math.max(0, until.getTime() - nowMs);
+  const totalMinutes = Math.ceil(remainingMs / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
 export function AISettingsPage() {
   const { t } = useTranslation(["aiSettings", "common"]);
   const { current, refresh } = useWorkspace();
@@ -113,6 +146,15 @@ export function AISettingsPage() {
   const [scheduledAutoApply, setScheduledAutoApply] = useState(false);
   const [allowDestructiveScheduledAgent, setAllowDestructiveScheduledAgent] =
     useState(false);
+  const [autonomyMode, setAutonomyMode] = useState<AutonomyMode>("supervised");
+  const [
+    autonomyMaxDestructivePerRunInput,
+    setAutonomyMaxDestructivePerRunInput,
+  ] = useState("");
+  const [
+    autonomyMaxDestructivePerDayInput,
+    setAutonomyMaxDestructivePerDayInput,
+  ] = useState("");
   const [scheduledDailyTokenCapInput, setScheduledDailyTokenCapInput] =
     useState("");
   const [scheduledPerRunPageLimitInput, setScheduledPerRunPageLimitInput] =
@@ -121,6 +163,8 @@ export function AISettingsPage() {
   const [diagnostics, setDiagnostics] = useState<AgentDiagnostics | null>(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pauseSaving, setPauseSaving] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -135,6 +179,10 @@ export function AISettingsPage() {
 
   function modeLabel(modeValue: IngestionMode): string {
     return t(`modes.${modeValue}`);
+  }
+
+  function autonomyModeLabel(modeValue: AutonomyMode): string {
+    return t(`autonomy.modes.${modeValue}`);
   }
 
   function providerLabel(provider: ProviderChoice): string {
@@ -194,6 +242,13 @@ export function AISettingsPage() {
     setScheduledEnabled(current.scheduledEnabled);
     setScheduledAutoApply(current.scheduledAutoApply);
     setAllowDestructiveScheduledAgent(current.allowDestructiveScheduledAgent);
+    setAutonomyMode(current.autonomyMode);
+    setAutonomyMaxDestructivePerRunInput(
+      String(current.autonomyMaxDestructivePerRun),
+    );
+    setAutonomyMaxDestructivePerDayInput(
+      String(current.autonomyMaxDestructivePerDay),
+    );
     setScheduledDailyTokenCapInput(
       current.scheduledDailyTokenCap == null
         ? ""
@@ -211,6 +266,11 @@ export function AISettingsPage() {
           ] as AgentModelPreset[]),
     [agentProvider],
   );
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const loadDiagnostics = useCallback(async () => {
     if (!workspaceId || !canManage) return;
@@ -245,6 +305,21 @@ export function AISettingsPage() {
     );
   }, [diagnostics]);
 
+  const destructivePercent = useMemo(() => {
+    const usage = diagnostics?.dailyDestructiveUsage;
+    if (!usage?.cap) return 0;
+    return Math.min(100, Math.round((usage.used / usage.cap) * 100));
+  }, [diagnostics]);
+
+  const pausedUntilDate = current?.autonomyPausedUntil
+    ? new Date(current.autonomyPausedUntil)
+    : null;
+  const autonomyPaused =
+    pausedUntilDate != null && pausedUntilDate.getTime() > nowMs;
+  const pauseRemaining = pausedUntilDate
+    ? remainingTimeLabel(pausedUntilDate, nowMs)
+    : null;
+
   async function save() {
     if (!workspaceId || !canManage) return;
     if (
@@ -263,6 +338,16 @@ export function AISettingsPage() {
     let parityMinTargetPageAgreementRate: number | null;
     let scheduledDailyTokenCap: number | null;
     let scheduledPerRunPageLimit: number | null;
+    let autonomyMaxDestructivePerRun: number;
+    let autonomyMaxDestructivePerDay: number;
+    if (
+      autonomyMode === "autonomous" &&
+      current?.autonomyMode !== "autonomous" &&
+      !gate?.canPromote
+    ) {
+      setError(gate?.reason ?? t("errors.shadowParityNotPassed"));
+      return;
+    }
     try {
       fastThresholdTokens = parseOptionalInteger(
         fastThresholdInput,
@@ -331,6 +416,26 @@ export function AISettingsPage() {
           }),
         );
       }
+      autonomyMaxDestructivePerRun = parseRequiredIntegerInRange(
+        autonomyMaxDestructivePerRunInput,
+        t("errors.integerRange", {
+          field: t("autonomy.fields.perRunCap"),
+          min: 0,
+          max: 100,
+        }),
+        0,
+        100,
+      );
+      autonomyMaxDestructivePerDay = parseRequiredIntegerInRange(
+        autonomyMaxDestructivePerDayInput,
+        t("errors.integerRange", {
+          field: t("autonomy.fields.perDayCap"),
+          min: 0,
+          max: 1000,
+        }),
+        0,
+        1000,
+      );
     } catch (err) {
       setError(
         err instanceof Error ? err.message : t("errors.invalidSettings"),
@@ -358,6 +463,9 @@ export function AISettingsPage() {
         allowDestructiveScheduledAgent: scheduledEnabled
           ? allowDestructiveScheduledAgent
           : false,
+        autonomyMode,
+        autonomyMaxDestructivePerRun,
+        autonomyMaxDestructivePerDay,
         scheduledDailyTokenCap,
         scheduledPerRunPageLimit,
       });
@@ -369,6 +477,28 @@ export function AISettingsPage() {
       setError(err instanceof Error ? err.message : t("errors.saveSettings"));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function setAutonomyPause(paused: boolean) {
+    if (!workspaceId || !canManage) return;
+    setPauseSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const pauseUntil = paused
+        ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        : null;
+      await workspacesApi.pauseAutonomy(workspaceId, pauseUntil);
+      await refresh();
+      await loadDiagnostics();
+      setNowMs(Date.now());
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 1800);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("autonomy.errors.pause"));
+    } finally {
+      setPauseSaving(false);
     }
   }
 
@@ -647,6 +777,175 @@ export function AISettingsPage() {
             defaultValue: "Manage schedules and runs",
           })}
         </Link>
+      </section>
+
+      <section className="ai-settings-panel ai-autonomy-panel">
+        <header className="ai-settings-panel-header">
+          <span className="system-overview-icon" aria-hidden="true">
+            <ShieldAlert size={17} />
+          </span>
+          <div>
+            <h2>{t("autonomy.title")}</h2>
+            <p>{t("autonomy.description")}</p>
+          </div>
+        </header>
+
+        <div className="ai-autonomy-status-row">
+          <div className="ai-mode-control ai-autonomy-mode-control">
+            {AUTONOMY_MODES.map((item) => {
+              const disabled =
+                item === "autonomous" &&
+                current.autonomyMode !== "autonomous" &&
+                !gate?.canPromote;
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  className={autonomyMode === item ? "active" : ""}
+                  onClick={() => setAutonomyMode(item)}
+                  disabled={disabled}
+                  title={disabled && gate ? gateReasonLabel(gate) : undefined}
+                >
+                  {autonomyModeLabel(item)}
+                </button>
+              );
+            })}
+          </div>
+          <Badge tone={autonomyPaused ? "red" : "green"}>
+            {autonomyPaused
+              ? t("autonomy.pausedBadge")
+              : t("autonomy.activeBadge")}
+          </Badge>
+        </div>
+
+        <div className="ai-autonomy-grid">
+          <div className="ai-autonomy-usage">
+            <div className="ai-autonomy-usage-header">
+              <span className="system-overview-icon" aria-hidden="true">
+                <Trash2 size={16} />
+              </span>
+              <div>
+                <strong>{t("autonomy.usage.title")}</strong>
+                <small>
+                  {t("autonomy.usage.reset", {
+                    resetAt: diagnostics?.dailyDestructiveUsage.resetAt
+                      ? new Date(
+                          diagnostics.dailyDestructiveUsage.resetAt,
+                        ).toLocaleString()
+                      : t("values.notApplicable"),
+                  })}
+                </small>
+              </div>
+            </div>
+            <div className="ai-token-meter">
+              <div>
+                <strong>
+                  {(
+                    diagnostics?.dailyDestructiveUsage.used ?? 0
+                  ).toLocaleString()}
+                </strong>
+                <span>
+                  /{" "}
+                  {(
+                    diagnostics?.dailyDestructiveUsage.cap ??
+                    current.autonomyMaxDestructivePerDay
+                  ).toLocaleString()}{" "}
+                  {t("autonomy.operations")}
+                </span>
+              </div>
+              <div
+                className="ai-token-bar ai-destructive-bar"
+                aria-label={t("autonomy.usage.aria")}
+              >
+                <span style={{ width: `${destructivePercent}%` }} />
+              </div>
+              <small>
+                {t("autonomy.usage.remaining", {
+                  count:
+                    diagnostics?.dailyDestructiveUsage.remaining ??
+                    current.autonomyMaxDestructivePerDay,
+                })}
+              </small>
+            </div>
+          </div>
+
+          <div className="ai-kill-switch-card">
+            <div>
+              <strong>
+                {autonomyPaused
+                  ? t("autonomy.killSwitch.pausedTitle")
+                  : t("autonomy.killSwitch.readyTitle")}
+              </strong>
+              <small>
+                {autonomyPaused && pausedUntilDate
+                  ? t("autonomy.killSwitch.pausedBody", {
+                      remaining: pauseRemaining,
+                      until: pausedUntilDate.toLocaleString(),
+                    })
+                  : t("autonomy.killSwitch.readyBody")}
+              </small>
+            </div>
+            <IconButton
+              icon={
+                autonomyPaused ? (
+                  <PlayCircle size={15} />
+                ) : (
+                  <PauseCircle size={15} />
+                )
+              }
+              label={
+                autonomyPaused
+                  ? t("autonomy.killSwitch.resume")
+                  : t("autonomy.killSwitch.pause")
+              }
+              showLabel
+              tone={autonomyPaused ? "primary" : "danger"}
+              onClick={() => void setAutonomyPause(!autonomyPaused)}
+              disabled={pauseSaving}
+            />
+          </div>
+        </div>
+
+        <div className="ai-settings-fields ai-autonomy-cap-fields">
+          <label className="ai-settings-field">
+            <span>{t("autonomy.fields.perRunCap")}</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              inputMode="numeric"
+              value={autonomyMaxDestructivePerRunInput}
+              onChange={(event) =>
+                setAutonomyMaxDestructivePerRunInput(event.target.value)
+              }
+            />
+            <small>{t("autonomy.help.perRunCap")}</small>
+          </label>
+
+          <label className="ai-settings-field">
+            <span>{t("autonomy.fields.perDayCap")}</span>
+            <input
+              type="number"
+              min={0}
+              max={1000}
+              step={1}
+              inputMode="numeric"
+              value={autonomyMaxDestructivePerDayInput}
+              onChange={(event) =>
+                setAutonomyMaxDestructivePerDayInput(event.target.value)
+              }
+            />
+            <small>{t("autonomy.help.perDayCap")}</small>
+          </label>
+        </div>
+
+        {autonomyMode === "autonomous" && !gate?.canPromote ? (
+          <div className="ai-autonomy-warning">
+            <AlertTriangle size={14} aria-hidden="true" />
+            <span>{gate?.reason ?? t("errors.shadowParityNotPassed")}</span>
+          </div>
+        ) : null}
       </section>
 
       <section

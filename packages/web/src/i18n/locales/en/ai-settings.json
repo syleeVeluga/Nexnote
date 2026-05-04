@@ -106,6 +106,43 @@
     },
     "manageLink": "Manage schedules and runs"
   },
+  "autonomy": {
+    "title": "Autonomy",
+    "description": "Control autonomous agent writes, destructive caps, and the workspace kill switch.",
+    "activeBadge": "Runnable",
+    "pausedBadge": "Paused",
+    "operations": "ops",
+    "modes": {
+      "supervised": "Supervised",
+      "autonomous_shadow": "Autonomy shadow",
+      "autonomous": "Autonomous"
+    },
+    "fields": {
+      "perRunCap": "Destructive cap per run",
+      "perDayCap": "Destructive cap per day"
+    },
+    "help": {
+      "perRunCap": "Maximum delete or merge operations inside one agent run. Use 0 to block destructive tools.",
+      "perDayCap": "Workspace-wide daily delete or merge budget. Resets at the next UTC day."
+    },
+    "usage": {
+      "title": "Daily destructive usage",
+      "reset": "Resets at {{resetAt}}",
+      "remaining": "{{count}} remaining today",
+      "aria": "Daily destructive usage"
+    },
+    "killSwitch": {
+      "readyTitle": "Kill switch ready",
+      "readyBody": "Pause autonomous runs for 24 hours. Running agents abort on the next entry check.",
+      "pausedTitle": "Autonomy paused",
+      "pausedBody": "{{remaining}} left, until {{until}}",
+      "pause": "Pause 24h",
+      "resume": "Resume"
+    },
+    "errors": {
+      "pause": "Failed to update autonomy pause state"
+    }
+  },
   "modelRouting": {
     "title": "Model routing",
     "description": "Provider, fast model, large-context model, and threshold.",

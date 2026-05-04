@@ -116,6 +116,16 @@ function startOfUtcDay(now = new Date()): Date {
   );
 }
 
+function nextUtcDay(now = new Date()): Date {
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1),
+  );
+}
+
+function utcDateKey(now = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
 function rowsArray<T extends Record<string, unknown>>(rows: unknown): T[] {
   const arr = (rows as { rows?: T[] }).rows ?? (rows as T[] | undefined) ?? [];
   return Array.isArray(arr) ? arr : [];
@@ -394,10 +404,16 @@ const agentRunRoutes: FastifyPluginAsync = async (fastify) => {
           agentModelLargeContext: workspaces.agentModelLargeContext,
           agentFastThresholdTokens: workspaces.agentFastThresholdTokens,
           agentDailyTokenCap: workspaces.agentDailyTokenCap,
+          autonomyMaxDestructivePerDay: workspaces.autonomyMaxDestructivePerDay,
         })
         .from(workspaces)
         .where(eq(workspaces.id, workspaceId))
         .limit(1);
+
+      const destructiveUsedRaw = await fastify.redis
+        .get(`autonomy:destructive:${workspaceId}:${utcDateKey()}`)
+        .catch(() => null);
+      const destructiveUsed = Number.parseInt(destructiveUsedRaw ?? "0", 10);
 
       const a = aggregateRows[0] ?? {};
       const dailyCap = parsePositiveInt(
@@ -474,6 +490,16 @@ const agentRunRoutes: FastifyPluginAsync = async (fastify) => {
             0,
             effectiveDailyCap - Number(tokenRow?.used ?? 0),
           ),
+        },
+        dailyDestructiveUsage: {
+          used: Number.isFinite(destructiveUsed) ? destructiveUsed : 0,
+          cap: workspaceSettings?.autonomyMaxDestructivePerDay ?? 20,
+          remaining: Math.max(
+            0,
+            (workspaceSettings?.autonomyMaxDestructivePerDay ?? 20) -
+              (Number.isFinite(destructiveUsed) ? destructiveUsed : 0),
+          ),
+          resetAt: nextUtcDay().toISOString(),
         },
         agentSettings: {
           provider: workspaceSettings?.agentProvider ?? null,

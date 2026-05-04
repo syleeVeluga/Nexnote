@@ -106,6 +106,43 @@
     },
     "manageLink": "일정 및 실행 관리"
   },
+  "autonomy": {
+    "title": "자율 에이전트",
+    "description": "자율 쓰기, 삭제/병합 한도, 워크스페이스 긴급 정지를 제어합니다.",
+    "activeBadge": "실행 가능",
+    "pausedBadge": "일시 정지",
+    "operations": "회",
+    "modes": {
+      "supervised": "감독 모드",
+      "autonomous_shadow": "자율 점검",
+      "autonomous": "자율 실행"
+    },
+    "fields": {
+      "perRunCap": "실행당 삭제/병합 한도",
+      "perDayCap": "일일 삭제/병합 한도"
+    },
+    "help": {
+      "perRunCap": "한 agent run 안에서 허용할 삭제 또는 병합 작업 수입니다. 0이면 삭제/병합 도구를 막습니다.",
+      "perDayCap": "워크스페이스 전체의 일일 삭제 또는 병합 예산입니다. 다음 UTC 날짜에 초기화됩니다."
+    },
+    "usage": {
+      "title": "일일 삭제/병합 사용량",
+      "reset": "{{resetAt}} 초기화",
+      "remaining": "오늘 {{count}}회 남음",
+      "aria": "일일 삭제/병합 사용량"
+    },
+    "killSwitch": {
+      "readyTitle": "긴급 정지 준비됨",
+      "readyBody": "자율 실행을 24시간 일시 정지합니다. 실행 중인 에이전트는 다음 진입 체크에서 중단됩니다.",
+      "pausedTitle": "자율 실행 일시 정지됨",
+      "pausedBody": "{{remaining}} 남음, {{until}}까지",
+      "pause": "24시간 정지",
+      "resume": "재개"
+    },
+    "errors": {
+      "pause": "자율 실행 일시 정지 상태를 업데이트하지 못했습니다"
+    }
+  },
   "modelRouting": {
     "title": "모델 라우팅",
     "description": "프로바이더, 빠른 모델, 대용량 컨텍스트 모델, 기준 토큰 수를 설정합니다.",

@@ -475,10 +475,7 @@ export const scheduledAgent = {
       `/workspaces/${workspaceId}/scheduled-runs${q}`,
     );
   },
-  listTasks(
-    workspaceId: string,
-    params?: { limit?: number; offset?: number },
-  ) {
+  listTasks(workspaceId: string, params?: { limit?: number; offset?: number }) {
     const q = buildQuery({ limit: params?.limit, offset: params?.offset });
     return request<{
       data: ScheduledTask[];
@@ -1331,6 +1328,12 @@ export interface AgentDiagnostics {
     used: number;
     cap: number;
     remaining: number;
+  };
+  dailyDestructiveUsage: {
+    used: number;
+    cap: number;
+    remaining: number;
+    resetAt: string;
   };
   agentSettings: {
     provider: AIProvider | null;

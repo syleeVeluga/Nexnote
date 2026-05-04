@@ -639,6 +639,84 @@
   background: var(--wf-color-blue);
 }
 
+.ai-destructive-bar span {
+  background: var(--wf-color-red);
+}
+
+.ai-autonomy-status-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--wf-space-3);
+}
+
+.ai-autonomy-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(280px, 1.1fr);
+  gap: var(--wf-space-3);
+}
+
+.ai-autonomy-usage,
+.ai-kill-switch-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--wf-space-3);
+  padding: 12px;
+  border: 1px solid var(--wf-color-border);
+  border-radius: var(--wf-radius-md);
+  background: var(--wf-color-bg-soft);
+}
+
+.ai-autonomy-usage-header {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--wf-space-3);
+}
+
+.ai-autonomy-usage-header strong,
+.ai-kill-switch-card strong {
+  display: block;
+  color: var(--wf-color-ink);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.ai-autonomy-usage-header small,
+.ai-kill-switch-card small,
+.ai-autonomy-usage .ai-token-meter small {
+  color: var(--wf-color-ink-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.ai-kill-switch-card {
+  justify-content: space-between;
+}
+
+.ai-kill-switch-card .ui-icon-button {
+  align-self: flex-start;
+}
+
+.ai-autonomy-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid rgba(192, 57, 43, 0.18);
+  border-radius: var(--wf-radius-md);
+  background: var(--wf-color-red-bg);
+  color: var(--wf-color-red);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-autonomy-warning svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
 .ai-settings-fields {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1244,11 +1322,17 @@
 }
 
 .scheduled-table-row {
-  grid-template-columns: 92px minmax(150px, 1fr) minmax(130px, 0.7fr) 86px minmax(170px, 1fr) 108px;
+  grid-template-columns: 92px minmax(150px, 1fr) minmax(
+      130px,
+      0.7fr
+    ) 86px minmax(170px, 1fr) 108px;
 }
 
 .scheduled-runs-row {
-  grid-template-columns: 86px minmax(120px, 0.9fr) 96px 82px 96px 74px minmax(170px, 1fr) 78px 58px;
+  grid-template-columns: 86px minmax(120px, 0.9fr) 96px 82px 96px 74px minmax(
+      170px,
+      1fr
+    ) 78px 58px;
 }
 
 .scheduled-table-row:last-child,
@@ -1540,7 +1624,9 @@
 
   .ai-settings-fields,
   .ai-model-diagnostics,
-  .ai-scheduled-settings-fields {
+  .ai-scheduled-settings-fields,
+  .ai-autonomy-grid,
+  .ai-autonomy-cap-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1579,6 +1665,12 @@
   .ai-mismatch-row,
   .scheduled-task-form-grid,
   .scheduled-check-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-autonomy-status-row,
+  .ai-autonomy-grid,
+  .ai-autonomy-cap-fields {
     grid-template-columns: 1fr;
   }
 

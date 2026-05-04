@@ -248,7 +248,10 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
           return ws;
         });
 
-        return reply.code(201).send(toWorkspaceDto(workspace));
+        return reply.code(201).send({
+          ...toWorkspaceDto(workspace),
+          role: "owner",
+        });
       } catch (err: unknown) {
         if (isUniqueViolation(err)) {
           throw fastify.httpErrors.conflict(
