@@ -13,6 +13,7 @@ import {
   type AIToolDefinition,
   type AgentMutateToolName,
   type AgentPlanMutation,
+  type AutonomyMode,
   type IngestionAgentPlan,
   type ModelRunStatus,
   type NormalizedToolCall,
@@ -79,13 +80,14 @@ Tool argument contracts:
 - update_page: { pageId, newContentMd, confidence, reason }
 - append_to_page: { pageId, contentMd, sectionHint?, confidence, reason }
 - create_page: { title, contentMd, parentFolderId?, parentPageId?, confidence, reason }
-- delete_page: { pageId, confidence, reason } (Scheduled reorganize mode only; auto-applies and permanently removes the page subtree)
-- merge_pages: { canonicalPageId, sourcePageIds, mergedContentMd, confidence, reason } (Scheduled reorganize mode only; auto-applies and permanently removes source page subtrees)
+- delete_page: { pageId, confidence, reason } (Scheduled reorganize or autonomous workspace mode only; permanently removes the page subtree when auto-applied)
+- merge_pages: { canonicalPageId, sourcePageIds, mergedContentMd, confidence, reason } (Scheduled reorganize or autonomous workspace mode only; permanently removes source page subtrees when auto-applied)
 - noop: { reason, confidence? }
 - request_human_review: { reason, suggestedAction?, suggestedPageIds?, confidence? } where suggestedAction must be one of "create", "update", "append", "delete", "merge", "noop", "needs_review"; put free-form guidance in reason, not suggestedAction.
 
 Use update_page only when a narrower tool cannot represent the change. Never invent page IDs or block IDs.
-Use delete_page and merge_pages only for scheduled wiki reorganization. If this is not scheduled mode, request human review instead.
+Use delete_page and merge_pages only for scheduled wiki reorganization or autonomous workspace mode. If neither mode applies, request human review instead.
+In autonomous workspace mode, delete_page and merge_pages may be used for high-confidence ingestion cleanup when the target pages were observed in this run. In autonomous_shadow mode, plan the same tool you would use autonomously, but it will be queued for human review.
 
 Return only JSON with this exact shape:
 {
@@ -174,6 +176,9 @@ export interface RunIngestionAgentShadowInput {
   scheduledRunId?: string | null;
   scheduledAutoApply?: boolean;
   allowDestructiveScheduledAgent?: boolean;
+  autonomyMode?: AutonomyMode;
+  autonomyMaxDestructivePerRun?: number;
+  consumeDestructiveDailyOperation?: CreateMutateToolsInput["consumeDestructiveDailyOperation"];
   adapter?: AIAdapter;
   baseProvider?: AIProvider;
   baseModel?: string;
@@ -700,6 +705,9 @@ async function executeMutations(input: {
   scheduledRunId?: RunIngestionAgentShadowInput["scheduledRunId"];
   scheduledAutoApply?: RunIngestionAgentShadowInput["scheduledAutoApply"];
   allowDestructiveScheduledAgent?: RunIngestionAgentShadowInput["allowDestructiveScheduledAgent"];
+  autonomyMode?: RunIngestionAgentShadowInput["autonomyMode"];
+  autonomyMaxDestructivePerRun?: RunIngestionAgentShadowInput["autonomyMaxDestructivePerRun"];
+  consumeDestructiveDailyOperation?: CreateMutateToolsInput["consumeDestructiveDailyOperation"];
   ingestionText: string;
   plan: IngestionAgentPlan;
   state: AgentRunState;
@@ -722,6 +730,9 @@ async function executeMutations(input: {
     scheduledRunId: input.scheduledRunId,
     scheduledAutoApply: input.scheduledAutoApply,
     allowDestructiveScheduledAgent: input.allowDestructiveScheduledAgent,
+    autonomyMode: input.autonomyMode,
+    autonomyMaxDestructivePerRun: input.autonomyMaxDestructivePerRun,
+    consumeDestructiveDailyOperation: input.consumeDestructiveDailyOperation,
     ...input.mutationQueues,
   };
   const tools =
@@ -1412,6 +1423,9 @@ export async function runIngestionAgentShadow(
     scheduledRunId: input.scheduledRunId,
     scheduledAutoApply: input.scheduledAutoApply,
     allowDestructiveScheduledAgent: input.allowDestructiveScheduledAgent,
+    autonomyMode: input.autonomyMode,
+    autonomyMaxDestructivePerRun: input.autonomyMaxDestructivePerRun,
+    consumeDestructiveDailyOperation: input.consumeDestructiveDailyOperation,
     ingestionText,
     plan: parsed.plan,
     state: dispatcher.state,

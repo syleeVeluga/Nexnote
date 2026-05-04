@@ -54,6 +54,24 @@ export const workspaces = pgTable(
     )
       .notNull()
       .default(false),
+    autonomyMode: text("autonomy_mode").notNull().default("supervised"),
+    autonomyPromotedAt: timestamp("autonomy_promoted_at", {
+      withTimezone: true,
+    }),
+    autonomyPromotedBy: uuid("autonomy_promoted_by").references(() => users.id),
+    autonomyPausedUntil: timestamp("autonomy_paused_until", {
+      withTimezone: true,
+    }),
+    autonomyMaxDestructivePerRun: integer(
+      "autonomy_max_destructive_per_run",
+    )
+      .notNull()
+      .default(3),
+    autonomyMaxDestructivePerDay: integer(
+      "autonomy_max_destructive_per_day",
+    )
+      .notNull()
+      .default(20),
     scheduledDailyTokenCap: integer("scheduled_daily_token_cap"),
     scheduledPerRunPageLimit: integer("scheduled_per_run_page_limit")
       .notNull()
@@ -105,6 +123,18 @@ export const workspaces = pgTable(
     check(
       "workspaces_scheduled_daily_token_cap_chk",
       sql`${t.scheduledDailyTokenCap} IS NULL OR ${t.scheduledDailyTokenCap} > 0`,
+    ),
+    check(
+      "workspaces_autonomy_mode_chk",
+      sql`${t.autonomyMode} IN ('supervised','autonomous_shadow','autonomous')`,
+    ),
+    check(
+      "workspaces_autonomy_max_destructive_per_run_chk",
+      sql`${t.autonomyMaxDestructivePerRun} >= 0`,
+    ),
+    check(
+      "workspaces_autonomy_max_destructive_per_day_chk",
+      sql`${t.autonomyMaxDestructivePerDay} >= 0`,
     ),
     check(
       "workspaces_scheduled_per_run_page_limit_chk",

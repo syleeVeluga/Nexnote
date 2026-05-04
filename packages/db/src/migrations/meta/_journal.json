@@ -148,6 +148,13 @@
       "when": 1778090400000,
       "tag": "0020_scheduled_destructive_v2",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1778176800000,
+      "tag": "0021_agent_autonomy",
+      "breakpoints": true
     }
   ]
 }

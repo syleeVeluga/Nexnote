@@ -14,6 +14,7 @@ import {
   extractIngestionText,
   QUEUE_NAMES,
   AGENT_LIMITS,
+  type AutonomyMode,
   type IngestionAgentJobData,
   type IngestionAgentJobResult,
   type AgentRunDto,
@@ -137,6 +138,46 @@ function workspaceTokenReservationKey(
   now = new Date(),
 ): string {
   return `agent-runs:tokens:${workspaceId}:${now.toISOString().slice(0, 10)}`;
+}
+
+function utcDateKey(now = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
+function secondsUntilNextUtcDay(now = new Date()): number {
+  return Math.max(1, Math.ceil(msUntilNextUtcDay(now) / 1000));
+}
+
+export async function consumeWorkspaceAutonomyDestructiveLimit(
+  redis: ReturnType<typeof createRedisConnection>,
+  input: {
+    workspaceId: string;
+    limit: number;
+  },
+): Promise<void> {
+  const limit = Math.max(0, Math.floor(input.limit));
+  if (limit <= 0) {
+    throw new Error("Workspace autonomous destructive daily cap reached");
+  }
+  const key = `autonomy:destructive:${input.workspaceId}:${utcDateKey()}`;
+  try {
+    const count = await redis.incr(key);
+    await redis.expire(key, secondsUntilNextUtcDay());
+    if (count > limit) {
+      throw new Error(
+        `Workspace autonomous destructive daily cap reached (${limit})`,
+      );
+    }
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      err.message.includes("daily cap reached")
+    ) {
+      throw err;
+    }
+    // Fail open on Redis outages. The worker queues already depend on Redis,
+    // and a transient counter failure should not strand a run mid-execution.
+  }
 }
 
 const RESERVE_WORKSPACE_TOKENS_LUA = `
@@ -398,6 +439,12 @@ export function createIngestionAgentWorker(): Worker {
           agentModelLargeContext: workspaces.agentModelLargeContext,
           agentFastThresholdTokens: workspaces.agentFastThresholdTokens,
           agentDailyTokenCap: workspaces.agentDailyTokenCap,
+          autonomyMode: workspaces.autonomyMode,
+          autonomyPausedUntil: workspaces.autonomyPausedUntil,
+          autonomyMaxDestructivePerRun:
+            workspaces.autonomyMaxDestructivePerRun,
+          autonomyMaxDestructivePerDay:
+            workspaces.autonomyMaxDestructivePerDay,
         })
         .from(workspaces)
         .where(eq(workspaces.id, workspaceId))
@@ -406,6 +453,14 @@ export function createIngestionAgentWorker(): Worker {
       if (!workspace) {
         throw new Error(`Workspace ${workspaceId} not found`);
       }
+      const jobAutonomyMode = job.data.autonomyMode;
+      const effectiveAutonomyMode =
+        jobAutonomyMode ??
+        (workspace.autonomyMode as AutonomyMode) ??
+        "supervised";
+      const effectiveAutonomyMaxDestructivePerRun =
+        job.data.autonomyMaxDestructivePerRun ??
+        workspace.autonomyMaxDestructivePerRun;
 
       const [existingComplete] = await db
         .select()
@@ -477,6 +532,52 @@ export function createIngestionAgentWorker(): Worker {
         type: "snapshot",
         agentRun: toAgentRunDto(agentRun),
       });
+
+      if (
+        workspace.autonomyPausedUntil &&
+        workspace.autonomyPausedUntil > new Date()
+      ) {
+        const [pausedRun] = await db
+          .update(agentRuns)
+          .set({
+            status: "paused",
+            stepsJson: [
+              {
+                step: 0,
+                type: "error",
+                ts: new Date().toISOString(),
+                payload: {
+                  message: "Workspace autonomy is paused",
+                  pausedUntil: workspace.autonomyPausedUntil.toISOString(),
+                },
+              },
+            ],
+            completedAt: new Date(),
+          })
+          .where(eq(agentRuns.id, agentRun.id))
+          .returning();
+        if (pausedRun) {
+          await publishAgentRunEvent(tracePublisher, agentRun.id, {
+            type: "status",
+            agentRun: toAgentRunDto(pausedRun),
+          });
+        }
+        if (runMode === "agent") {
+          await db
+            .update(ingestions)
+            .set({ status: "failed", processedAt: new Date() })
+            .where(eq(ingestions.id, ingestionId));
+        }
+        await job.updateProgress(100);
+        return {
+          ingestionId,
+          agentRunId: agentRun.id,
+          status: "paused",
+          proposedMutations: 0,
+          totalTokens: 0,
+        };
+      }
+
       let stepFlush = Promise.resolve();
       const emitLiveStep = (step: AgentRunTraceStep): Promise<void> => {
         stepFlush = stepFlush
@@ -565,6 +666,16 @@ export function createIngestionAgentWorker(): Worker {
           mode: runMode,
           agentRunId: agentRun.id,
           workspaceAgentInstructions: workspace.agentInstructions,
+          autonomyMode: effectiveAutonomyMode,
+          autonomyMaxDestructivePerRun: effectiveAutonomyMaxDestructivePerRun,
+          consumeDestructiveDailyOperation:
+            effectiveAutonomyMode === "autonomous"
+              ? () =>
+                  consumeWorkspaceAutonomyDestructiveLimit(tracePublisher, {
+                    workspaceId,
+                    limit: workspace.autonomyMaxDestructivePerDay,
+                  })
+              : undefined,
           workspaceTokenUsage: {
             usedToday: workspaceTokensUsedToday,
             cap: effectiveWorkspaceDailyTokenCap,

@@ -25,12 +25,20 @@ export type IngestionStatus = (typeof INGESTION_STATUSES)[number];
 export const INGESTION_MODES = ["classic", "shadow", "agent"] as const;
 export type IngestionMode = (typeof INGESTION_MODES)[number];
 
+export const AUTONOMY_MODES = [
+  "supervised",
+  "autonomous_shadow",
+  "autonomous",
+] as const;
+export type AutonomyMode = (typeof AUTONOMY_MODES)[number];
+
 export const AGENT_RUN_STATUSES = [
   "running",
   "completed",
   "failed",
   "timeout",
   "shadow",
+  "paused",
 ] as const;
 export type AgentRunStatus = (typeof AGENT_RUN_STATUSES)[number];
 
