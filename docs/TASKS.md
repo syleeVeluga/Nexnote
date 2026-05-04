@@ -3,7 +3,7 @@
 > **Snapshot:** 2026-05-01
 > **North-star goal:** External signals flow in continuously; the wiki stays automatically up-to-date under human supervision. AI classifies/merges/deduplicates; humans review/correct/approve.
 >
-> **Status of the core loop** — see [CLAUDE.md](../CLAUDE.md#current-implementation-status-snapshot-2026-05-01-docs-reviewed). The ingest/classify/apply path works, AGENT-1~7 + AGENT-4.5 and AGENT-8 start (tool-calling ingestion agent backend, parity gate, mutate tier 1·2·3, settings UI, fan-out review surfaces, pre-promotion hardening) have landed, and Scheduled Agent now has backend worker/API, settings UI, cron task UI, manual/folder triggers, and live trace viewing. Remaining trust gaps are conflict breadth (concurrent ingestions / triple contradictions), Scheduled Agent review-origin surfacing, API-token management, sidebar/digest surfacing, parity observation, and eventual classic retirement.
+> **Status of the core loop** — see [AGENTS.md](../AGENTS.md#current-state--next-direction). The ingest/classify/apply path works, AGENT-1~7 + AGENT-4.5 and AGENT-8 start (tool-calling ingestion agent backend, parity gate, mutate tier 1·2·3, settings UI, fan-out review surfaces, pre-promotion hardening) have landed, and Scheduled Agent now has backend worker/API, settings UI, cron task UI, manual/folder triggers, and live trace viewing. Remaining trust gaps are conflict breadth (concurrent ingestions / triple contradictions), Scheduled Agent review-origin surfacing, API-token management, sidebar/digest surfacing, parity observation, and eventual classic retirement.
 
 Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH] / [MED] / [LOW]** marks urgency toward the goal.
 
