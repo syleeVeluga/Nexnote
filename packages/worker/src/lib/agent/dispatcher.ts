@@ -90,9 +90,16 @@ function observeResult(state: AgentRunState, result: AgentToolResult): void {
   for (const blockId of result.observedBlockIds ?? []) {
     state.seenBlockIds.add(blockId);
   }
+  for (const folderId of result.observedFolderIds ?? []) {
+    state.seenFolderIds.add(folderId);
+  }
   for (const pageId of result.createdPageIds ?? []) {
     state.createdPageIds.add(pageId);
     state.seenPageIds.add(pageId);
+  }
+  for (const folderId of result.createdFolderIds ?? []) {
+    state.createdFolderIds.add(folderId);
+    state.seenFolderIds.add(folderId);
   }
   for (const pageId of result.mutatedPageIds ?? []) {
     state.mutatedPageIds.add(pageId);

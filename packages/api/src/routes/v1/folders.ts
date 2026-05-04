@@ -17,7 +17,10 @@ import {
   ADMIN_PLUS_ROLES,
   workspaceParamsSchema,
 } from "../../lib/workspace-auth.js";
-import { sendValidationError, isUniqueViolation } from "../../lib/reply-helpers.js";
+import {
+  sendValidationError,
+  isUniqueViolation,
+} from "../../lib/reply-helpers.js";
 import {
   getNextFolderSortOrder,
   loadFolderHierarchyRow,
@@ -28,6 +31,7 @@ import {
   ReorderFailedError,
   type FolderParent,
 } from "../../lib/reorder.js";
+import { createFolder, PageStructureError } from "../../lib/create-folder.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -73,131 +77,102 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
   // -----------------------------------------------------------------------
   // POST / — Create folder
   // -----------------------------------------------------------------------
-  fastify.post(
-    "/",
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      const paramsResult = workspaceParamsSchema.safeParse(request.params);
-      if (!paramsResult.success) {
-        return sendValidationError(reply, paramsResult.error.issues);
-      }
-      const { workspaceId } = paramsResult.data;
+  fastify.post("/", async (request: FastifyRequest, reply: FastifyReply) => {
+    const paramsResult = workspaceParamsSchema.safeParse(request.params);
+    if (!paramsResult.success) {
+      return sendValidationError(reply, paramsResult.error.issues);
+    }
+    const { workspaceId } = paramsResult.data;
 
-      const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
-      if (!role) return forbidden(reply);
-      if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
+    const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
+    if (!role) return forbidden(reply);
+    if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
 
-      const bodyResult = createFolderSchema.safeParse(request.body);
-      if (!bodyResult.success) {
-        return sendValidationError(reply, bodyResult.error.issues);
-      }
+    const bodyResult = createFolderSchema.safeParse(request.body);
+    if (!bodyResult.success) {
+      return sendValidationError(reply, bodyResult.error.issues);
+    }
 
-      const { name, slug, parentFolderId, sortOrder } = bodyResult.data;
+    const { name, slug, parentFolderId, sortOrder } = bodyResult.data;
 
-      if (parentFolderId) {
-        const parentValidation = await validateParentFolderAssignment(
-          (id) => loadFolderHierarchyRow(fastify.db, id),
-          { workspaceId, parentFolderId },
-        );
-        if (parentValidation) {
-          return reply
-            .code(parentValidation.statusCode)
-            .send(parentValidation.body);
-        }
-      }
+    try {
+      const folder = await createFolder({
+        db: fastify.db,
+        workspaceId,
+        actorUserId: request.user.sub,
+        name,
+        slug,
+        parentFolderId,
+        sortOrder,
+      });
 
-      try {
-        const folder = await fastify.db.transaction(async (tx) => {
-          const [row] = await tx
-            .insert(folders)
-            .values({
-              workspaceId,
-              parentFolderId,
-              name,
-              slug,
-              sortOrder,
-            })
-            .returning();
-
-          await tx.insert(auditLogs).values({
-            workspaceId,
-            userId: request.user.sub,
-            entityType: "folder",
-            entityId: row.id,
-            action: "folder.create",
-            afterJson: { name, slug, parentFolderId },
-          });
-
-          return row;
+      return reply.code(201).send({ data: toFolderDto(folder) });
+    } catch (err: unknown) {
+      if (err instanceof PageStructureError) {
+        return reply.code(err.statusCode).send({
+          error: err.message,
+          code: err.errorCode,
         });
-
-        return reply.code(201).send({ data: toFolderDto(folder) });
-      } catch (err: unknown) {
-        if (isUniqueViolation(err)) {
-          return reply.code(409).send({
-            error: "A folder with this slug already exists in the same parent",
-            code: ERROR_CODES.SLUG_CONFLICT,
-          });
-        }
-        throw err;
       }
-    },
-  );
+      if (isUniqueViolation(err)) {
+        return reply.code(409).send({
+          error: "A folder with this slug already exists in the same parent",
+          code: ERROR_CODES.SLUG_CONFLICT,
+        });
+      }
+      throw err;
+    }
+  });
 
   // -----------------------------------------------------------------------
   // GET / — List folders in workspace
   // -----------------------------------------------------------------------
-  fastify.get(
-    "/",
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      const paramsResult = workspaceParamsSchema.safeParse(request.params);
-      if (!paramsResult.success) {
-        return sendValidationError(reply, paramsResult.error.issues);
+  fastify.get("/", async (request: FastifyRequest, reply: FastifyReply) => {
+    const paramsResult = workspaceParamsSchema.safeParse(request.params);
+    if (!paramsResult.success) {
+      return sendValidationError(reply, paramsResult.error.issues);
+    }
+    const { workspaceId } = paramsResult.data;
+
+    const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
+    if (!role) return forbidden(reply);
+
+    const queryResult = listQuerySchema.safeParse(request.query);
+    if (!queryResult.success) {
+      return sendValidationError(reply, queryResult.error.issues);
+    }
+
+    const { limit, offset, parentFolderId } = queryResult.data;
+
+    // Build the where clause
+    const conditions = [eq(folders.workspaceId, workspaceId)];
+
+    if (parentFolderId !== undefined) {
+      if (parentFolderId === null) {
+        conditions.push(isNull(folders.parentFolderId));
+      } else {
+        conditions.push(eq(folders.parentFolderId, parentFolderId));
       }
-      const { workspaceId } = paramsResult.data;
+    }
 
-      const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
-      if (!role) return forbidden(reply);
+    const where = and(...conditions);
 
-      const queryResult = listQuerySchema.safeParse(request.query);
-      if (!queryResult.success) {
-        return sendValidationError(reply, queryResult.error.issues);
-      }
+    const [data, [{ total }]] = await Promise.all([
+      fastify.db
+        .select()
+        .from(folders)
+        .where(where)
+        .orderBy(folders.sortOrder)
+        .limit(limit)
+        .offset(offset),
+      fastify.db.select({ total: count() }).from(folders).where(where),
+    ]);
 
-      const { limit, offset, parentFolderId } = queryResult.data;
-
-      // Build the where clause
-      const conditions = [eq(folders.workspaceId, workspaceId)];
-
-      if (parentFolderId !== undefined) {
-        if (parentFolderId === null) {
-          conditions.push(isNull(folders.parentFolderId));
-        } else {
-          conditions.push(eq(folders.parentFolderId, parentFolderId));
-        }
-      }
-
-      const where = and(...conditions);
-
-      const [data, [{ total }]] = await Promise.all([
-        fastify.db
-          .select()
-          .from(folders)
-          .where(where)
-          .orderBy(folders.sortOrder)
-          .limit(limit)
-          .offset(offset),
-        fastify.db
-          .select({ total: count() })
-          .from(folders)
-          .where(where),
-      ]);
-
-      return reply.code(200).send({
-        data: data.map(toFolderDto),
-        total,
-      });
-    },
-  );
+    return reply.code(200).send({
+      data: data.map(toFolderDto),
+      total,
+    });
+  });
 
   // -----------------------------------------------------------------------
   // GET /:folderId — Get single folder
@@ -211,7 +186,11 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { workspaceId, folderId } = paramsResult.data;
 
-      const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
       if (!role) return forbidden(reply);
 
       const [folder] = await fastify.db
@@ -245,7 +224,11 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { workspaceId, folderId } = paramsResult.data;
 
-      const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
       if (!role) return forbidden(reply);
       if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
 
@@ -421,7 +404,11 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { workspaceId, folderId } = paramsResult.data;
 
-      const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
       if (!role) return forbidden(reply);
       if (!ADMIN_PLUS_ROLES.includes(role)) return insufficientRole(reply);
 
@@ -469,7 +456,11 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { workspaceId, folderId } = paramsResult.data;
 
-      const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
       if (!role) return forbidden(reply);
       if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
 

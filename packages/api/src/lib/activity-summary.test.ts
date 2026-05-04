@@ -63,6 +63,31 @@ describe("deriveActivitySummary", () => {
       "Agent ran for ingestion Slack - 3 mutations proposed (1 auto-applied, 2 queued)",
     );
   });
+
+  it("labels agent reorganization actions", () => {
+    assert.equal(
+      deriveActivitySummary({
+        action: "agent.move_page",
+        entityType: "page",
+        afterJson: { tool: "move_page" },
+        beforeJson: null,
+        revisionNote: null,
+        changedBlocks: null,
+      }),
+      "AI moved the page",
+    );
+    assert.equal(
+      deriveActivitySummary({
+        action: "agent.create_folder",
+        entityType: "folder",
+        afterJson: { name: "Research" },
+        beforeJson: null,
+        revisionNote: null,
+        changedBlocks: null,
+      }),
+      'AI created folder "Research"',
+    );
+  });
 });
 
 describe("readNumber", () => {

@@ -714,6 +714,10 @@ async function listFolder(
     data: result,
     observedPageIds: result.pages.map((page) => page.id),
     observedPageRevisions: observedPageRevisions(result.pages),
+    observedFolderIds: [
+      ...(folderId ? [folderId] : []),
+      ...result.folders.map((folder) => folder.id),
+    ],
   };
 }
 

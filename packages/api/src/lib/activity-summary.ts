@@ -90,8 +90,18 @@ export function deriveActivitySummary(
   if (input.action === "publish") return "Published a live snapshot";
   if (input.action === "unpublish") return "Unpublished live snapshot";
   if (input.action === "rollback") return "Created a rollback revision";
+  if (input.entityType === "page" && input.action === "agent.move_page") {
+    return "AI moved the page";
+  }
+  if (input.entityType === "page" && input.action === "agent.rename_page") {
+    return "AI renamed the page";
+  }
   if (input.action === "reextract_enqueued") {
     return "Queued graph re-extraction after moving the page";
+  }
+  if (input.entityType === "folder" && input.action === "agent.create_folder") {
+    const name = readString(after?.name);
+    return name ? `AI created folder "${name}"` : "AI created folder";
   }
   if (input.entityType === "folder" && input.action === "folder.create") {
     const name = readString(after?.name);
