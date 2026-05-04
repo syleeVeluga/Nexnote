@@ -11,6 +11,7 @@ export interface AgentRunState {
   seenPageIds: Set<string>;
   seenBlockIds: Set<string>;
   seenFolderIds: Set<string>;
+  seenRevisionIds: Set<string>;
   observedPageRevisionIds: Map<string, string | null>;
   createdPageIds: Set<string>;
   createdFolderIds: Set<string>;
@@ -38,6 +39,7 @@ export interface AgentToolResult<T = unknown> {
   }>;
   observedBlockIds?: string[];
   observedFolderIds?: string[];
+  observedRevisionIds?: string[];
   createdPageIds?: string[];
   createdFolderIds?: string[];
   mutatedPageIds?: string[];
@@ -133,6 +135,7 @@ export function createAgentRunState(): AgentRunState {
     seenPageIds: new Set<string>(),
     seenBlockIds: new Set<string>(),
     seenFolderIds: new Set<string>(),
+    seenRevisionIds: new Set<string>(),
     observedPageRevisionIds: new Map<string, string | null>(),
     createdPageIds: new Set<string>(),
     createdFolderIds: new Set<string>(),

@@ -55,7 +55,12 @@ Never invent page IDs. Only refer to pages that tools returned. Do not propose o
 Before proposing a new page, actively rule out duplication:
 - Search by title hint, source-specific nouns, and canonical entity names.
 - If search_pages returns weak or empty results, use list_recent_pages, list_folder, or find_related_entities before assuming create.
-- When the same read tool arguments are repeated and the dispatcher returns a cached result, refine the query or continue planning instead of repeating the same call.`;
+- When the same read tool arguments are repeated and the dispatcher returns a cached result, refine the query or continue planning instead of repeating the same call.
+
+Pick the lightest read tool for the question:
+- read_page_metadata when you only need title, parent path, frontmatter, or timestamps. Saves tokens vs full read_page.
+- find_backlinks before proposing delete_page or merge_pages — evaluate dependencies first.
+- read_revision_history + read_revision when self-correcting (e.g. before rollback_to_revision). Read history first so the revision is observed for this run.`;
 
 const PLAN_SYSTEM_PROMPT = `You are planning wiki maintenance mutations for WekiFlow.
 Use the ingestion and read-only context to propose exact wiki changes.
@@ -387,6 +392,61 @@ function readToolDefinitions(): AIToolDefinition[] {
         additionalProperties: false,
       },
     },
+    {
+      name: "read_page_metadata",
+      description:
+        "Return lightweight metadata for a page (title, parent path, frontmatter, timestamps, child count, publish status, open suggestions). Use instead of read_page for triage.",
+      parameters: {
+        type: "object",
+        properties: {
+          pageId: { type: "string", format: "uuid" },
+        },
+        required: ["pageId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "find_backlinks",
+      description:
+        "ILIKE-scan the workspace for pages whose latest revision references the target page by wikilink or markdown link. Use before delete_page or merge_pages to evaluate dependencies.",
+      parameters: {
+        type: "object",
+        properties: {
+          pageId: { type: "string", format: "uuid" },
+          limit: { type: "integer", minimum: 1, maximum: 100 },
+        },
+        required: ["pageId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "read_revision_history",
+      description:
+        "List recent revisions for a page (newest first) with actor, source, and changed-block counts.",
+      parameters: {
+        type: "object",
+        properties: {
+          pageId: { type: "string", format: "uuid" },
+          limit: { type: "integer", minimum: 1, maximum: 50 },
+        },
+        required: ["pageId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "read_revision",
+      description:
+        "Read a single revision (content + diff). The revision must come from a page or revision history this run already observed.",
+      parameters: {
+        type: "object",
+        properties: {
+          revisionId: { type: "string", format: "uuid" },
+          includeContent: { type: "boolean" },
+        },
+        required: ["revisionId"],
+        additionalProperties: false,
+      },
+    },
   ];
 }
 
@@ -452,11 +512,14 @@ function stringifyToolMessage(execution: AgentToolExecution): string {
   return JSON.stringify(compactJson(payload, 200_000));
 }
 
+const HEAVY_READ_TOOLS = new Set(["read_page", "read_revision"]);
+
 function executionToContextBlock(
   execution: AgentToolExecution,
   index: number,
 ): AgentContextBlock | null {
   if (!execution.ok) return null;
+  const isHeavy = HEAVY_READ_TOOLS.has(execution.name);
   return {
     key: `tool_${index}_${execution.name}`,
     label: `${execution.name}#${index}`,
@@ -469,8 +532,8 @@ function executionToContextBlock(
       null,
       2,
     ),
-    minTokens: execution.name === "read_page" ? 2_000 : 500,
-    weight: execution.name === "read_page" ? 4 : 2,
+    minTokens: isHeavy ? 2_000 : 500,
+    weight: isHeavy ? 4 : 2,
   };
 }
 

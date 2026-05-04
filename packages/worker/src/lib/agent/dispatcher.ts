@@ -21,6 +21,10 @@ export const DEFAULT_READ_TOOL_QUOTAS: Record<string, number> = {
   list_folder: 20,
   find_related_entities: 8,
   list_recent_pages: 8,
+  read_page_metadata: 30,
+  find_backlinks: 5,
+  read_revision_history: 10,
+  read_revision: 30,
 };
 
 interface CreateAgentDispatcherInput {
@@ -86,12 +90,18 @@ function observeResult(state: AgentRunState, result: AgentToolResult): void {
   for (const observed of result.observedPageRevisions ?? []) {
     state.seenPageIds.add(observed.pageId);
     state.observedPageRevisionIds.set(observed.pageId, observed.revisionId);
+    if (observed.revisionId) {
+      state.seenRevisionIds.add(observed.revisionId);
+    }
   }
   for (const blockId of result.observedBlockIds ?? []) {
     state.seenBlockIds.add(blockId);
   }
   for (const folderId of result.observedFolderIds ?? []) {
     state.seenFolderIds.add(folderId);
+  }
+  for (const revisionId of result.observedRevisionIds ?? []) {
+    state.seenRevisionIds.add(revisionId);
   }
   for (const pageId of result.createdPageIds ?? []) {
     state.createdPageIds.add(pageId);

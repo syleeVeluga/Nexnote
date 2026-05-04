@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import {
   entities,
   entityAliases,
   folders,
+  ingestionDecisions,
   pagePaths,
   pageRevisions,
   pages,
+  publishedSnapshots,
+  revisionDiffs,
   triples,
 } from "@wekiflow/db";
 import {
@@ -15,13 +18,18 @@ import {
   normalizeKey,
   sliceWithinTokenBudget,
   type AgentReadToolName,
+  type FindBacklinksToolInput,
   type FindRelatedEntitiesToolInput,
   type ListFolderToolInput,
   type ListRecentPagesToolInput,
+  type ReadPageMetadataToolInput,
   type ReadPageToolInput,
+  type ReadRevisionHistoryToolInput,
+  type ReadRevisionToolInput,
   type SearchPagesToolInput,
 } from "@wekiflow/shared";
 import { readPageMarkdownFallbackBudget } from "../budgeter.js";
+import { parseFrontmatter } from "../lib/frontmatter.js";
 import type {
   AgentToolContext,
   AgentToolDefinition,
@@ -912,6 +920,500 @@ async function listRecentPages(
   };
 }
 
+async function buildParentPath(
+  ctx: AgentToolContext,
+  page: { parentPageId: string | null; parentFolderId: string | null },
+): Promise<string> {
+  const segments: string[] = [];
+  let currentParentPageId = page.parentPageId;
+  let currentFolderId = page.parentFolderId;
+  const visitedPages = new Set<string>();
+
+  while (currentParentPageId && !visitedPages.has(currentParentPageId)) {
+    visitedPages.add(currentParentPageId);
+    const [parentPage] = await ctx.db
+      .select({
+        id: pages.id,
+        title: pages.title,
+        parentPageId: pages.parentPageId,
+        parentFolderId: pages.parentFolderId,
+      })
+      .from(pages)
+      .where(
+        and(
+          eq(pages.workspaceId, ctx.workspaceId),
+          eq(pages.id, currentParentPageId),
+          isNull(pages.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!parentPage) break;
+    segments.unshift(parentPage.title);
+    currentParentPageId = parentPage.parentPageId;
+    if (!currentFolderId) currentFolderId = parentPage.parentFolderId;
+  }
+
+  const visitedFolders = new Set<string>();
+  while (currentFolderId && !visitedFolders.has(currentFolderId)) {
+    visitedFolders.add(currentFolderId);
+    const [folder] = await ctx.db
+      .select({
+        id: folders.id,
+        name: folders.name,
+        parentFolderId: folders.parentFolderId,
+      })
+      .from(folders)
+      .where(
+        and(
+          eq(folders.workspaceId, ctx.workspaceId),
+          eq(folders.id, currentFolderId),
+        ),
+      )
+      .limit(1);
+    if (!folder) break;
+    segments.unshift(folder.name);
+    currentFolderId = folder.parentFolderId;
+  }
+
+  return segments.join(" / ");
+}
+
+async function readPageMetadata(
+  ctx: AgentToolContext,
+  input: ReadPageMetadataToolInput,
+): Promise<AgentToolResult> {
+  const [row] = await ctx.db
+    .select({
+      id: pages.id,
+      title: pages.title,
+      slug: pages.slug,
+      parentPageId: pages.parentPageId,
+      parentFolderId: pages.parentFolderId,
+      currentRevisionId: pages.currentRevisionId,
+      lastAiUpdatedAt: pages.lastAiUpdatedAt,
+      lastHumanEditedAt: pages.lastHumanEditedAt,
+      latestPublishedSnapshotId: pages.latestPublishedSnapshotId,
+      contentMd: pageRevisions.contentMd,
+    })
+    .from(pages)
+    .leftJoin(pageRevisions, eq(pageRevisions.id, pages.currentRevisionId))
+    .where(
+      and(
+        eq(pages.workspaceId, ctx.workspaceId),
+        eq(pages.id, input.pageId),
+        isNull(pages.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!row) {
+    throw new AgentToolError("not_found", `Page ${input.pageId} not found`);
+  }
+
+  const [{ value: childCount } = { value: 0 }] = await ctx.db
+    .select({ value: count() })
+    .from(pages)
+    .where(
+      and(
+        eq(pages.workspaceId, ctx.workspaceId),
+        eq(pages.parentPageId, row.id),
+        isNull(pages.deletedAt),
+      ),
+    );
+
+  const [livePublished] = await ctx.db
+    .select({ id: publishedSnapshots.id })
+    .from(publishedSnapshots)
+    .where(
+      and(
+        eq(publishedSnapshots.workspaceId, ctx.workspaceId),
+        eq(publishedSnapshots.pageId, row.id),
+        eq(publishedSnapshots.isLive, true),
+      ),
+    )
+    .limit(1);
+
+  const [{ value: openSuggestions } = { value: 0 }] = await ctx.db
+    .select({ value: count() })
+    .from(ingestionDecisions)
+    .where(
+      and(
+        eq(ingestionDecisions.targetPageId, row.id),
+        eq(ingestionDecisions.status, "suggested"),
+      ),
+    );
+
+  const parentPath = await buildParentPath(ctx, {
+    parentPageId: row.parentPageId,
+    parentFolderId: row.parentFolderId,
+  });
+
+  const fmResult = parseFrontmatter(row.contentMd ?? "");
+
+  return {
+    data: {
+      pageId: row.id,
+      title: row.title,
+      slug: row.slug,
+      parentPageId: row.parentPageId,
+      parentFolderId: row.parentFolderId,
+      parentPath,
+      currentRevisionId: row.currentRevisionId,
+      lastAiUpdatedAt: iso(row.lastAiUpdatedAt),
+      lastHumanEditedAt: iso(row.lastHumanEditedAt),
+      frontmatter: fmResult.data,
+      ...(fmResult.parseError ? { frontmatterParseError: fmResult.parseError } : {}),
+      childCount: Number(childCount ?? 0),
+      isPublished: Boolean(livePublished),
+      hasOpenSuggestions: Number(openSuggestions ?? 0) > 0,
+    },
+    observedPageIds: [row.id],
+    observedPageRevisions: [
+      { pageId: row.id, revisionId: row.currentRevisionId },
+    ],
+  };
+}
+
+const SHORT_TITLE_THRESHOLD = 3;
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+type BacklinkMatchType =
+  | "wikilink_title"
+  | "wikilink_slug"
+  | "markdown_link";
+
+function classifyBacklink(
+  contentMd: string,
+  title: string,
+  slug: string,
+  options: { allowTitleWikilink: boolean },
+): { matchType: BacklinkMatchType; index: number } | null {
+  const tests: Array<{ matchType: BacklinkMatchType; pattern: RegExp }> = [];
+  if (options.allowTitleWikilink) {
+    tests.push({
+      matchType: "wikilink_title",
+      pattern: new RegExp(
+        `\\[\\[${escapeRegex(title)}(?:\\|[^\\]]*)?\\]\\]`,
+        "i",
+      ),
+    });
+  }
+  tests.push({
+    matchType: "wikilink_slug",
+    pattern: new RegExp(
+      `\\[\\[${escapeRegex(slug)}(?:\\|[^\\]]*)?\\]\\]`,
+      "i",
+    ),
+  });
+  tests.push({
+    matchType: "markdown_link",
+    pattern: new RegExp(
+      `\\]\\((?:[^)\\s]*\\/)?${escapeRegex(slug)}(?:[#?][^)]*)?\\)`,
+      "i",
+    ),
+  });
+
+  for (const test of tests) {
+    const match = test.pattern.exec(contentMd);
+    if (match) {
+      return { matchType: test.matchType, index: match.index };
+    }
+  }
+  return null;
+}
+
+function buildSnippet(contentMd: string, index: number): string {
+  const start = Math.max(0, index - 50);
+  const end = Math.min(contentMd.length, index + 50);
+  const slice = contentMd.slice(start, end).replace(/\s+/g, " ").trim();
+  return slice;
+}
+
+async function findBacklinks(
+  ctx: AgentToolContext,
+  input: FindBacklinksToolInput,
+): Promise<AgentToolResult> {
+  const [target] = await ctx.db
+    .select({ id: pages.id, title: pages.title, slug: pages.slug })
+    .from(pages)
+    .where(
+      and(
+        eq(pages.workspaceId, ctx.workspaceId),
+        eq(pages.id, input.pageId),
+        isNull(pages.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!target) {
+    throw new AgentToolError("not_found", `Page ${input.pageId} not found`);
+  }
+
+  const allowTitleWikilink = target.title.length >= SHORT_TITLE_THRESHOLD;
+  const titleLike = `%[[${escapeLikePattern(target.title)}%`;
+  const slugLike = `%[[${escapeLikePattern(target.slug)}%`;
+  const slugRegex = `\\]\\((?:[^)\\s]*/)?${escapeRegex(target.slug)}(?:[#?][^)]*)?\\)`;
+
+  const orClauses = [
+    sql`${pageRevisions.contentMd} ILIKE ${slugLike}`,
+    sql`${pageRevisions.contentMd} ~ ${slugRegex}`,
+  ];
+  if (allowTitleWikilink) {
+    orClauses.unshift(
+      sql`${pageRevisions.contentMd} ILIKE ${titleLike}`,
+    );
+  }
+
+  const probeLimit = input.limit + 1;
+  const rows = await ctx.db
+    .select({
+      id: pages.id,
+      title: pages.title,
+      slug: pages.slug,
+      currentRevisionId: pages.currentRevisionId,
+      contentMd: pageRevisions.contentMd,
+      lastAiUpdatedAt: pages.lastAiUpdatedAt,
+    })
+    .from(pages)
+    .innerJoin(pageRevisions, eq(pageRevisions.id, pages.currentRevisionId))
+    .where(
+      and(
+        eq(pages.workspaceId, ctx.workspaceId),
+        isNull(pages.deletedAt),
+        ne(pages.id, target.id),
+        or(...orClauses)!,
+      ),
+    )
+    .orderBy(desc(pages.lastAiUpdatedAt))
+    .limit(probeLimit);
+
+  const limited = rows.length > input.limit;
+  const taken = limited ? rows.slice(0, input.limit) : rows;
+  const backlinks = taken
+    .map((row) => {
+      const classified = classifyBacklink(
+        row.contentMd ?? "",
+        target.title,
+        target.slug,
+        { allowTitleWikilink },
+      );
+      if (!classified) return null;
+      return {
+        pageId: row.id,
+        title: row.title,
+        slug: row.slug,
+        snippet: buildSnippet(row.contentMd ?? "", classified.index),
+        matchType: classified.matchType,
+      };
+    })
+    .filter((value): value is NonNullable<typeof value> => value !== null);
+
+  const observedRevisions = taken
+    .filter((row): row is typeof row & { currentRevisionId: string } =>
+      Boolean(row.currentRevisionId),
+    )
+    .map((row) => ({
+      pageId: row.id,
+      revisionId: row.currentRevisionId,
+    }));
+
+  return {
+    data: {
+      backlinks,
+      total: backlinks.length,
+      limited,
+      shortTitleSkipped: !allowTitleWikilink,
+      confidenceHint:
+        "ILIKE-based backlink scan — verify before destructive operations.",
+    },
+    observedPageIds: taken.map((row) => row.id),
+    observedPageRevisions: observedRevisions,
+  };
+}
+
+async function readRevisionHistory(
+  ctx: AgentToolContext,
+  input: ReadRevisionHistoryToolInput,
+): Promise<AgentToolResult> {
+  const [page] = await ctx.db
+    .select({ id: pages.id })
+    .from(pages)
+    .where(
+      and(
+        eq(pages.workspaceId, ctx.workspaceId),
+        eq(pages.id, input.pageId),
+        isNull(pages.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!page) {
+    throw new AgentToolError("not_found", `Page ${input.pageId} not found`);
+  }
+
+  const probeLimit = input.limit + 1;
+  const rows = await ctx.db
+    .select({
+      id: pageRevisions.id,
+      pageId: pageRevisions.pageId,
+      baseRevisionId: pageRevisions.baseRevisionId,
+      actorUserId: pageRevisions.actorUserId,
+      actorType: pageRevisions.actorType,
+      source: pageRevisions.source,
+      revisionNote: pageRevisions.revisionNote,
+      createdAt: pageRevisions.createdAt,
+      changedBlocks: revisionDiffs.changedBlocks,
+      sourceIngestionId: pageRevisions.sourceIngestionId,
+      sourceDecisionId: pageRevisions.sourceDecisionId,
+    })
+    .from(pageRevisions)
+    .leftJoin(revisionDiffs, eq(pageRevisions.id, revisionDiffs.revisionId))
+    .where(eq(pageRevisions.pageId, input.pageId))
+    .orderBy(desc(pageRevisions.createdAt))
+    .limit(probeLimit);
+
+  const limited = rows.length > input.limit;
+  const taken = limited ? rows.slice(0, input.limit) : rows;
+  const revisions = taken.map((row) => ({
+    id: row.id,
+    pageId: row.pageId,
+    baseRevisionId: row.baseRevisionId,
+    actorUserId: row.actorUserId,
+    actorType: row.actorType,
+    source: row.source,
+    revisionNote: row.revisionNote,
+    createdAt: row.createdAt.toISOString(),
+    changedBlocks: row.changedBlocks ?? null,
+    sourceIngestionId: row.sourceIngestionId ?? null,
+    sourceDecisionId: row.sourceDecisionId ?? null,
+  }));
+
+  return {
+    data: {
+      revisions,
+      total: revisions.length,
+      limited,
+    },
+    observedPageIds: [input.pageId],
+    observedRevisionIds: revisions.map((revision) => revision.id),
+  };
+}
+
+async function isRevisionInCurrentPageChain(
+  ctx: AgentToolContext,
+  pageId: string,
+  revisionId: string,
+  currentRevisionId: string | null,
+): Promise<boolean> {
+  const visited = new Set<string>();
+  let cursor = currentRevisionId;
+
+  for (let depth = 0; cursor && depth < 100; depth += 1) {
+    if (cursor === revisionId) return true;
+    if (visited.has(cursor)) return false;
+    visited.add(cursor);
+
+    const [revision] = await ctx.db
+      .select({
+        id: pageRevisions.id,
+        baseRevisionId: pageRevisions.baseRevisionId,
+      })
+      .from(pageRevisions)
+      .where(and(eq(pageRevisions.id, cursor), eq(pageRevisions.pageId, pageId)))
+      .limit(1);
+
+    if (!revision) return false;
+    cursor = revision.baseRevisionId;
+  }
+
+  return false;
+}
+
+async function readRevision(
+  ctx: AgentToolContext,
+  input: ReadRevisionToolInput,
+): Promise<AgentToolResult> {
+  const [row] = await ctx.db
+    .select({
+      id: pageRevisions.id,
+      pageId: pageRevisions.pageId,
+      baseRevisionId: pageRevisions.baseRevisionId,
+      actorUserId: pageRevisions.actorUserId,
+      actorType: pageRevisions.actorType,
+      source: pageRevisions.source,
+      revisionNote: pageRevisions.revisionNote,
+      createdAt: pageRevisions.createdAt,
+      contentMd: pageRevisions.contentMd,
+      contentJson: pageRevisions.contentJson,
+      diffMd: revisionDiffs.diffMd,
+      diffOpsJson: revisionDiffs.diffOpsJson,
+      pageWorkspaceId: pages.workspaceId,
+      pageDeletedAt: pages.deletedAt,
+      pageCurrentRevisionId: pages.currentRevisionId,
+    })
+    .from(pageRevisions)
+    .innerJoin(pages, eq(pages.id, pageRevisions.pageId))
+    .leftJoin(revisionDiffs, eq(revisionDiffs.revisionId, pageRevisions.id))
+    .where(eq(pageRevisions.id, input.revisionId))
+    .limit(1);
+
+  if (!row || row.pageWorkspaceId !== ctx.workspaceId || row.pageDeletedAt) {
+    throw new AgentToolError(
+      "not_found",
+      `Revision ${input.revisionId} not found`,
+    );
+  }
+
+  const allowedFromRevisionChain = ctx.state.seenRevisionIds.has(
+    input.revisionId,
+  );
+  const allowedFromPageChain =
+    ctx.state.seenPageIds.has(row.pageId) &&
+    (await isRevisionInCurrentPageChain(
+      ctx,
+      row.pageId,
+      input.revisionId,
+      row.pageCurrentRevisionId,
+    ));
+  if (!allowedFromRevisionChain && !allowedFromPageChain) {
+    throw new AgentToolError(
+      "invalid_target_page",
+      "Revision must come from revision history this run already observed, or from the observed page's current revision chain.",
+      undefined,
+      {
+        hint:
+          "Call read_revision_history for the page first, or read_page/read_page_metadata to register the page.",
+      },
+    );
+  }
+
+  return {
+    data: {
+      id: row.id,
+      pageId: row.pageId,
+      baseRevisionId: row.baseRevisionId,
+      actorUserId: row.actorUserId,
+      actorType: row.actorType,
+      source: row.source,
+      revisionNote: row.revisionNote,
+      createdAt: row.createdAt.toISOString(),
+      contentMd: input.includeContent ? row.contentMd : null,
+      contentJson: input.includeContent ? row.contentJson : null,
+      lineDiff: row.diffMd ?? null,
+      blockOpsDiff: row.diffOpsJson ?? null,
+    },
+    observedPageIds: [row.pageId],
+    observedRevisionIds: [row.id],
+    observedPageRevisions: [{ pageId: row.pageId, revisionId: row.id }],
+  };
+}
+
 export function createReadOnlyTools(): Record<
   AgentReadToolName,
   AgentToolDefinition
@@ -951,6 +1453,34 @@ export function createReadOnlyTools(): Record<
         "List recently touched pages in the current workspace using AI, human, and page update timestamps.",
       schema: agentReadToolInputSchemas.list_recent_pages,
       execute: listRecentPages,
+    },
+    read_page_metadata: {
+      name: "read_page_metadata",
+      description:
+        "Return lightweight metadata for a page (title, parent path, frontmatter, timestamps, child count, publish status, open suggestions). Saves tokens vs full read_page when you only need triage.",
+      schema: agentReadToolInputSchemas.read_page_metadata,
+      execute: readPageMetadata,
+    },
+    find_backlinks: {
+      name: "find_backlinks",
+      description:
+        "ILIKE-scan the workspace for pages whose latest revision references the target page by wikilink or markdown link slug. Use before delete_page or merge_pages to evaluate dependencies.",
+      schema: agentReadToolInputSchemas.find_backlinks,
+      execute: findBacklinks,
+    },
+    read_revision_history: {
+      name: "read_revision_history",
+      description:
+        "List recent revisions for a page (newest first) so the agent can review past human/AI edits before self-correcting.",
+      schema: agentReadToolInputSchemas.read_revision_history,
+      execute: readRevisionHistory,
+    },
+    read_revision: {
+      name: "read_revision",
+      description:
+        "Read a single revision (content + diff) so the agent can verify a rollback target. Requires the revision or its page to have been observed earlier in this run.",
+      schema: agentReadToolInputSchemas.read_revision,
+      execute: readRevision,
     },
   };
 }
