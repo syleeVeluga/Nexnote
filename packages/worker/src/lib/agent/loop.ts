@@ -80,8 +80,8 @@ Tool argument contracts:
 - update_page: { pageId, newContentMd, confidence, reason }
 - append_to_page: { pageId, contentMd, sectionHint?, confidence, reason }
 - create_page: { title, contentMd, parentFolderId?, parentPageId?, confidence, reason }
-- delete_page: { pageId, confidence, reason } (Scheduled reorganize or autonomous workspace mode only; permanently removes the page subtree when auto-applied)
-- merge_pages: { canonicalPageId, sourcePageIds, mergedContentMd, confidence, reason } (Scheduled reorganize or autonomous workspace mode only; permanently removes source page subtrees when auto-applied)
+- delete_page: { pageId, confidence, reason } (Scheduled reorganize or autonomous workspace mode only; scheduled auto-apply purges the page subtree, autonomous ingestion auto-apply soft-deletes it)
+- merge_pages: { canonicalPageId, sourcePageIds, mergedContentMd, confidence, reason } (Scheduled reorganize or autonomous workspace mode only; scheduled auto-apply purges source page subtrees, autonomous ingestion auto-apply soft-deletes them after updating the canonical page)
 - noop: { reason, confidence? }
 - request_human_review: { reason, suggestedAction?, suggestedPageIds?, confidence? } where suggestedAction must be one of "create", "update", "append", "delete", "merge", "noop", "needs_review"; put free-form guidance in reason, not suggestedAction.
 

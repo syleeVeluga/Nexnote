@@ -461,6 +461,9 @@ export function createIngestionAgentWorker(): Worker {
       const effectiveAutonomyMaxDestructivePerRun =
         job.data.autonomyMaxDestructivePerRun ??
         workspace.autonomyMaxDestructivePerRun;
+      const effectiveAutonomyMaxDestructivePerDay =
+        job.data.autonomyMaxDestructivePerDay ??
+        workspace.autonomyMaxDestructivePerDay;
 
       const [existingComplete] = await db
         .select()
@@ -673,7 +676,7 @@ export function createIngestionAgentWorker(): Worker {
               ? () =>
                   consumeWorkspaceAutonomyDestructiveLimit(tracePublisher, {
                     workspaceId,
-                    limit: workspace.autonomyMaxDestructivePerDay,
+                    limit: effectiveAutonomyMaxDestructivePerDay,
                   })
               : undefined,
           workspaceTokenUsage: {
