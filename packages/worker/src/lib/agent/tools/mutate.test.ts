@@ -12,6 +12,7 @@ const canonicalPageId = "66666666-6666-4666-8666-666666666666";
 const sourcePageId = "77777777-7777-4777-8777-777777777777";
 const baseRevisionId = "88888888-8888-4888-8888-888888888888";
 const sourceRevisionId = "99999999-9999-4999-8999-999999999999";
+const rollbackTargetRevisionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 class FakeDb {
   readonly insertedValues: unknown[] = [];
@@ -313,13 +314,12 @@ describe("createMutateTools destructive scheduled tools", () => {
         (value) =>
           (value as { action?: string; beforeJson?: { source?: string } })
             .action === "delete" &&
-          (value as { beforeJson?: { source?: string } }).beforeJson
-            ?.source === "ingestion_agent_delete",
+          (value as { beforeJson?: { source?: string } }).beforeJson?.source ===
+            "ingestion_agent_delete",
       ),
     );
     const autoApplyAudit = db.insertedValues.find(
-      (value) =>
-        (value as { action?: string }).action === "auto_apply_delete",
+      (value) => (value as { action?: string }).action === "auto_apply_delete",
     ) as { afterJson: { purgedPageIds?: string[] } };
     assert.equal(autoApplyAudit.afterJson.purgedPageIds, undefined);
   });
@@ -454,5 +454,207 @@ describe("createMutateTools destructive scheduled tools", () => {
       ),
     );
     assert.ok(db.deletedTables.length > 0);
+  });
+
+  it("rejects rollback_to_revision when the target page was not observed", async () => {
+    const tools = createMutateTools(input({ origin: "ingestion" }));
+    await assert.rejects(
+      tools.rollback_to_revision.execute(ctx(new FakeDb()), {
+        pageId: canonicalPageId,
+        revisionId: rollbackTargetRevisionId,
+        confidence: 0.99,
+        reason: "undo mistaken autonomous edit",
+      }),
+      (err) =>
+        err instanceof AgentToolError && err.code === "invalid_target_page",
+    );
+  });
+
+  it("queues rollback_to_revision in autonomous shadow with human-revision warning", async () => {
+    const db = new FakeDb({
+      selectQueue: [
+        currentPage(canonicalPageId, "Canonical", baseRevisionId, "# Current"),
+        [{ id: rollbackTargetRevisionId, actorType: "user" }],
+        [{ baseRevisionId: rollbackTargetRevisionId }],
+      ],
+    });
+    const tools = createMutateTools(
+      input({
+        origin: "ingestion",
+        scheduledRunId: null,
+        allowDestructiveScheduledAgent: false,
+        autonomyMode: "autonomous_shadow",
+      }),
+    );
+
+    const result = await tools.rollback_to_revision.execute(
+      ctx(db, [canonicalPageId]),
+      {
+        pageId: canonicalPageId,
+        revisionId: rollbackTargetRevisionId,
+        confidence: 0.99,
+        reason: "undo mistaken autonomous edit",
+      },
+    );
+    const data = result.data as { action: string; status: string };
+
+    assert.equal(data.action, "update");
+    assert.equal(data.status, "suggested");
+    assert.equal(db.updatedValues.length, 0);
+    const decision = db.insertedValues.find(
+      (value) =>
+        (value as { rationaleJson?: { tool?: string } }).rationaleJson?.tool ===
+        "rollback_to_revision",
+    ) as {
+      action: string;
+      status: string;
+      targetPageId: string;
+      rationaleJson: {
+        rollbackTargetRevisionId: string;
+        humanRecentRevisionWarning: boolean;
+      };
+    };
+    assert.equal(decision.action, "update");
+    assert.equal(decision.status, "suggested");
+    assert.equal(decision.targetPageId, canonicalPageId);
+    assert.equal(
+      decision.rationaleJson.rollbackTargetRevisionId,
+      rollbackTargetRevisionId,
+    );
+    assert.equal(decision.rationaleJson.humanRecentRevisionWarning, true);
+  });
+
+  it("downgrades rollback_to_revision when a human edited after the observed revision", async () => {
+    const humanRevisionId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const db = new FakeDb({
+      selectQueue: [
+        currentPage(canonicalPageId, "Canonical", humanRevisionId, "# Human"),
+        [{ id: rollbackTargetRevisionId, actorType: "ai" }],
+        [{ baseRevisionId: rollbackTargetRevisionId }],
+        [{ createdAt: new Date("2026-05-05T00:00:00Z") }],
+        [
+          {
+            id: humanRevisionId,
+            actorUserId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            createdAt: new Date("2026-05-05T00:05:00Z"),
+            revisionNote: "manual correction",
+          },
+        ],
+      ],
+    });
+    const context = ctx(db, [canonicalPageId]);
+    context.state.observedPageRevisionIds.set(canonicalPageId, baseRevisionId);
+    const tools = createMutateTools(
+      input({
+        origin: "ingestion",
+        scheduledRunId: null,
+        allowDestructiveScheduledAgent: false,
+      }),
+    );
+
+    const result = await tools.rollback_to_revision.execute(context, {
+      pageId: canonicalPageId,
+      revisionId: rollbackTargetRevisionId,
+      confidence: 0.99,
+      reason: "undo mistaken autonomous edit",
+    });
+    const data = result.data as { action: string; status: string };
+
+    assert.equal(data.action, "update");
+    assert.equal(data.status, "suggested");
+    assert.equal(db.updatedValues.length, 0);
+    const decision = db.insertedValues.find(
+      (value) =>
+        (value as { rationaleJson?: { tool?: string } }).rationaleJson?.tool ===
+        "rollback_to_revision",
+    ) as {
+      status: string;
+      rationaleJson: {
+        observedBaseRevisionId: string;
+        conflict: { humanRevisionId: string; baseRevisionId: string };
+      };
+    };
+    assert.equal(decision.status, "suggested");
+    assert.equal(decision.rationaleJson.observedBaseRevisionId, baseRevisionId);
+    assert.equal(
+      decision.rationaleJson.conflict.humanRevisionId,
+      humanRevisionId,
+    );
+    assert.equal(
+      decision.rationaleJson.conflict.baseRevisionId,
+      baseRevisionId,
+    );
+  });
+
+  it("auto-applies rollback_to_revision without consuming destructive caps", async () => {
+    const db = new FakeDb({
+      selectQueue: [
+        currentPage(canonicalPageId, "Canonical", baseRevisionId, "# Current"),
+        [{ id: rollbackTargetRevisionId, actorType: "ai" }],
+        [{ baseRevisionId: rollbackTargetRevisionId }],
+        [{ createdAt: new Date("2026-05-05T00:00:00Z") }],
+        [],
+        [
+          {
+            id: rollbackTargetRevisionId,
+            pageId: canonicalPageId,
+            contentMd: "# Restored",
+            contentJson: null,
+          },
+        ],
+        [
+          {
+            id: canonicalPageId,
+            currentRevisionId: baseRevisionId,
+            currentContentMd: "# Current",
+            currentContentJson: null,
+          },
+        ],
+      ],
+      returningIds: ["decision-id", "rollback-revision-id"],
+    });
+    const context = ctx(db, [canonicalPageId]);
+    const tools = createMutateTools(
+      input({
+        origin: "ingestion",
+        scheduledRunId: null,
+        allowDestructiveScheduledAgent: false,
+        autonomyMode: "autonomous",
+        autonomyMaxDestructivePerRun: 0,
+      }),
+    );
+
+    const result = await tools.rollback_to_revision.execute(context, {
+      pageId: canonicalPageId,
+      revisionId: rollbackTargetRevisionId,
+      confidence: 0.99,
+      reason: "undo mistaken autonomous edit",
+    });
+    const data = result.data as {
+      action: string;
+      status: string;
+      revisionId: string;
+    };
+
+    assert.equal(data.action, "update");
+    assert.equal(data.status, "auto_applied");
+    assert.equal(data.revisionId, "rollback-revision-id");
+    assert.equal(context.state.destructiveCount, 0);
+    assert.ok(
+      db.insertedValues.some(
+        (value) =>
+          (value as { action?: string; afterJson?: { actorType?: string } })
+            .action === "rollback" &&
+          (value as { afterJson?: { actorType?: string } }).afterJson
+            ?.actorType === "ai",
+      ),
+    );
+    assert.ok(
+      db.updatedValues.some(
+        (value) =>
+          (value as { proposedRevisionId?: string }).proposedRevisionId ===
+          "rollback-revision-id",
+      ),
+    );
   });
 });

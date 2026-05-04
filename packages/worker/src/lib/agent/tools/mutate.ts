@@ -14,6 +14,8 @@ import {
   PageDeletionError,
   purgeDeletedSubtreeInTransaction,
   revisionDiffs,
+  RollbackRevisionError,
+  rollbackToRevision,
   softDeleteSubtreeInTransaction,
 } from "@wekiflow/db";
 import {
@@ -36,6 +38,7 @@ import {
   type PatchGeneratorJobData,
   type ReplaceInPageToolInput,
   type RequestHumanReviewToolInput,
+  type RollbackToRevisionToolInput,
   type SearchIndexUpdaterJobData,
   type TripleExtractorJobData,
   type UpdatePageToolInput,
@@ -215,9 +218,7 @@ async function consumeDestructiveOperation(
     } catch (err) {
       throw new AgentToolError(
         "destructive_limit_exceeded",
-        err instanceof Error
-          ? err.message
-          : "Destructive daily limit exceeded",
+        err instanceof Error ? err.message : "Destructive daily limit exceeded",
         undefined,
         {
           hint: "Workspace daily destructive cap has been reached. Use request_human_review or noop for remaining destructive work.",
@@ -1418,6 +1419,184 @@ async function requestHumanReview(
   };
 }
 
+async function rollbackToRevisionTool(
+  input: CreateMutateToolsInput,
+  ctx: AgentToolContext,
+  args: RollbackToRevisionToolInput,
+): Promise<AgentToolResult> {
+  assertCanMutatePage(ctx, args.pageId);
+  const page = await getCurrentPage(ctx.db, ctx.workspaceId, args.pageId);
+  const observedBaseRevisionId = observedRevisionIdForPage(ctx, page);
+
+  const [targetRevision] = await ctx.db
+    .select({
+      id: pageRevisions.id,
+      actorType: pageRevisions.actorType,
+    })
+    .from(pageRevisions)
+    .where(
+      and(
+        eq(pageRevisions.id, args.revisionId),
+        eq(pageRevisions.pageId, args.pageId),
+      ),
+    )
+    .limit(1);
+
+  if (!targetRevision) {
+    throw new AgentToolError(
+      "not_found",
+      `Revision ${args.revisionId} not found for page ${args.pageId}`,
+      { pageId: args.pageId, revisionId: args.revisionId },
+      {
+        hint: "Read the page and revision history before selecting a rollback target.",
+      },
+    );
+  }
+
+  const [currentRevision] = page.currentRevisionId
+    ? await ctx.db
+        .select({
+          baseRevisionId: pageRevisions.baseRevisionId,
+        })
+        .from(pageRevisions)
+        .where(eq(pageRevisions.id, page.currentRevisionId))
+        .limit(1)
+    : [];
+  const humanRecentRevisionWarning =
+    targetRevision.actorType === "user" &&
+    currentRevision?.baseRevisionId === targetRevision.id;
+
+  const status = mutationDecisionStatus(input, "update", args.confidence);
+  const conflict =
+    status === "auto_applied"
+      ? await detectHumanConflict(ctx.db, args.pageId, observedBaseRevisionId)
+      : null;
+  const overridesHumanConflict =
+    Boolean(conflict) && input.autonomyMode === "autonomous";
+  const decisionStatus =
+    conflict &&
+    !overridesHumanConflict &&
+    !(input.origin === "scheduled" && input.scheduledAutoApply)
+      ? "suggested"
+      : status;
+  const conflictRationale = conflict
+    ? {
+        conflict: {
+          type: "conflict_with_human_edit",
+          humanRevisionId: conflict.id,
+          humanUserId: conflict.actorUserId,
+          humanEditedAt: conflict.createdAt.toISOString(),
+          humanRevisionNote: conflict.revisionNote,
+          baseRevisionId: observedBaseRevisionId,
+        },
+      }
+    : {};
+
+  const decision = await createDecision(ctx, input, {
+    action: "update",
+    status: decisionStatus,
+    confidence: args.confidence,
+    reason: args.reason,
+    tool: "rollback_to_revision",
+    targetPageId: args.pageId,
+    rationale: {
+      baseRevisionId: page.currentRevisionId,
+      observedBaseRevisionId,
+      rollbackTargetRevisionId: args.revisionId,
+      ...conflictRationale,
+      ...(humanRecentRevisionWarning
+        ? { humanRecentRevisionWarning: true }
+        : {}),
+    },
+  });
+
+  if (decisionStatus !== "auto_applied") {
+    return {
+      data: {
+        decisionId: decision.id,
+        pageId: args.pageId,
+        status: decisionStatus,
+        action: "update",
+        tool: "rollback_to_revision",
+        rollbackTargetRevisionId: args.revisionId,
+      },
+      mutatedPageIds: [args.pageId],
+    };
+  }
+
+  let rollbackResult;
+  try {
+    rollbackResult = await rollbackToRevision({
+      db: ctx.db,
+      workspaceId: ctx.workspaceId,
+      pageId: args.pageId,
+      revisionId: args.revisionId,
+      actorUserId: null,
+      actorType: "ai",
+      source: "rollback",
+      revisionNote: args.reason.slice(0, 500),
+      agentRunId: input.agentRunId,
+      modelRunId: input.modelRunId,
+      sourceIngestionId: input.ingestion.id,
+      ingestionDecisionId: decision.id,
+    });
+  } catch (err) {
+    if (err instanceof RollbackRevisionError) {
+      throw new AgentToolError("not_found", err.message, {
+        code: err.code,
+        pageId: args.pageId,
+        revisionId: args.revisionId,
+      });
+    }
+    throw err;
+  }
+
+  await ctx.db
+    .update(ingestionDecisions)
+    .set({ proposedRevisionId: rollbackResult.newRevisionId })
+    .where(eq(ingestionDecisions.id, decision.id));
+
+  if (overridesHumanConflict && conflict) {
+    await ctx.db.insert(auditLogs).values({
+      workspaceId: ctx.workspaceId,
+      modelRunId: input.modelRunId,
+      entityType: "page",
+      entityId: args.pageId,
+      action: "autonomous_overrode_human_conflict",
+      afterJson: {
+        source: activitySource(input, "ingestion_agent_autonomous"),
+        ingestionId: input.ingestion.id,
+        decisionId: decision.id,
+        revisionId: rollbackResult.newRevisionId,
+        tool: "rollback_to_revision",
+        conflict: {
+          humanRevisionId: conflict.id,
+          humanEditedAt: conflict.createdAt.toISOString(),
+        },
+      },
+    });
+  }
+
+  await enqueuePostApply(ctx, input, args.pageId, rollbackResult.newRevisionId);
+
+  return {
+    data: {
+      decisionId: decision.id,
+      revisionId: rollbackResult.newRevisionId,
+      pageId: args.pageId,
+      status: decisionStatus,
+      action: "update",
+      tool: "rollback_to_revision",
+      rollbackTargetRevisionId: args.revisionId,
+      previousHeadRevisionId: rollbackResult.previousHeadRevisionId,
+    },
+    mutatedPageIds: [args.pageId],
+    observedPageRevisions: [
+      { pageId: args.pageId, revisionId: rollbackResult.newRevisionId },
+    ],
+  };
+}
+
 export async function recordAgentMutationFailure(
   ctx: AgentToolContext,
   input: CreateMutateToolsInput,
@@ -1500,6 +1679,14 @@ export function createMutateTools(
       schema: agentMutateToolInputSchemas.create_page,
       execute: (ctx, args) =>
         createPage(input, ctx, args as CreatePageToolInput),
+    },
+    rollback_to_revision: {
+      name: "rollback_to_revision",
+      description:
+        "Rollback an observed page to one of its prior revisions when self-correcting a recent autonomous mistake.",
+      schema: agentMutateToolInputSchemas.rollback_to_revision,
+      execute: (ctx, args) =>
+        rollbackToRevisionTool(input, ctx, args as RollbackToRevisionToolInput),
     },
     noop: {
       name: "noop",

@@ -10,6 +10,8 @@ import {
   auditLogs,
   insertPageWithUniqueSlug,
   publishedSnapshots,
+  rollbackToRevision,
+  RollbackRevisionError,
 } from "@wekiflow/db";
 import type { Database, IngestionDecision } from "@wekiflow/db";
 import type { Queue } from "bullmq";
@@ -93,6 +95,23 @@ function readMergeMeta(decision: IngestionDecision): {
   );
   if (sourcePageIds.length === 0) return null;
   return { canonicalPageId: rationale.canonicalPageId, sourcePageIds };
+}
+
+function readRollbackTargetRevisionId(
+  decision: IngestionDecision,
+): string | null {
+  const rationale = decision.rationaleJson as {
+    tool?: unknown;
+    rollbackTargetRevisionId?: unknown;
+    targetRevisionId?: unknown;
+  } | null;
+  if (rationale?.tool !== "rollback_to_revision") return null;
+  if (typeof rationale.rollbackTargetRevisionId === "string") {
+    return rationale.rollbackTargetRevisionId;
+  }
+  return typeof rationale.targetRevisionId === "string"
+    ? rationale.targetRevisionId
+    : null;
 }
 
 function pageDeletionError(err: PageDeletionError): ApplyDecisionError {
@@ -404,8 +423,47 @@ export async function approveDecision(
     }
 
     let revisionId: string;
+    const rollbackTargetRevisionId =
+      decision.action === "update"
+        ? readRollbackTargetRevisionId(decision)
+        : null;
 
-    if (decision.proposedRevisionId) {
+    if (rollbackTargetRevisionId) {
+      let rollbackResult;
+      try {
+        rollbackResult = await rollbackToRevision({
+          db,
+          workspaceId,
+          pageId: decision.targetPageId,
+          revisionId: rollbackTargetRevisionId,
+          actorUserId: userId,
+          actorType: "ai",
+          source: "rollback",
+          revisionNote: `Approved rollback from ingestion ${ingestion.sourceName}`,
+          modelRunId: decision.modelRunId,
+          sourceIngestionId: ingestionId,
+          ingestionDecisionId: decision.id,
+        });
+      } catch (err) {
+        if (err instanceof RollbackRevisionError) {
+          return {
+            code:
+              err.code === "revision_not_found"
+                ? ERROR_CODES.REVISION_NOT_FOUND
+                : ERROR_CODES.PAGE_NOT_FOUND,
+            details: err.message,
+            statusCode: err.code === "revision_not_found" ? 400 : 404,
+          };
+        }
+        throw err;
+      }
+
+      revisionId = rollbackResult.newRevisionId;
+      await db
+        .update(ingestionDecisions)
+        .set({ proposedRevisionId: revisionId, status: "approved" })
+        .where(eq(ingestionDecisions.id, decision.id));
+    } else if (decision.proposedRevisionId) {
       // Patch-generator already produced a revision; promote it to current.
       revisionId = decision.proposedRevisionId;
       const now = new Date();

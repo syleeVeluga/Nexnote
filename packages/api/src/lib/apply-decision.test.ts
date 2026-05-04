@@ -20,10 +20,16 @@ class FakeDb {
   readonly updatedValues: unknown[] = [];
   private readonly selectQueue: unknown[][];
   private readonly executeQueue: unknown[];
+  private readonly returningIds: string[];
 
-  constructor(input: { selectQueue: unknown[][]; executeQueue: unknown[] }) {
+  constructor(input: {
+    selectQueue: unknown[][];
+    executeQueue: unknown[];
+    returningIds?: string[];
+  }) {
     this.selectQueue = input.selectQueue;
     this.executeQueue = input.executeQueue;
+    this.returningIds = input.returningIds ?? [];
   }
 
   select(_fields?: unknown) {
@@ -36,8 +42,13 @@ class FakeDb {
     return {
       values: (values: unknown) => {
         this.insertedValues.push(values);
+        const id = this.returningIds.shift();
         return {
-          returning: async () => [values],
+          returning: async () => [
+            typeof values === "object" && values !== null && id
+              ? { ...values, id }
+              : values,
+          ],
           onConflictDoNothing: async () => undefined,
           then: (resolve: (value: unknown) => unknown) => resolve(values),
         };
@@ -67,7 +78,10 @@ class FakeDb {
   private queryChain() {
     const finish = () => Promise.resolve(this.selectQueue.shift() ?? []);
     const chain = {
+      leftJoin: () => chain,
+      innerJoin: () => chain,
       where: () => chain,
+      orderBy: () => chain,
       limit: finish,
       then: (
         resolve: (value: unknown[]) => unknown,
@@ -164,6 +178,72 @@ describe("findSourceSubtreeContainingPage", () => {
 });
 
 describe("approveDecision destructive decisions", () => {
+  it("approves rollback_to_revision by restoring the target revision instead of ingestion text", async () => {
+    const rollbackRevisionId = "99999999-9999-4999-8999-999999999999";
+    const restoredRevisionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const extractionQueue = new FakeQueue();
+    const searchQueue = new FakeQueue();
+    const db = new FakeDb({
+      selectQueue: [
+        ingestionRow(),
+        [
+          {
+            id: rollbackRevisionId,
+            pageId: canonicalPageId,
+            contentMd: "# Restored",
+            contentJson: null,
+          },
+        ],
+        [
+          {
+            id: canonicalPageId,
+            currentRevisionId: proposedRevisionId,
+            currentContentMd: "# Current",
+            currentContentJson: null,
+          },
+        ],
+      ],
+      executeQueue: [],
+      returningIds: [restoredRevisionId],
+    });
+
+    const result = await approveDecision(
+      ctx({
+        db,
+        extractionQueue,
+        searchQueue,
+        decision: {
+          action: "update",
+          targetPageId: canonicalPageId,
+          rationaleJson: {
+            tool: "rollback_to_revision",
+            rollbackTargetRevisionId: rollbackRevisionId,
+          },
+        },
+      }),
+    );
+
+    assert.ok("status" in result);
+    assert.equal(result.status, "applied");
+    assert.equal(result.action, "update");
+    assert.equal(result.revisionId, restoredRevisionId);
+    assert.equal(extractionQueue.jobs.length, 1);
+    assert.equal(searchQueue.jobs.length, 1);
+    const revision = db.insertedValues.find(
+      (value) => (value as { source?: string }).source === "rollback",
+    ) as { contentMd: string; sourceDecisionId: string };
+    assert.equal(revision.contentMd, "# Restored");
+    assert.equal(revision.sourceDecisionId, decisionId);
+    assert.ok(
+      db.updatedValues.some(
+        (value) =>
+          (value as { proposedRevisionId?: string; status?: string })
+            .proposedRevisionId === restoredRevisionId &&
+          (value as { status?: string }).status === "approved",
+      ),
+    );
+  });
+
   it("approves delete by soft-deleting the target subtree and marking the decision approved", async () => {
     const db = new FakeDb({
       selectQueue: [
@@ -202,8 +282,7 @@ describe("approveDecision destructive decisions", () => {
     );
     assert.ok(
       db.insertedValues.some(
-        (value) =>
-          (value as { action?: string }).action === "approve_delete",
+        (value) => (value as { action?: string }).action === "approve_delete",
       ),
     );
   });
@@ -263,8 +342,7 @@ describe("approveDecision destructive decisions", () => {
     );
     assert.ok(
       db.insertedValues.some(
-        (value) =>
-          (value as { action?: string }).action === "approve_merge",
+        (value) => (value as { action?: string }).action === "approve_merge",
       ),
     );
     assert.ok(
