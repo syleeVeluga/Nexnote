@@ -4,6 +4,7 @@ import type {
   FastifyReply,
 } from "fastify";
 import { eq, and, count } from "drizzle-orm";
+import { z } from "zod";
 import { workspaces, workspaceMembers, users, auditLogs } from "@wekiflow/db";
 import {
   createWorkspaceSchema,
@@ -90,6 +91,12 @@ function toWorkspaceDto(row: typeof workspaces.$inferSelect) {
     scheduledEnabled: row.scheduledEnabled,
     scheduledAutoApply: row.scheduledAutoApply,
     allowDestructiveScheduledAgent: row.allowDestructiveScheduledAgent,
+    autonomyMode: row.autonomyMode,
+    autonomyPromotedAt: row.autonomyPromotedAt?.toISOString() ?? null,
+    autonomyPromotedBy: row.autonomyPromotedBy,
+    autonomyPausedUntil: row.autonomyPausedUntil?.toISOString() ?? null,
+    autonomyMaxDestructivePerRun: row.autonomyMaxDestructivePerRun,
+    autonomyMaxDestructivePerDay: row.autonomyMaxDestructivePerDay,
     scheduledDailyTokenCap: row.scheduledDailyTokenCap,
     scheduledPerRunPageLimit: row.scheduledPerRunPageLimit,
     useReconciliationDefault: row.useReconciliationDefault,
@@ -290,6 +297,14 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
             scheduledAutoApply: workspaces.scheduledAutoApply,
             allowDestructiveScheduledAgent:
               workspaces.allowDestructiveScheduledAgent,
+            autonomyMode: workspaces.autonomyMode,
+            autonomyPromotedAt: workspaces.autonomyPromotedAt,
+            autonomyPromotedBy: workspaces.autonomyPromotedBy,
+            autonomyPausedUntil: workspaces.autonomyPausedUntil,
+            autonomyMaxDestructivePerRun:
+              workspaces.autonomyMaxDestructivePerRun,
+            autonomyMaxDestructivePerDay:
+              workspaces.autonomyMaxDestructivePerDay,
             scheduledDailyTokenCap: workspaces.scheduledDailyTokenCap,
             scheduledPerRunPageLimit: workspaces.scheduledPerRunPageLimit,
             useReconciliationDefault: workspaces.useReconciliationDefault,
@@ -425,6 +440,22 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
+      if (
+        body.autonomyMode === "autonomous" &&
+        currentWorkspace.autonomyMode !== "autonomous"
+      ) {
+        const gate = await readAgentParityGateStatus(fastify.db, workspaceId);
+        if (!gate.canPromote) {
+          return reply.code(409).send({
+            error: "Autonomous mode is blocked until shadow parity passes",
+            code: ERROR_CODES.AGENT_PARITY_GATE_NOT_PASSED,
+            gate,
+          });
+        }
+        workspacePatch.autonomyPromotedAt = new Date();
+        workspacePatch.autonomyPromotedBy = userId;
+      }
+
       validateAgentSettingsPatch(fastify, currentWorkspace, workspacePatch);
 
       try {
@@ -510,6 +541,66 @@ const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
         }
         throw err;
       }
+    },
+  );
+
+  const pauseAutonomySchema = z.object({
+    pauseUntil: z.coerce.date().nullable(),
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /workspaces/:workspaceId/autonomy/pause - Set or clear kill switch
+  // -----------------------------------------------------------------------
+  fastify.post(
+    "/:workspaceId/autonomy/pause",
+    { onRequest: [fastify.authenticate] },
+    async (request, reply) => {
+      const { workspaceId } = request.params as { workspaceId: string };
+      const idResult = uuidSchema.safeParse(workspaceId);
+      if (!idResult.success)
+        return sendValidationError(reply, idResult.error.issues);
+
+      const bodyResult = pauseAutonomySchema.safeParse(request.body);
+      if (!bodyResult.success)
+        return sendValidationError(reply, bodyResult.error.issues);
+
+      const userId = request.user.sub;
+      await requireMembership(fastify, workspaceId, userId, ["owner", "admin"]);
+
+      const [updated] = await fastify.db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(workspaces)
+          .set({
+            autonomyPausedUntil: bodyResult.data.pauseUntil,
+            updatedAt: new Date(),
+          })
+          .where(eq(workspaces.id, workspaceId))
+          .returning();
+
+        if (!row) return [null] as const;
+
+        await tx.insert(auditLogs).values({
+          workspaceId,
+          userId,
+          entityType: "workspace",
+          entityId: workspaceId,
+          action: bodyResult.data.pauseUntil
+            ? "workspace.autonomy.pause"
+            : "workspace.autonomy.resume",
+          afterJson: {
+            autonomyPausedUntil:
+              bodyResult.data.pauseUntil?.toISOString() ?? null,
+          },
+        });
+
+        return [row] as const;
+      });
+
+      if (!updated) {
+        throw fastify.httpErrors.notFound("Workspace not found");
+      }
+
+      return toWorkspaceDto(updated);
     },
   );
 

@@ -13,6 +13,7 @@ export interface AgentRunState {
   observedPageRevisionIds: Map<string, string | null>;
   createdPageIds: Set<string>;
   mutatedPageIds: Set<string>;
+  destructiveCount: number;
 }
 
 export interface AgentToolContext {
@@ -69,6 +70,7 @@ export interface AgentToolErrorPayload {
     | "patch_mismatch"
     | "ambiguous_match"
     | "conflict"
+    | "destructive_limit_exceeded"
     | "execution_failed";
   message: string;
   recoverable: boolean;
@@ -129,5 +131,6 @@ export function createAgentRunState(): AgentRunState {
     observedPageRevisionIds: new Map<string, string | null>(),
     createdPageIds: new Set<string>(),
     mutatedPageIds: new Set<string>(),
+    destructiveCount: 0,
   };
 }

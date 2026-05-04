@@ -153,6 +153,16 @@ describe("createMutateTools destructive scheduled tools", () => {
     const ingestionTools = createMutateTools(input({ origin: "ingestion" }));
     assert.equal(ingestionTools.delete_page, undefined);
     assert.equal(ingestionTools.merge_pages, undefined);
+
+    const autonomousTools = createMutateTools(
+      input({
+        origin: "ingestion",
+        allowDestructiveScheduledAgent: false,
+        autonomyMode: "autonomous",
+      }),
+    );
+    assert.ok(autonomousTools.delete_page);
+    assert.ok(autonomousTools.merge_pages);
   });
 
   it("rejects delete_page when the target page was not observed", async () => {
@@ -214,6 +224,140 @@ describe("createMutateTools destructive scheduled tools", () => {
       ),
     );
     assert.ok(db.deletedTables.length > 0);
+  });
+
+  it("queues autonomous shadow destructive decisions without applying them", async () => {
+    const db = new FakeDb({
+      selectQueue: [
+        currentPage(canonicalPageId, "Duplicate", baseRevisionId),
+        [{ createdAt: new Date("2026-05-01T00:00:00Z") }],
+        [],
+      ],
+    });
+    const tools = createMutateTools(
+      input({
+        origin: "ingestion",
+        scheduledRunId: null,
+        scheduledAutoApply: false,
+        allowDestructiveScheduledAgent: false,
+        autonomyMode: "autonomous_shadow",
+      }),
+    );
+
+    const result = await tools.delete_page.execute(ctx(db, [canonicalPageId]), {
+      pageId: canonicalPageId,
+      confidence: 0.99,
+      reason: "duplicate of canonical content",
+    });
+    const data = result.data as { action: string; status: string };
+
+    assert.equal(data.action, "delete");
+    assert.equal(data.status, "suggested");
+    assert.equal(db.deletedTables.length, 0);
+    const decision = db.insertedValues.find(
+      (value) => (value as { action?: string }).action === "delete",
+    ) as {
+      status: string;
+      scheduledRunId: string | null;
+      rationaleJson: { origin: string; tool: string };
+    };
+    assert.equal(decision.status, "suggested");
+    assert.equal(decision.scheduledRunId, null);
+    assert.equal(decision.rationaleJson.origin, "ingestion");
+    assert.equal(decision.rationaleJson.tool, "delete_page");
+  });
+
+  it("soft-deletes autonomous ingestion delete decisions instead of purging", async () => {
+    const db = new FakeDb({
+      selectQueue: [
+        currentPage(canonicalPageId, "Duplicate", baseRevisionId),
+        [{ createdAt: new Date("2026-05-01T00:00:00Z") }],
+        [],
+        [{ id: canonicalPageId, title: "Duplicate", deletedAt: null }],
+        [],
+      ],
+      executeQueue: [[{ id: canonicalPageId }], [], []],
+    });
+    const tools = createMutateTools(
+      input({
+        origin: "ingestion",
+        scheduledRunId: null,
+        scheduledAutoApply: false,
+        allowDestructiveScheduledAgent: false,
+        autonomyMode: "autonomous",
+      }),
+    );
+
+    const result = await tools.delete_page.execute(ctx(db, [canonicalPageId]), {
+      pageId: canonicalPageId,
+      confidence: 0.99,
+      reason: "duplicate of canonical content",
+    });
+    const data = result.data as {
+      action: string;
+      status: string;
+      deletedPageIds: string[];
+    };
+
+    assert.equal(data.action, "delete");
+    assert.equal(data.status, "auto_applied");
+    assert.deepEqual(data.deletedPageIds, [canonicalPageId]);
+    assert.equal(db.deletedTables.length, 0);
+    assert.ok(
+      db.updatedValues.some((value) =>
+        Object.prototype.hasOwnProperty.call(value as object, "deletedAt"),
+      ),
+    );
+    assert.ok(
+      db.insertedValues.some(
+        (value) =>
+          (value as { action?: string; beforeJson?: { source?: string } })
+            .action === "delete" &&
+          (value as { beforeJson?: { source?: string } }).beforeJson
+            ?.source === "ingestion_agent_delete",
+      ),
+    );
+    const autoApplyAudit = db.insertedValues.find(
+      (value) =>
+        (value as { action?: string }).action === "auto_apply_delete",
+    ) as { afterJson: { purgedPageIds?: string[] } };
+    assert.equal(autoApplyAudit.afterJson.purgedPageIds, undefined);
+  });
+
+  it("rejects destructive tools after the per-run autonomy cap", async () => {
+    const db = new FakeDb({
+      selectQueue: [
+        currentPage(canonicalPageId, "Duplicate", baseRevisionId),
+        [{ createdAt: new Date("2026-05-01T00:00:00Z") }],
+        [],
+      ],
+    });
+    const tools = createMutateTools(
+      input({
+        origin: "ingestion",
+        scheduledRunId: null,
+        allowDestructiveScheduledAgent: false,
+        autonomyMode: "autonomous",
+        autonomyMaxDestructivePerRun: 0,
+      }),
+    );
+
+    await assert.rejects(
+      tools.delete_page.execute(ctx(db, [canonicalPageId]), {
+        pageId: canonicalPageId,
+        confidence: 0.99,
+        reason: "duplicate of canonical content",
+      }),
+      (err) =>
+        err instanceof AgentToolError &&
+        err.code === "destructive_limit_exceeded",
+    );
+    assert.equal(
+      db.insertedValues.some(
+        (value) => (value as { action?: string }).action === "delete",
+      ),
+      false,
+    );
   });
 
   it("auto-applies merge decisions with a canonical revision and purged source metadata", async () => {

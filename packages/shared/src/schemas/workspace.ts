@@ -3,6 +3,7 @@ import { slugSchema, uuidSchema } from "./common.js";
 import {
   AGENT_MODEL_PRESETS,
   AI_PROVIDERS,
+  AUTONOMY_MODES,
   INGESTION_MODES,
   WORKSPACE_ROLES,
 } from "../constants/index.js";
@@ -71,6 +72,9 @@ export const updateWorkspaceSchema = createWorkspaceSchema
     allowDestructiveScheduledAgent: z.boolean().optional(),
     scheduledDailyTokenCap: z.number().int().min(1).nullable().optional(),
     scheduledPerRunPageLimit: z.number().int().min(1).max(500).optional(),
+    autonomyMode: z.enum(AUTONOMY_MODES).optional(),
+    autonomyMaxDestructivePerRun: z.number().int().min(0).max(100).optional(),
+    autonomyMaxDestructivePerDay: z.number().int().min(0).max(1000).optional(),
   })
   .partial();
 

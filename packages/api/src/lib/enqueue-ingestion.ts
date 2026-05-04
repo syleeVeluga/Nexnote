@@ -36,6 +36,9 @@ async function enqueueProcessingJobs(
     ingestionId: string;
     workspaceId: string;
     ingestionMode: IngestionMode;
+    autonomyMode?: IngestionAgentJobData["autonomyMode"];
+    autonomyMaxDestructivePerRun?: number;
+    autonomyMaxDestructivePerDay?: number;
   },
 ): Promise<void> {
   if (input.ingestionMode !== "agent") {
@@ -60,6 +63,9 @@ async function enqueueProcessingJobs(
     ingestionId: input.ingestionId,
     workspaceId: input.workspaceId,
     mode: input.ingestionMode === "agent" ? "agent" : "shadow",
+    autonomyMode: input.autonomyMode,
+    autonomyMaxDestructivePerRun: input.autonomyMaxDestructivePerRun,
+    autonomyMaxDestructivePerDay: input.autonomyMaxDestructivePerDay,
   };
   await fastify.queues["ingestion-agent"].add(
     JOB_NAMES.INGESTION_AGENT,
@@ -157,6 +163,9 @@ export async function enqueueIngestion(
     .select({
       useReconciliationDefault: workspaces.useReconciliationDefault,
       ingestionMode: workspaces.ingestionMode,
+      autonomyMode: workspaces.autonomyMode,
+      autonomyMaxDestructivePerRun: workspaces.autonomyMaxDestructivePerRun,
+      autonomyMaxDestructivePerDay: workspaces.autonomyMaxDestructivePerDay,
     })
     .from(workspaces)
     .where(eq(workspaces.id, input.workspaceId))
@@ -233,6 +242,13 @@ export async function enqueueIngestion(
             ingestionId: existing.id,
             workspaceId: input.workspaceId,
             ingestionMode,
+            autonomyMode: workspaceSettings?.autonomyMode as
+              | IngestionAgentJobData["autonomyMode"]
+              | undefined,
+            autonomyMaxDestructivePerRun:
+              workspaceSettings?.autonomyMaxDestructivePerRun,
+            autonomyMaxDestructivePerDay:
+              workspaceSettings?.autonomyMaxDestructivePerDay,
           });
           return { ingestion: reset ?? existing, replayed: false };
         }
@@ -262,6 +278,13 @@ export async function enqueueIngestion(
     ingestionId: row.id,
     workspaceId: input.workspaceId,
     ingestionMode,
+    autonomyMode: workspaceSettings?.autonomyMode as
+      | IngestionAgentJobData["autonomyMode"]
+      | undefined,
+    autonomyMaxDestructivePerRun:
+      workspaceSettings?.autonomyMaxDestructivePerRun,
+    autonomyMaxDestructivePerDay:
+      workspaceSettings?.autonomyMaxDestructivePerDay,
   });
 
   return { ingestion: row, replayed: false };

@@ -14,6 +14,7 @@ import {
   PageDeletionError,
   purgeDeletedSubtreeInTransaction,
   revisionDiffs,
+  softDeleteSubtreeInTransaction,
 } from "@wekiflow/db";
 import {
   agentMutateToolInputSchemas,
@@ -23,6 +24,7 @@ import {
   JOB_NAMES,
   slugify,
   type AgentMutateToolName,
+  type AutonomyMode,
   type AppendToPageToolInput,
   type CreatePageToolInput,
   type DeletePageToolInput,
@@ -68,6 +70,9 @@ export interface CreateMutateToolsInput {
   scheduledRunId?: string | null;
   scheduledAutoApply?: boolean;
   allowDestructiveScheduledAgent?: boolean;
+  autonomyMode?: AutonomyMode;
+  autonomyMaxDestructivePerRun?: number;
+  consumeDestructiveDailyOperation?: () => Promise<void>;
   patchQueue?: QueueLike<PatchGeneratorJobData>;
   extractionQueue?: QueueLike<TripleExtractorJobData>;
   searchQueue?: QueueLike<SearchIndexUpdaterJobData>;
@@ -129,6 +134,21 @@ function scheduledAutoApplyStatus(
   return "auto_applied";
 }
 
+function autonomyDecisionStatus(
+  action: IngestionAction,
+  confidence: number,
+  autonomyMode: AutonomyMode | undefined,
+): ReturnType<typeof classifyDecisionStatus> {
+  if (autonomyMode === "autonomous_shadow") {
+    if (action === "noop") return "noop";
+    if (action === "needs_review") return "needs_review";
+    return "suggested";
+  }
+  return classifyDecisionStatus(action, confidence, {
+    autonomous: autonomyMode === "autonomous",
+  });
+}
+
 function mutationDecisionStatus(
   input: CreateMutateToolsInput,
   action: "create" | "update" | "append",
@@ -137,7 +157,7 @@ function mutationDecisionStatus(
   if (input.origin === "scheduled") {
     return scheduledAutoApplyStatus(action, confidence);
   }
-  return classifyDecisionStatus(action, confidence);
+  return autonomyDecisionStatus(action, confidence, input.autonomyMode);
 }
 
 function destructiveDecisionStatus(
@@ -145,10 +165,66 @@ function destructiveDecisionStatus(
   action: "delete" | "merge",
   confidence: number,
 ): ReturnType<typeof classifyDecisionStatus> {
-  // Destructive tools are only exposed to scheduled-origin runs (mutate-tools
-  // builder enforces the gate). Scheduled Agent runs are autonomous: delete and
-  // merge must not create approval work or trash-restore conflicts.
-  return scheduledAutoApplyStatus(action, confidence);
+  if (input.origin === "scheduled") {
+    // Scheduled Agent runs are autonomous: delete and merge must not create
+    // approval work or trash-restore conflicts.
+    return scheduledAutoApplyStatus(action, confidence);
+  }
+  return autonomyDecisionStatus(action, confidence, input.autonomyMode);
+}
+
+function destructiveToolsEnabled(input: CreateMutateToolsInput): boolean {
+  return (
+    (input.origin === "scheduled" && input.allowDestructiveScheduledAgent) ||
+    input.autonomyMode === "autonomous" ||
+    input.autonomyMode === "autonomous_shadow"
+  );
+}
+
+function assertDestructiveToolAllowed(input: CreateMutateToolsInput): void {
+  if (destructiveToolsEnabled(input)) return;
+  throw new AgentToolError(
+    "conflict",
+    "Destructive tools are disabled for this agent run",
+  );
+}
+
+async function consumeDestructiveOperation(
+  input: CreateMutateToolsInput,
+  ctx: AgentToolContext,
+  status: ReturnType<typeof classifyDecisionStatus>,
+): Promise<void> {
+  const limit = input.autonomyMaxDestructivePerRun;
+  if (limit != null && ctx.state.destructiveCount >= limit) {
+    throw new AgentToolError(
+      "destructive_limit_exceeded",
+      `Destructive operation limit exceeded (${limit})`,
+      {
+        used: ctx.state.destructiveCount,
+        limit,
+      },
+      {
+        hint: `Already used ${ctx.state.destructiveCount} destructive operations this run; limit is ${limit}. Use request_human_review or noop for remaining destructive work.`,
+      },
+    );
+  }
+  ctx.state.destructiveCount += 1;
+  if (status === "auto_applied") {
+    try {
+      await input.consumeDestructiveDailyOperation?.();
+    } catch (err) {
+      throw new AgentToolError(
+        "destructive_limit_exceeded",
+        err instanceof Error
+          ? err.message
+          : "Destructive daily limit exceeded",
+        undefined,
+        {
+          hint: "Workspace daily destructive cap has been reached. Use request_human_review or noop for remaining destructive work.",
+        },
+      );
+    }
+  }
 }
 
 function assertObservedPage(ctx: AgentToolContext, pageId: string): void {
@@ -365,8 +441,12 @@ async function persistDirectPatch(
     status === "auto_applied"
       ? await detectHumanConflict(ctx.db, params.pageId, observedBaseRevisionId)
       : null;
+  const overridesHumanConflict =
+    Boolean(conflict) && input.autonomyMode === "autonomous";
   const decisionStatus =
-    conflict && !(input.origin === "scheduled" && input.scheduledAutoApply)
+    conflict &&
+    !overridesHumanConflict &&
+    !(input.origin === "scheduled" && input.scheduledAutoApply)
       ? "suggested"
       : status;
   const decision = await createDecision(ctx, input, {
@@ -420,7 +500,7 @@ async function persistDirectPatch(
 
   if (decisionStatus === "auto_applied") {
     const now = new Date();
-    await Promise.all([
+    const writes: Array<Promise<unknown>> = [
       ctx.db
         .update(pages)
         .set({
@@ -448,7 +528,30 @@ async function persistDirectPatch(
           tool: params.tool,
         },
       }),
-    ]);
+    ];
+    if (overridesHumanConflict && conflict) {
+      writes.push(
+        ctx.db.insert(auditLogs).values({
+          workspaceId: ctx.workspaceId,
+          modelRunId: input.modelRunId,
+          entityType: "page",
+          entityId: params.pageId,
+          action: "autonomous_overrode_human_conflict",
+          afterJson: {
+            source: activitySource(input, "ingestion_agent_autonomous"),
+            ingestionId: input.ingestion.id,
+            decisionId: decision.id,
+            revisionId: revision.id,
+            tool: params.tool,
+            conflict: {
+              humanRevisionId: conflict.id,
+              humanEditedAt: conflict.createdAt.toISOString(),
+            },
+          },
+        }),
+      );
+    }
+    await Promise.all(writes);
     await enqueuePostApply(ctx, input, params.pageId, revision.id);
   } else {
     const writes: Array<Promise<unknown>> = [
@@ -839,12 +942,7 @@ async function deletePage(
   ctx: AgentToolContext,
   args: DeletePageToolInput,
 ): Promise<AgentToolResult> {
-  if (input.origin !== "scheduled") {
-    throw new AgentToolError(
-      "conflict",
-      "delete_page is only available for scheduled agent runs",
-    );
-  }
+  assertDestructiveToolAllowed(input);
   assertCanMutatePage(ctx, args.pageId);
 
   const page = await getCurrentPage(ctx.db, ctx.workspaceId, args.pageId);
@@ -873,6 +971,7 @@ async function deletePage(
         }
       : {}),
   };
+  await consumeDestructiveOperation(input, ctx, status);
   const decision = await createDecision(ctx, input, {
     action: "delete",
     status,
@@ -888,8 +987,8 @@ async function deletePage(
   let purgeStorageKeys: string[] = [];
   if (status === "auto_applied") {
     try {
-      const result = await ctx.db.transaction(async (tx) =>
-        purgeDeletedSubtreeInTransaction(tx, {
+      const result = await ctx.db.transaction(async (tx) => {
+        const deletionInput = {
           workspaceId: ctx.workspaceId,
           rootPageId: args.pageId,
           modelRunId: input.modelRunId,
@@ -899,9 +998,29 @@ async function deletePage(
             scheduledRunId: input.scheduledRunId ?? null,
             decisionId: decision.id,
           },
-        }),
-      );
-      deletedPageIds = result.purgedPageIds;
+        };
+        if (input.origin === "scheduled") {
+          const purged = await purgeDeletedSubtreeInTransaction(
+            tx,
+            deletionInput,
+          );
+          return {
+            deletedPageIds: purged.purgedPageIds,
+            purgedPageIds: purged.purgedPageIds,
+            storageKeys: purged.storageKeys,
+          };
+        }
+        const softDeleted = await softDeleteSubtreeInTransaction(
+          tx,
+          deletionInput,
+        );
+        return {
+          deletedPageIds: softDeleted.deletedPageIds,
+          purgedPageIds: null,
+          storageKeys: [],
+        };
+      });
+      deletedPageIds = result.deletedPageIds;
       purgeStorageKeys = result.storageKeys;
       await ctx.db.insert(auditLogs).values({
         workspaceId: ctx.workspaceId,
@@ -915,8 +1034,10 @@ async function deletePage(
           scheduledRunId: input.scheduledRunId ?? null,
           decisionId: decision.id,
           pageId: args.pageId,
-          deletedPageIds: result.purgedPageIds,
-          purgedPageIds: result.purgedPageIds,
+          deletedPageIds: result.deletedPageIds,
+          ...(result.purgedPageIds
+            ? { purgedPageIds: result.purgedPageIds }
+            : {}),
         },
       });
       await deleteArchivedOriginals(purgeStorageKeys, "delete_page");
@@ -962,12 +1083,7 @@ async function mergePages(
   ctx: AgentToolContext,
   args: MergePagesToolInput,
 ): Promise<AgentToolResult> {
-  if (input.origin !== "scheduled") {
-    throw new AgentToolError(
-      "conflict",
-      "merge_pages is only available for scheduled agent runs",
-    );
-  }
+  assertDestructiveToolAllowed(input);
   assertCanMutatePage(ctx, args.canonicalPageId);
   for (const sourcePageId of args.sourcePageIds) {
     assertCanMutatePage(ctx, sourcePageId);
@@ -1045,6 +1161,7 @@ async function mergePages(
     })),
     ...(conflicts.length ? { conflicts, conflict: conflicts[0] } : {}),
   };
+  await consumeDestructiveOperation(input, ctx, status);
   const decision = await createDecision(ctx, input, {
     action: "merge",
     status,
@@ -1062,7 +1179,7 @@ async function mergePages(
       baseRevisionId: canonical.currentRevisionId,
       modelRunId: input.modelRunId,
       actorType: "ai",
-      source: "scheduled",
+      source: revisionSource(input),
       sourceIngestionId: input.ingestion.id,
       sourceDecisionId: decision.id,
       contentMd: args.mergedContentMd,
@@ -1094,7 +1211,7 @@ async function mergePages(
   if (status === "auto_applied") {
     try {
       const applyResult = await ctx.db.transaction(async (tx) => {
-        // Capture redirect paths before purge removes source page_paths rows.
+        // Capture redirect paths before delete/purge disables source page_paths rows.
         const redirectRows = await tx
           .select({ pageId: pagePaths.pageId, path: pagePaths.path })
           .from(pagePaths)
@@ -1108,12 +1225,12 @@ async function mergePages(
 
         const collected: string[] = [];
         const storageKeys: string[] = [];
+        const purgedPageIds: string[] = [];
         for (const sourcePageId of args.sourcePageIds) {
-          const result = await purgeDeletedSubtreeInTransaction(tx, {
+          const deletionInput = {
             workspaceId: ctx.workspaceId,
             rootPageId: sourcePageId,
             modelRunId: input.modelRunId,
-            cleanupOrphanEntities: false,
             auditExtra: {
               source: activitySource(input, "ingestion_agent_merge"),
               ingestionId: input.ingestion.id,
@@ -1121,11 +1238,26 @@ async function mergePages(
               decisionId: decision.id,
               mergeCanonicalPageId: args.canonicalPageId,
             },
-          });
-          collected.push(...result.purgedPageIds);
-          storageKeys.push(...result.storageKeys);
+          };
+          if (input.origin === "scheduled") {
+            const result = await purgeDeletedSubtreeInTransaction(tx, {
+              ...deletionInput,
+              cleanupOrphanEntities: false,
+            });
+            collected.push(...result.purgedPageIds);
+            purgedPageIds.push(...result.purgedPageIds);
+            storageKeys.push(...result.storageKeys);
+          } else {
+            const result = await softDeleteSubtreeInTransaction(
+              tx,
+              deletionInput,
+            );
+            collected.push(...result.deletedPageIds);
+          }
         }
-        await cleanupOrphanEntities(tx, ctx.workspaceId);
+        if (input.origin === "scheduled") {
+          await cleanupOrphanEntities(tx, ctx.workspaceId);
+        }
 
         const now = new Date();
         const redirectValues = redirectRows
@@ -1167,7 +1299,7 @@ async function mergePages(
               canonicalPageId: args.canonicalPageId,
               sourcePageIds: args.sourcePageIds,
               deletedPageIds: collected,
-              purgedPageIds: collected,
+              ...(purgedPageIds.length ? { purgedPageIds } : {}),
               revisionId: revision.id,
             },
           }),
@@ -1384,7 +1516,7 @@ export function createMutateTools(
     },
   };
 
-  if (input.origin === "scheduled" && input.allowDestructiveScheduledAgent) {
+  if (destructiveToolsEnabled(input)) {
     tools.delete_page = {
       name: "delete_page",
       description:

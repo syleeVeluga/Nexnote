@@ -36,7 +36,7 @@ export const agentRuns = pgTable(
   (t) => [
     check(
       "agent_runs_status_chk",
-      sql`${t.status} IN ('running','completed','failed','timeout','shadow')`,
+      sql`${t.status} IN ('running','completed','failed','timeout','shadow','paused')`,
     ),
     check("agent_runs_decisions_count_chk", sql`${t.decisionsCount} >= 0`),
     check("agent_runs_total_tokens_chk", sql`${t.totalTokens} >= 0`),

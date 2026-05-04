@@ -1,4 +1,5 @@
 import type {
+  AutonomyMode,
   IngestionAction,
   ScheduledRunTriggeredBy,
 } from "../constants/index.js";
@@ -22,13 +23,16 @@ export interface IngestionAgentJobData {
   ingestionId: string;
   workspaceId: string;
   mode: "shadow" | "agent";
+  autonomyMode?: AutonomyMode;
+  autonomyMaxDestructivePerRun?: number;
+  autonomyMaxDestructivePerDay?: number;
 }
 
 /** Result returned from the ingestion-agent shadow job */
 export interface IngestionAgentJobResult {
   ingestionId: string;
   agentRunId: string;
-  status: "shadow" | "completed" | "failed" | "timeout";
+  status: "shadow" | "completed" | "failed" | "timeout" | "paused";
   proposedMutations: number;
   totalTokens: number;
 }

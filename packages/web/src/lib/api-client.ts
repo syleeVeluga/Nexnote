@@ -25,6 +25,7 @@ import {
   type IngestionAction,
   type IngestionStatus,
   type IngestionMode,
+  type AutonomyMode,
   type AIProvider,
   type AgentModelPreset,
   type DecisionStatus,
@@ -189,6 +190,12 @@ export interface Workspace {
   scheduledEnabled: boolean;
   scheduledAutoApply: boolean;
   allowDestructiveScheduledAgent: boolean;
+  autonomyMode: AutonomyMode;
+  autonomyPromotedAt: string | null;
+  autonomyPromotedBy: string | null;
+  autonomyPausedUntil: string | null;
+  autonomyMaxDestructivePerRun: number;
+  autonomyMaxDestructivePerDay: number;
   scheduledDailyTokenCap: number | null;
   scheduledPerRunPageLimit: number;
   useReconciliationDefault: boolean;
@@ -239,6 +246,9 @@ export const workspaces = {
       scheduledEnabled?: boolean;
       scheduledAutoApply?: boolean;
       allowDestructiveScheduledAgent?: boolean;
+      autonomyMode?: AutonomyMode;
+      autonomyMaxDestructivePerRun?: number;
+      autonomyMaxDestructivePerDay?: number;
       scheduledDailyTokenCap?: number | null;
       scheduledPerRunPageLimit?: number;
       useReconciliationDefault?: boolean;
@@ -247,6 +257,12 @@ export const workspaces = {
     return request<Workspace>(`/workspaces/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
+    });
+  },
+  pauseAutonomy(id: string, pauseUntil: string | null) {
+    return request<Workspace>(`/workspaces/${id}/autonomy/pause`, {
+      method: "POST",
+      body: JSON.stringify({ pauseUntil }),
     });
   },
 };

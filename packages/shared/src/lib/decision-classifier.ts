@@ -10,12 +10,18 @@ import type { DecisionStatus, IngestionAction } from "../constants/index.js";
  * confidence thresholds — if the model says it can't decide, trust it even
  * when the confidence number is high.
  */
+export interface ClassifyDecisionStatusOptions {
+  autonomous?: boolean;
+}
+
 export function classifyDecisionStatus(
   action: IngestionAction,
   confidence: number,
+  options?: ClassifyDecisionStatusOptions,
 ): DecisionStatus {
   if (action === "noop") return "noop";
   if (action === "needs_review") return "needs_review";
+  if (options?.autonomous) return "auto_applied";
   if (confidence >= CONFIDENCE.AUTO_APPLY) return "auto_applied";
   if (confidence >= CONFIDENCE.SUGGESTION_MIN) return "suggested";
   return "needs_review";
