@@ -65,7 +65,6 @@ describe("read_page_metadata", () => {
             currentRevisionId: "44444444-4444-4444-8444-444444444444",
             lastAiUpdatedAt: new Date("2026-04-01T00:00:00Z"),
             lastHumanEditedAt: null,
-            latestPublishedSnapshotId: null,
             contentMd:
               "---\ntitle: Child Page\ntags: [docs, draft]\n---\n\nbody",
           },
@@ -372,6 +371,7 @@ describe("read_revision", () => {
     const data = result.data as { contentMd: string; lineDiff: string | null };
     assert.equal(data.contentMd, "# Hello\n\nworld");
     assert.equal(data.lineDiff, "+ hello");
+    assert.equal(result.observedPageRevisions, undefined);
   });
 
   it("rejects when neither revisionId nor pageId is observed", async () => {

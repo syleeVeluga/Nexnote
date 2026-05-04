@@ -992,7 +992,6 @@ async function readPageMetadata(
       currentRevisionId: pages.currentRevisionId,
       lastAiUpdatedAt: pages.lastAiUpdatedAt,
       lastHumanEditedAt: pages.lastHumanEditedAt,
-      latestPublishedSnapshotId: pages.latestPublishedSnapshotId,
       contentMd: pageRevisions.contentMd,
     })
     .from(pages)
@@ -1160,10 +1159,15 @@ async function findBacklinks(
   const titleLike = `%[[${escapeLikePattern(target.title)}%`;
   const slugLike = `%[[${escapeLikePattern(target.slug)}%`;
   const slugRegex = `\\]\\((?:[^)\\s]*/)?${escapeRegex(target.slug)}(?:[#?][^)]*)?\\)`;
+  const lastTouched = sql<Date>`GREATEST(
+    COALESCE(${pages.lastAiUpdatedAt}, 'epoch'::timestamptz),
+    COALESCE(${pages.lastHumanEditedAt}, 'epoch'::timestamptz),
+    ${pages.updatedAt}
+  )`;
 
   const orClauses = [
     sql`${pageRevisions.contentMd} ILIKE ${slugLike}`,
-    sql`${pageRevisions.contentMd} ~ ${slugRegex}`,
+    sql`${pageRevisions.contentMd} ~* ${slugRegex}`,
   ];
   if (allowTitleWikilink) {
     orClauses.unshift(
@@ -1179,7 +1183,6 @@ async function findBacklinks(
       slug: pages.slug,
       currentRevisionId: pages.currentRevisionId,
       contentMd: pageRevisions.contentMd,
-      lastAiUpdatedAt: pages.lastAiUpdatedAt,
     })
     .from(pages)
     .innerJoin(pageRevisions, eq(pageRevisions.id, pages.currentRevisionId))
@@ -1191,7 +1194,7 @@ async function findBacklinks(
         or(...orClauses)!,
       ),
     )
-    .orderBy(desc(pages.lastAiUpdatedAt))
+    .orderBy(desc(lastTouched))
     .limit(probeLimit);
 
   const limited = rows.length > input.limit;
@@ -1410,7 +1413,6 @@ async function readRevision(
     },
     observedPageIds: [row.pageId],
     observedRevisionIds: [row.id],
-    observedPageRevisions: [{ pageId: row.pageId, revisionId: row.id }],
   };
 }
 
