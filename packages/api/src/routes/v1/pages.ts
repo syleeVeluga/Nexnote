@@ -1,8 +1,4 @@
-import type {
-  FastifyPluginAsync,
-  FastifyRequest,
-  FastifyReply,
-} from "fastify";
+import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import {
   eq,
   and,
@@ -92,6 +88,10 @@ import {
 } from "../../lib/page-deletion.js";
 import { loadPredicateDisplayLabels } from "../../lib/predicate-display-labels.js";
 import { mapPageDto, pageSummarySelect } from "../../lib/page-dto.js";
+import {
+  RollbackRevisionError,
+  rollbackToRevision,
+} from "../../lib/rollback-revision.js";
 
 // ---------------------------------------------------------------------------
 // Param & query schemas
@@ -340,10 +340,7 @@ async function publishTargetPage(input: {
     })
     .from(pageRevisions)
     .where(
-      and(
-        eq(pageRevisions.id, revisionId),
-        eq(pageRevisions.pageId, page.id),
-      ),
+      and(eq(pageRevisions.id, revisionId), eq(pageRevisions.pageId, page.id)),
     )
     .limit(1);
 
@@ -445,248 +442,230 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
   // -----------------------------------------------------------------------
   // POST / — Create page
   // -----------------------------------------------------------------------
-  fastify.post(
-    "/",
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      const paramsResult = workspaceParamsSchema.safeParse(request.params);
-      if (!paramsResult.success) {
-        return sendValidationError(reply, paramsResult.error.issues);
-      }
-      const { workspaceId } = paramsResult.data;
+  fastify.post("/", async (request: FastifyRequest, reply: FastifyReply) => {
+    const paramsResult = workspaceParamsSchema.safeParse(request.params);
+    if (!paramsResult.success) {
+      return sendValidationError(reply, paramsResult.error.issues);
+    }
+    const { workspaceId } = paramsResult.data;
 
-      const role = await getMemberRole(
-        fastify.db,
+    const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
+    if (!role) return forbidden(reply);
+    if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
+
+    const bodyResult = createPageSchema.safeParse(request.body);
+    if (!bodyResult.success) {
+      return sendValidationError(reply, bodyResult.error.issues);
+    }
+
+    const {
+      title,
+      slug,
+      parentPageId,
+      parentFolderId,
+      contentMd,
+      contentJson,
+    } = bodyResult.data;
+    const userId = request.user.sub;
+
+    const exclusiveError = validatePageParentExclusive({
+      parentPageId,
+      parentFolderId,
+    });
+    if (exclusiveError) {
+      return reply.code(exclusiveError.statusCode).send(exclusiveError.body);
+    }
+
+    const parentValidation = await validateParentPageAssignment(
+      (candidatePageId) => loadPageHierarchyRow(fastify.db, candidatePageId),
+      { workspaceId, parentPageId },
+    );
+    if (parentValidation) {
+      return reply
+        .code(parentValidation.statusCode)
+        .send(parentValidation.body);
+    }
+
+    if (parentFolderId) {
+      const folderError = await validateFolderExistsInWorkspace(
+        (id) => loadFolderHierarchyRow(fastify.db, id),
         workspaceId,
-        request.user.sub,
-      );
-      if (!role) return forbidden(reply);
-      if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
-
-      const bodyResult = createPageSchema.safeParse(request.body);
-      if (!bodyResult.success) {
-        return sendValidationError(reply, bodyResult.error.issues);
-      }
-
-      const { title, slug, parentPageId, parentFolderId, contentMd, contentJson } =
-        bodyResult.data;
-      const userId = request.user.sub;
-
-      const exclusiveError = validatePageParentExclusive({
-        parentPageId,
         parentFolderId,
-      });
-      if (exclusiveError) {
-        return reply.code(exclusiveError.statusCode).send(exclusiveError.body);
-      }
-
-      const parentValidation = await validateParentPageAssignment(
-        (candidatePageId) => loadPageHierarchyRow(fastify.db, candidatePageId),
-        { workspaceId, parentPageId },
       );
-      if (parentValidation) {
-        return reply
-          .code(parentValidation.statusCode)
-          .send(parentValidation.body);
+      if (folderError) {
+        return reply.code(folderError.statusCode).send(folderError.body);
       }
+    }
 
-      if (parentFolderId) {
-        const folderError = await validateFolderExistsInWorkspace(
-          (id) => loadFolderHierarchyRow(fastify.db, id),
-          workspaceId,
-          parentFolderId,
-        );
-        if (folderError) {
-          return reply.code(folderError.statusCode).send(folderError.body);
-        }
-      }
+    try {
+      const result = await fastify.db.transaction(async (tx) => {
+        const sortOrder = await getNextPageSortOrder(tx, workspaceId, {
+          parentPageId: parentPageId ?? null,
+          parentFolderId: parentFolderId ?? null,
+        });
 
-      try {
-        const result = await fastify.db.transaction(async (tx) => {
-          const sortOrder = await getNextPageSortOrder(tx, workspaceId, {
-            parentPageId: parentPageId ?? null,
-            parentFolderId: parentFolderId ?? null,
-          });
-
-          const [page] = await tx
-            .insert(pages)
-            .values({
-              workspaceId,
-              parentPageId,
-              parentFolderId,
-              title,
-              slug,
-              status: "draft",
-              sortOrder,
-            })
-            .returning();
-
-          const [revision] = await tx
-            .insert(pageRevisions)
-            .values({
-              pageId: page.id,
-              baseRevisionId: null,
-              actorUserId: userId,
-              actorType: "user",
-              source: "editor",
-              contentMd,
-              contentJson: contentJson ?? null,
-            })
-            .returning();
-
-          const [updatedPage] = await tx
-            .update(pages)
-            .set({
-              currentRevisionId: revision.id,
-              lastHumanEditedAt: sql`now()`,
-            })
-            .where(eq(pages.id, page.id))
-            .returning();
-
-          await tx.insert(pagePaths).values({
+        const [page] = await tx
+          .insert(pages)
+          .values({
             workspaceId,
+            parentPageId,
+            parentFolderId,
+            title,
+            slug,
+            status: "draft",
+            sortOrder,
+          })
+          .returning();
+
+        const [revision] = await tx
+          .insert(pageRevisions)
+          .values({
             pageId: page.id,
-            path: slug,
-            isCurrent: true,
-          });
+            baseRevisionId: null,
+            actorUserId: userId,
+            actorType: "user",
+            source: "editor",
+            contentMd,
+            contentJson: contentJson ?? null,
+          })
+          .returning();
 
-          await tx.insert(auditLogs).values({
-            workspaceId,
-            userId,
-            entityType: "page",
-            entityId: page.id,
-            action: "create",
-            afterJson: {
-              title,
-              slug,
-              parentPageId,
-              parentFolderId,
-              status: "draft",
-            },
-          });
+        const [updatedPage] = await tx
+          .update(pages)
+          .set({
+            currentRevisionId: revision.id,
+            lastHumanEditedAt: sql`now()`,
+          })
+          .where(eq(pages.id, page.id))
+          .returning();
 
-          return { page: updatedPage, revision };
+        await tx.insert(pagePaths).values({
+          workspaceId,
+          pageId: page.id,
+          path: slug,
+          isCurrent: true,
         });
 
-        const tripleData: TripleExtractorJobData = {
-          pageId: result.page.id,
-          revisionId: result.revision.id,
+        await tx.insert(auditLogs).values({
           workspaceId,
-        };
-        await fastify.queues.extraction.add(
-          JOB_NAMES.TRIPLE_EXTRACTOR,
-          tripleData,
-          DEFAULT_JOB_OPTIONS,
-        );
-
-        const searchData: SearchIndexUpdaterJobData = {
-          pageId: result.page.id,
-          revisionId: result.revision.id,
-          workspaceId,
-        };
-        await fastify.queues.search.add(
-          JOB_NAMES.SEARCH_INDEX_UPDATER,
-          searchData,
-          DEFAULT_JOB_OPTIONS,
-        );
-
-        return reply.code(201).send({
-          page: mapPageDto({
-            ...result.page,
-            latestRevisionActorType: result.revision.actorType,
-            latestRevisionSource: result.revision.source,
-            latestRevisionCreatedAt: result.revision.createdAt,
-            latestRevisionSourceIngestionId:
-              result.revision.sourceIngestionId,
-            latestRevisionSourceDecisionId: result.revision.sourceDecisionId,
-          }),
-          revision: mapRevisionDto(result.revision),
+          userId,
+          entityType: "page",
+          entityId: page.id,
+          action: "create",
+          afterJson: {
+            title,
+            slug,
+            parentPageId,
+            parentFolderId,
+            status: "draft",
+          },
         });
-      } catch (err: unknown) {
-        if (isUniqueViolation(err)) {
-          return reply.code(409).send({
-            error: "A page with this slug already exists in this workspace",
-            code: ERROR_CODES.SLUG_CONFLICT,
-          });
-        }
-        throw err;
+
+        return { page: updatedPage, revision };
+      });
+
+      const tripleData: TripleExtractorJobData = {
+        pageId: result.page.id,
+        revisionId: result.revision.id,
+        workspaceId,
+      };
+      await fastify.queues.extraction.add(
+        JOB_NAMES.TRIPLE_EXTRACTOR,
+        tripleData,
+        DEFAULT_JOB_OPTIONS,
+      );
+
+      const searchData: SearchIndexUpdaterJobData = {
+        pageId: result.page.id,
+        revisionId: result.revision.id,
+        workspaceId,
+      };
+      await fastify.queues.search.add(
+        JOB_NAMES.SEARCH_INDEX_UPDATER,
+        searchData,
+        DEFAULT_JOB_OPTIONS,
+      );
+
+      return reply.code(201).send({
+        page: mapPageDto({
+          ...result.page,
+          latestRevisionActorType: result.revision.actorType,
+          latestRevisionSource: result.revision.source,
+          latestRevisionCreatedAt: result.revision.createdAt,
+          latestRevisionSourceIngestionId: result.revision.sourceIngestionId,
+          latestRevisionSourceDecisionId: result.revision.sourceDecisionId,
+        }),
+        revision: mapRevisionDto(result.revision),
+      });
+    } catch (err: unknown) {
+      if (isUniqueViolation(err)) {
+        return reply.code(409).send({
+          error: "A page with this slug already exists in this workspace",
+          code: ERROR_CODES.SLUG_CONFLICT,
+        });
       }
-    },
-  );
+      throw err;
+    }
+  });
 
   // -----------------------------------------------------------------------
   // GET / — List pages
   // -----------------------------------------------------------------------
-  fastify.get(
-    "/",
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      const paramsResult = workspaceParamsSchema.safeParse(request.params);
-      if (!paramsResult.success) {
-        return sendValidationError(reply, paramsResult.error.issues);
-      }
-      const { workspaceId } = paramsResult.data;
+  fastify.get("/", async (request: FastifyRequest, reply: FastifyReply) => {
+    const paramsResult = workspaceParamsSchema.safeParse(request.params);
+    if (!paramsResult.success) {
+      return sendValidationError(reply, paramsResult.error.issues);
+    }
+    const { workspaceId } = paramsResult.data;
 
-      const role = await getMemberRole(
-        fastify.db,
-        workspaceId,
-        request.user.sub,
-      );
-      if (!role) return forbidden(reply);
+    const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
+    if (!role) return forbidden(reply);
 
-      const queryResult = listPagesQuerySchema.safeParse(request.query);
-      if (!queryResult.success) {
-        return sendValidationError(reply, queryResult.error.issues);
-      }
+    const queryResult = listPagesQuerySchema.safeParse(request.query);
+    if (!queryResult.success) {
+      return sendValidationError(reply, queryResult.error.issues);
+    }
 
-      const { limit, offset, parentPageId, parentFolderId, status } =
-        queryResult.data;
+    const { limit, offset, parentPageId, parentFolderId, status } =
+      queryResult.data;
 
-      // Build where conditions — active pages only; trash is a separate route
-      const conditions = [
-        eq(pages.workspaceId, workspaceId),
-        notDeleted(),
-      ];
-      if (parentPageId) {
-        conditions.push(eq(pages.parentPageId, parentPageId));
-      }
-      if (parentFolderId) {
-        conditions.push(eq(pages.parentFolderId, parentFolderId));
-      }
-      if (status) {
-        conditions.push(eq(pages.status, status));
-      }
-      const whereClause = and(...conditions);
+    // Build where conditions — active pages only; trash is a separate route
+    const conditions = [eq(pages.workspaceId, workspaceId), notDeleted()];
+    if (parentPageId) {
+      conditions.push(eq(pages.parentPageId, parentPageId));
+    }
+    if (parentFolderId) {
+      conditions.push(eq(pages.parentFolderId, parentFolderId));
+    }
+    if (status) {
+      conditions.push(eq(pages.status, status));
+    }
+    const whereClause = and(...conditions);
 
-      const [data, [{ total }]] = await Promise.all([
-        fastify.db
-          .select(pageSummarySelect)
-          .from(pages)
-          .leftJoin(
-            pageRevisions,
-            eq(pages.currentRevisionId, pageRevisions.id),
-          )
-          .leftJoin(
-            publishedSnapshots,
-            and(
-              eq(publishedSnapshots.pageId, pages.id),
-              eq(publishedSnapshots.isLive, true),
-            ),
-          )
-          .where(whereClause)
-          .orderBy(pages.sortOrder, pages.createdAt)
-          .limit(limit)
-          .offset(offset),
-        fastify.db
-          .select({ total: count() })
-          .from(pages)
-          .where(whereClause),
-      ]);
+    const [data, [{ total }]] = await Promise.all([
+      fastify.db
+        .select(pageSummarySelect)
+        .from(pages)
+        .leftJoin(pageRevisions, eq(pages.currentRevisionId, pageRevisions.id))
+        .leftJoin(
+          publishedSnapshots,
+          and(
+            eq(publishedSnapshots.pageId, pages.id),
+            eq(publishedSnapshots.isLive, true),
+          ),
+        )
+        .where(whereClause)
+        .orderBy(pages.sortOrder, pages.createdAt)
+        .limit(limit)
+        .offset(offset),
+      fastify.db.select({ total: count() }).from(pages).where(whereClause),
+    ]);
 
-      return reply.code(200).send({
-        data: data.map(mapPageDto),
-        total,
-      });
-    },
-  );
+    return reply.code(200).send({
+      data: data.map(mapPageDto),
+      total,
+    });
+  });
 
   // -----------------------------------------------------------------------
   // GET /:pageId — Get page with current revision
@@ -725,10 +704,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           },
         })
         .from(pages)
-        .leftJoin(
-          pageRevisions,
-          eq(pages.currentRevisionId, pageRevisions.id),
-        )
+        .leftJoin(pageRevisions, eq(pages.currentRevisionId, pageRevisions.id))
         .leftJoin(
           publishedSnapshots,
           and(
@@ -824,8 +800,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           ? body.parentFolderId
           : existing.parentFolderId;
       const parentFieldTouched =
-        body.parentPageId !== undefined ||
-        body.parentFolderId !== undefined;
+        body.parentPageId !== undefined || body.parentFolderId !== undefined;
       const parentChanged =
         parentFieldTouched &&
         (nextParentPageId !== existing.parentPageId ||
@@ -1072,12 +1047,10 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       const { contentMd, contentJson, revisionNote } = bodyResult.data;
       const userId = request.user.sub;
 
-      const page = await findPageInWorkspace(
-        fastify.db,
-        workspaceId,
-        pageId,
-        { id: pages.id, currentRevisionId: pages.currentRevisionId },
-      );
+      const page = await findPageInWorkspace(fastify.db, workspaceId, pageId, {
+        id: pages.id,
+        currentRevisionId: pages.currentRevisionId,
+      });
       if (!page) return pageNotFound(reply);
 
       const result = await fastify.db.transaction(async (tx) => {
@@ -1263,10 +1236,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           })
           .from(pageRevisions)
           .where(
-            and(
-              eq(pageRevisions.id, from),
-              eq(pageRevisions.pageId, pageId),
-            ),
+            and(eq(pageRevisions.id, from), eq(pageRevisions.pageId, pageId)),
           )
           .limit(1)
           .then((r) => r[0]),
@@ -1278,10 +1248,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           })
           .from(pageRevisions)
           .where(
-            and(
-              eq(pageRevisions.id, to),
-              eq(pageRevisions.pageId, pageId),
-            ),
+            and(eq(pageRevisions.id, to), eq(pageRevisions.pageId, pageId)),
           )
           .limit(1)
           .then((r) => r[0]),
@@ -1438,103 +1405,32 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       const { revisionNote } = bodyResult.data;
       const userId = request.user.sub;
 
-      // Fetch the target revision to rollback to
-      const [targetRevision] = await fastify.db
-        .select({
-          id: pageRevisions.id,
-          contentMd: pageRevisions.contentMd,
-          contentJson: pageRevisions.contentJson,
-        })
-        .from(pageRevisions)
-        .where(
-          and(
-            eq(pageRevisions.id, revisionId),
-            eq(pageRevisions.pageId, pageId),
-          ),
-        )
-        .limit(1);
-
-      if (!targetRevision) {
-        return reply.code(404).send({
-          error: "Revision not found",
-          code: ERROR_CODES.REVISION_NOT_FOUND,
-        });
-      }
-
       let result;
       try {
-        result = await fastify.db.transaction(async (tx) => {
-        // Re-fetch page inside transaction to avoid race with concurrent saves
-        const [page] = await tx
-          .select({
-            id: pages.id,
-            currentRevisionId: pages.currentRevisionId,
-          })
-          .from(pages)
-          .where(
-            and(
-              eq(pages.id, pageId),
-              eq(pages.workspaceId, workspaceId),
-              notDeleted(),
-            ),
-          )
-          .limit(1);
-
-        if (!page) {
-          throw new Error(ERROR_CODES.PAGE_NOT_FOUND);
-        }
-
-        const [newRevision] = await tx
-          .insert(pageRevisions)
-          .values({
-            pageId,
-            baseRevisionId: page.currentRevisionId,
-            actorUserId: userId,
-            actorType: "user",
-            source: "rollback",
-            contentMd: targetRevision.contentMd,
-            contentJson: targetRevision.contentJson,
-            revisionNote:
-              revisionNote ?? `Rollback to revision ${revisionId}`,
-          })
-          .returning();
-
-        if (page.currentRevisionId) {
-          await insertRevisionDiff(
-            tx,
-            newRevision.id,
-            page.currentRevisionId,
-            targetRevision.contentMd,
-            targetRevision.contentJson as Record<string, unknown> | null,
-          );
-        }
-
-        await tx
-          .update(pages)
-          .set({
-            currentRevisionId: newRevision.id,
-            updatedAt: sql`now()`,
-            lastHumanEditedAt: sql`now()`,
-          })
-          .where(eq(pages.id, pageId));
-
-        await tx.insert(auditLogs).values({
+        result = await rollbackToRevision({
+          db: fastify.db,
           workspaceId,
-          userId,
-          entityType: "page_revision",
-          entityId: newRevision.id,
-          action: "rollback",
-          afterJson: {
-            pageId,
-            baseRevisionId: page.currentRevisionId,
-            rollbackTargetRevisionId: revisionId,
-          },
+          pageId,
+          revisionId,
+          actorUserId: userId,
+          actorType: "user",
+          source: "rollback",
+          revisionNote,
         });
-
-        return newRevision;
-      });
       } catch (err: unknown) {
-        if (err instanceof Error && err.message === ERROR_CODES.PAGE_NOT_FOUND) {
+        if (
+          err instanceof RollbackRevisionError &&
+          err.code === "revision_not_found"
+        ) {
+          return reply.code(404).send({
+            error: "Revision not found",
+            code: ERROR_CODES.REVISION_NOT_FOUND,
+          });
+        }
+        if (
+          err instanceof RollbackRevisionError &&
+          err.code === "page_not_found"
+        ) {
           return pageNotFound(reply);
         }
         throw err;
@@ -1542,7 +1438,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
 
       const tripleData: TripleExtractorJobData = {
         pageId,
-        revisionId: result.id,
+        revisionId: result.newRevisionId,
         workspaceId,
       };
       await fastify.queues.extraction.add(
@@ -1553,7 +1449,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
 
       const searchData: SearchIndexUpdaterJobData = {
         pageId,
-        revisionId: result.id,
+        revisionId: result.newRevisionId,
         workspaceId,
       };
       await fastify.queues.search.add(
@@ -1563,7 +1459,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       );
 
       return reply.code(201).send({
-        revision: mapRevisionDto(result),
+        revision: mapRevisionDto(result.revision),
       });
     },
   );
@@ -1606,7 +1502,8 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         });
       } catch (err) {
         if (err instanceof PageDeletionError) {
-          if (err.code === ERROR_CODES.PAGE_NOT_FOUND) return pageNotFound(reply);
+          if (err.code === ERROR_CODES.PAGE_NOT_FOUND)
+            return pageNotFound(reply);
           if (err.code === ERROR_CODES.PUBLISHED_BLOCK) {
             return reply.code(409).send({
               error:
@@ -1814,7 +1711,8 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         });
       } catch (err) {
         if (err instanceof PageDeletionError) {
-          if (err.code === ERROR_CODES.PAGE_NOT_FOUND) return pageNotFound(reply);
+          if (err.code === ERROR_CODES.PAGE_NOT_FOUND)
+            return pageNotFound(reply);
           if (err.code === ERROR_CODES.SLUG_CONFLICT) {
             return reply.code(409).send({
               error:
@@ -1863,11 +1761,11 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         });
       } catch (err) {
         if (err instanceof PageDeletionError) {
-          if (err.code === ERROR_CODES.PAGE_NOT_FOUND) return pageNotFound(reply);
+          if (err.code === ERROR_CODES.PAGE_NOT_FOUND)
+            return pageNotFound(reply);
           if (err.code === ERROR_CODES.PAGE_NOT_TRASHED) {
             return reply.code(400).send({
-              error:
-                "Page is not in the trash. Soft-delete it before purging.",
+              error: "Page is not in the trash. Soft-delete it before purging.",
               code: err.code,
             });
           }
@@ -2146,9 +2044,7 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         eq(triples.sourcePageId, pageId),
         eq(triples.workspaceId, workspaceId),
         eq(triples.status, "active"),
-        ...(minConfidence > 0
-          ? [gte(triples.confidence, minConfidence)]
-          : []),
+        ...(minConfidence > 0 ? [gte(triples.confidence, minConfidence)] : []),
       ];
 
       const centerTriplesRows = await db
@@ -2419,7 +2315,11 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { workspaceId, pageId } = paramsResult.data;
 
-      const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
       if (!role) return forbidden(reply);
       if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
 
@@ -2461,20 +2361,27 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Build the prompt
       const modeInstructions: Record<string, string> = {
-        "selection-rewrite": "Rewrite the provided text based on the instruction. Return only the rewritten content, no commentary.",
-        "section-expand": "Expand the provided text with more detail. Return only the expanded content.",
-        "summarize": "Summarize the provided text concisely. Return only the summary.",
-        "tone-formal": "Rewrite the provided text in a formal, professional tone. Return only the rewritten text.",
-        "tone-casual": "Rewrite the provided text in a casual, friendly tone. Return only the rewritten text.",
-        "extract-action-items": "Extract all action items from the provided text as a markdown task list. Return only the task list.",
+        "selection-rewrite":
+          "Rewrite the provided text based on the instruction. Return only the rewritten content, no commentary.",
+        "section-expand":
+          "Expand the provided text with more detail. Return only the expanded content.",
+        summarize:
+          "Summarize the provided text concisely. Return only the summary.",
+        "tone-formal":
+          "Rewrite the provided text in a formal, professional tone. Return only the rewritten text.",
+        "tone-casual":
+          "Rewrite the provided text in a casual, friendly tone. Return only the rewritten text.",
+        "extract-action-items":
+          "Extract all action items from the provided text as a markdown task list. Return only the task list.",
       };
 
-      const systemPrompt = modeInstructions[mode] ?? "Edit the text based on the instruction.";
+      const systemPrompt =
+        modeInstructions[mode] ?? "Edit the text based on the instruction.";
 
       reply.raw.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
+        Connection: "keep-alive",
         "X-Accel-Buffering": "no",
       });
 
@@ -2483,28 +2390,46 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       };
 
       try {
-        const adapter = (fastify as unknown as { aiAdapter?: { streamChat?: (req: unknown) => AsyncIterable<string> } }).aiAdapter;
+        const adapter = (
+          fastify as unknown as {
+            aiAdapter?: {
+              streamChat?: (req: unknown) => AsyncIterable<string>;
+            };
+          }
+        ).aiAdapter;
         if (!adapter?.streamChat) {
           // Fallback: non-streaming single-shot response via the queue's AI gateway
-          sendEvent("error", { message: "Streaming not available — submit via ingest API" });
+          sendEvent("error", {
+            message: "Streaming not available — submit via ingest API",
+          });
           reply.raw.end();
           return;
         }
 
-        sendEvent("start", { mode, pageId, baseRevisionId: pageRow.currentRevisionId });
+        sendEvent("start", {
+          mode,
+          pageId,
+          baseRevisionId: pageRow.currentRevisionId,
+        });
 
         let accumulated = "";
         for await (const chunk of adapter.streamChat({
           messages: [
             { role: "system", content: systemPrompt },
-            { role: "user", content: `Instruction: ${instruction}\n\nText:\n${contextMd.slice(0, 8000)}` },
+            {
+              role: "user",
+              content: `Instruction: ${instruction}\n\nText:\n${contextMd.slice(0, 8000)}`,
+            },
           ],
         })) {
           accumulated += chunk;
           sendEvent("chunk", { text: chunk });
         }
 
-        sendEvent("done", { result: accumulated, baseRevisionId: pageRow.currentRevisionId });
+        sendEvent("done", {
+          result: accumulated,
+          baseRevisionId: pageRow.currentRevisionId,
+        });
       } catch (err) {
         fastify.log.error(err, "ai-edit stream error");
         sendEvent("error", { message: "AI edit failed" });
@@ -2526,7 +2451,11 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { workspaceId, pageId } = paramsResult.data;
 
-      const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
       if (!role) return forbidden(reply);
       if (!EDITOR_PLUS_ROLES.includes(role)) return insufficientRole(reply);
 
@@ -2544,17 +2473,27 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         .limit(1);
 
       if (!page) {
-        return reply.code(404).send({ error: "Page not found", code: ERROR_CODES.PAGE_NOT_FOUND });
+        return reply
+          .code(404)
+          .send({ error: "Page not found", code: ERROR_CODES.PAGE_NOT_FOUND });
       }
       if (!page.currentRevisionId) {
-        return reply.code(400).send({ error: "Page has no content to reformat", code: ERROR_CODES.NO_REVISION });
+        return reply
+          .code(400)
+          .send({
+            error: "Page has no content to reformat",
+            code: ERROR_CODES.NO_REVISION,
+          });
       }
 
       // Pre-flight dedup: return existing pending decision without enqueuing a duplicate job
       const [pendingDecision] = await fastify.db
         .select({ id: ingestionDecisions.id })
         .from(ingestionDecisions)
-        .innerJoin(ingestions, eq(ingestions.id, ingestionDecisions.ingestionId))
+        .innerJoin(
+          ingestions,
+          eq(ingestions.id, ingestionDecisions.ingestionId),
+        )
         .where(
           and(
             eq(ingestionDecisions.targetPageId, pageId),
@@ -2600,7 +2539,11 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { workspaceId } = paramsResult.data;
 
-      const role = await getMemberRole(fastify.db, workspaceId, request.user.sub);
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
       if (!role) return forbidden(reply);
 
       const queryResult = searchQuerySchema.safeParse(request.query);
@@ -2646,34 +2589,36 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
           AND (
             to_tsvector('simple', coalesce(p.title, '') || ' ' || coalesce(r.content_md, ''))
               @@ plainto_tsquery('simple', ${q})
-            OR p.title ILIKE ${'%' + q + '%'}
+            OR p.title ILIKE ${"%" + q + "%"}
           )
         ORDER BY rank DESC, p.updated_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `);
 
-      const data = (rows as unknown as Array<{
-        id: string;
-        workspaceId: string;
-        parentPageId: string | null;
-        parentFolderId: string | null;
-        title: string;
-        slug: string;
-        status: string;
-        sortOrder: number;
-        currentRevisionId: string | null;
-        lastAiUpdatedAt: Date | null;
-        lastHumanEditedAt: Date | null;
-        createdAt: Date;
-        updatedAt: Date;
-        latestRevisionActorType: string | null;
-        latestRevisionSource: string | null;
-        latestRevisionCreatedAt: Date | null;
-        latestRevisionSourceIngestionId: string | null;
-        latestRevisionSourceDecisionId: string | null;
-        publishedAt: Date | null;
-        isLivePublished: boolean | null;
-      }>).map((row) => mapPageDto(row));
+      const data = (
+        rows as unknown as Array<{
+          id: string;
+          workspaceId: string;
+          parentPageId: string | null;
+          parentFolderId: string | null;
+          title: string;
+          slug: string;
+          status: string;
+          sortOrder: number;
+          currentRevisionId: string | null;
+          lastAiUpdatedAt: Date | null;
+          lastHumanEditedAt: Date | null;
+          createdAt: Date;
+          updatedAt: Date;
+          latestRevisionActorType: string | null;
+          latestRevisionSource: string | null;
+          latestRevisionCreatedAt: Date | null;
+          latestRevisionSourceIngestionId: string | null;
+          latestRevisionSourceDecisionId: string | null;
+          publishedAt: Date | null;
+          isLivePublished: boolean | null;
+        }>
+      ).map((row) => mapPageDto(row));
 
       return reply.code(200).send({ data, total: data.length, q });
     },

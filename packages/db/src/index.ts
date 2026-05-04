@@ -9,6 +9,13 @@ export {
 } from "./client.js";
 export { insertPageWithUniqueSlug } from "./slug.js";
 export {
+  rollbackToRevision,
+  RollbackRevisionError,
+  type RollbackActorType,
+  type RollbackToRevisionInput,
+  type RollbackToRevisionResult,
+} from "./rollback-revision.js";
+export {
   collectDescendantPageIds,
   cleanupOrphanEntities,
   findRestoreConflict,

@@ -24,6 +24,7 @@ export const AGENT_MUTATE_TOOL_NAMES = [
   "create_page",
   "delete_page",
   "merge_pages",
+  "rollback_to_revision",
   "noop",
   "request_human_review",
 ] as const;
@@ -201,6 +202,16 @@ export const mergePagesToolInputSchema = z
   });
 export type MergePagesToolInput = z.infer<typeof mergePagesToolInputSchema>;
 
+export const rollbackToRevisionToolInputSchema = z.object({
+  pageId: uuidSchema,
+  revisionId: uuidSchema,
+  reason: mutationReasonSchema,
+  confidence: confidenceSchema,
+});
+export type RollbackToRevisionToolInput = z.infer<
+  typeof rollbackToRevisionToolInputSchema
+>;
+
 export const noopToolInputSchema = z.object({
   reason: mutationReasonSchema,
   confidence: confidenceSchema.default(1),
@@ -226,6 +237,7 @@ export const agentMutateToolInputSchemas = {
   create_page: createPageToolInputSchema,
   delete_page: deletePageToolInputSchema,
   merge_pages: mergePagesToolInputSchema,
+  rollback_to_revision: rollbackToRevisionToolInputSchema,
   noop: noopToolInputSchema,
   request_human_review: requestHumanReviewToolInputSchema,
 } as const;

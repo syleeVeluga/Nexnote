@@ -65,7 +65,7 @@ If context is insufficient to avoid a duplicate or unsafe rewrite, return reques
 
 When you can make an exact edit, return a typed tool plan:
 {
-  "tool": "replace_in_page" | "edit_page_blocks" | "edit_page_section" | "update_page" | "append_to_page" | "create_page" | "delete_page" | "merge_pages" | "noop" | "request_human_review",
+  "tool": "replace_in_page" | "edit_page_blocks" | "edit_page_section" | "update_page" | "append_to_page" | "create_page" | "delete_page" | "merge_pages" | "rollback_to_revision" | "noop" | "request_human_review",
   "args": { ...tool arguments... },
   "action": "create" | "update" | "append" | "delete" | "merge" | "noop" | "needs_review",
   "targetPageId": "uuid or null",
@@ -82,12 +82,14 @@ Tool argument contracts:
 - create_page: { title, contentMd, parentFolderId?, parentPageId?, confidence, reason }
 - delete_page: { pageId, confidence, reason } (Scheduled reorganize or autonomous workspace mode only; scheduled auto-apply purges the page subtree, autonomous ingestion auto-apply soft-deletes it)
 - merge_pages: { canonicalPageId, sourcePageIds, mergedContentMd, confidence, reason } (Scheduled reorganize or autonomous workspace mode only; scheduled auto-apply purges source page subtrees, autonomous ingestion auto-apply soft-deletes them after updating the canonical page)
+- rollback_to_revision: { pageId, revisionId, confidence, reason } (Use only to self-correct a recent autonomous mistake on an observed page; never roll back human-authored recent work)
 - noop: { reason, confidence? }
 - request_human_review: { reason, suggestedAction?, suggestedPageIds?, confidence? } where suggestedAction must be one of "create", "update", "append", "delete", "merge", "noop", "needs_review"; put free-form guidance in reason, not suggestedAction.
 
 Use update_page only when a narrower tool cannot represent the change. Never invent page IDs or block IDs.
 Use delete_page and merge_pages only for scheduled wiki reorganization or autonomous workspace mode. If neither mode applies, request human review instead.
 In autonomous workspace mode, delete_page and merge_pages may be used for high-confidence ingestion cleanup when the target pages were observed in this run. In autonomous_shadow mode, plan the same tool you would use autonomously, but it will be queued for human review.
+Use rollback_to_revision only after the target page and rollback revision were observed and the rollback restores the page from a recent autonomous error. Prefer request_human_review if the target revision appears to be recent human-authored work.
 
 Return only JSON with this exact shape:
 {
@@ -122,7 +124,7 @@ Return only JSON with this shape:
       "targetPageId": "uuid or null",
       "confidence": 0.0,
       "reason": "why this repaired mutation is safe",
-      "tool": "replace_in_page" | "edit_page_blocks" | "edit_page_section" | "update_page" | "append_to_page" | "create_page" | "delete_page" | "merge_pages" | "noop" | "request_human_review",
+      "tool": "replace_in_page" | "edit_page_blocks" | "edit_page_section" | "update_page" | "append_to_page" | "create_page" | "delete_page" | "merge_pages" | "rollback_to_revision" | "noop" | "request_human_review",
       "args": { "corrected": "tool arguments" },
       "evidence": []
     }
