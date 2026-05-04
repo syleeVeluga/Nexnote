@@ -46,12 +46,23 @@ function statusTone(status: AgentRunDto["status"]) {
   return "green" as const;
 }
 
+const TOOL_LABELS: Record<string, string> = {
+  move_page: "Move page",
+  rename_page: "Rename page",
+  create_folder: "Create folder",
+};
+
 function stepTitle(step: AgentRunTraceStep): string {
   if (typeof step.payload["phase"] === "string") {
     return `${step.type} - ${step.payload["phase"]}`;
   }
   if (typeof step.payload["name"] === "string") {
-    return `${step.type} - ${step.payload["name"]}`;
+    const name = step.payload["name"];
+    return `${step.type} - ${TOOL_LABELS[name] ?? name}`;
+  }
+  if (typeof step.payload["tool"] === "string") {
+    const tool = step.payload["tool"];
+    return `${step.type} - ${TOOL_LABELS[tool] ?? tool}`;
   }
   return step.type;
 }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { uuidSchema } from "./common.js";
+import { slugSchema, uuidSchema } from "./common.js";
 import {
   AGENT_LIMITS,
   AGENT_RUN_STATUSES,
@@ -22,6 +22,9 @@ export const AGENT_MUTATE_TOOL_NAMES = [
   "update_page",
   "append_to_page",
   "create_page",
+  "move_page",
+  "rename_page",
+  "create_folder",
   "delete_page",
   "merge_pages",
   "rollback_to_revision",
@@ -169,6 +172,73 @@ export const createPageToolInputSchema = z
   });
 export type CreatePageToolInput = z.infer<typeof createPageToolInputSchema>;
 
+export const movePageToolInputSchema = z
+  .object({
+    pageId: uuidSchema,
+    newParentPageId: uuidSchema.nullable().optional(),
+    newParentFolderId: uuidSchema.nullable().optional(),
+    newSortOrder: z.coerce.number().int().min(0).optional(),
+    reorderIntent: z.enum(["before", "after", "append", "explicit"]).optional(),
+    reorderAnchorPageId: uuidSchema.optional(),
+    confidence: confidenceSchema,
+    reason: mutationReasonSchema,
+  })
+  .superRefine((value, ctx) => {
+    if (
+      value.newParentPageId === undefined &&
+      value.newParentFolderId === undefined &&
+      value.newSortOrder === undefined &&
+      value.reorderIntent === undefined
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "At least one of newParentPageId / newParentFolderId / newSortOrder / reorderIntent must be provided",
+      });
+    }
+    if (value.newParentPageId != null && value.newParentFolderId != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["newParentFolderId"],
+        message: "newParentPageId and newParentFolderId are mutually exclusive",
+      });
+    }
+    if (
+      (value.reorderIntent === "before" || value.reorderIntent === "after") &&
+      !value.reorderAnchorPageId
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["reorderAnchorPageId"],
+        message:
+          "reorderAnchorPageId is required for before/after reorderIntent",
+      });
+    }
+  });
+export type MovePageToolInput = z.infer<typeof movePageToolInputSchema>;
+
+export const renamePageToolInputSchema = z
+  .object({
+    pageId: uuidSchema,
+    newTitle: z.string().trim().min(1).max(500).optional(),
+    newSlug: slugSchema.optional(),
+    confidence: confidenceSchema,
+    reason: mutationReasonSchema,
+  })
+  .refine(
+    (value) => value.newTitle !== undefined || value.newSlug !== undefined,
+    "At least one of newTitle / newSlug must be provided",
+  );
+export type RenamePageToolInput = z.infer<typeof renamePageToolInputSchema>;
+
+export const createFolderToolInputSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  parentFolderId: uuidSchema.nullable().optional(),
+  confidence: confidenceSchema,
+  reason: mutationReasonSchema,
+});
+export type CreateFolderToolInput = z.infer<typeof createFolderToolInputSchema>;
+
 export const deletePageToolInputSchema = z.object({
   pageId: uuidSchema,
   confidence: confidenceSchema,
@@ -235,6 +305,9 @@ export const agentMutateToolInputSchemas = {
   update_page: updatePageToolInputSchema,
   append_to_page: appendToPageToolInputSchema,
   create_page: createPageToolInputSchema,
+  move_page: movePageToolInputSchema,
+  rename_page: renamePageToolInputSchema,
+  create_folder: createFolderToolInputSchema,
   delete_page: deletePageToolInputSchema,
   merge_pages: mergePagesToolInputSchema,
   rollback_to_revision: rollbackToRevisionToolInputSchema,

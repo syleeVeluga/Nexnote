@@ -16,6 +16,16 @@ export {
   type RollbackToRevisionResult,
 } from "./rollback-revision.js";
 export {
+  createFolderStructure,
+  updatePageStructure,
+  PageStructureError,
+  type CreateFolderStructureInput,
+  type PageStructureSnapshot,
+  type PageStructureActorType,
+  type UpdatePageStructureInput,
+  type UpdatePageStructureResult,
+} from "./page-structure.js";
+export {
   collectDescendantPageIds,
   cleanupOrphanEntities,
   findRestoreConflict,

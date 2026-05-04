@@ -10,8 +10,10 @@ export type AgentDb = ReturnType<typeof getDb>;
 export interface AgentRunState {
   seenPageIds: Set<string>;
   seenBlockIds: Set<string>;
+  seenFolderIds: Set<string>;
   observedPageRevisionIds: Map<string, string | null>;
   createdPageIds: Set<string>;
+  createdFolderIds: Set<string>;
   mutatedPageIds: Set<string>;
   destructiveCount: number;
 }
@@ -35,7 +37,9 @@ export interface AgentToolResult<T = unknown> {
     revisionId: string | null;
   }>;
   observedBlockIds?: string[];
+  observedFolderIds?: string[];
   createdPageIds?: string[];
+  createdFolderIds?: string[];
   mutatedPageIds?: string[];
 }
 
@@ -128,8 +132,10 @@ export function createAgentRunState(): AgentRunState {
   return {
     seenPageIds: new Set<string>(),
     seenBlockIds: new Set<string>(),
+    seenFolderIds: new Set<string>(),
     observedPageRevisionIds: new Map<string, string | null>(),
     createdPageIds: new Set<string>(),
+    createdFolderIds: new Set<string>(),
     mutatedPageIds: new Set<string>(),
     destructiveCount: 0,
   };

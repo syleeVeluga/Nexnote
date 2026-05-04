@@ -4,6 +4,7 @@ import {
   auditLogs,
   collectDescendantPageIds,
   cleanupOrphanEntities,
+  createFolderStructure,
   folders,
   ingestionDecisions,
   insertPageWithUniqueSlug,
@@ -12,11 +13,13 @@ import {
   pageRevisions,
   pages,
   PageDeletionError,
+  PageStructureError,
   purgeDeletedSubtreeInTransaction,
   revisionDiffs,
   RollbackRevisionError,
   rollbackToRevision,
   softDeleteSubtreeInTransaction,
+  updatePageStructure,
 } from "@wekiflow/db";
 import {
   agentMutateToolInputSchemas,
@@ -29,15 +32,19 @@ import {
   type AutonomyMode,
   type AppendToPageToolInput,
   type CreatePageToolInput,
+  type CreateFolderToolInput,
   type DeletePageToolInput,
   type EditPageBlocksToolInput,
   type EditPageSectionToolInput,
   type IngestionAction,
   type MergePagesToolInput,
+  type MovePageToolInput,
   type NoopToolInput,
   type PatchGeneratorJobData,
   type ReplaceInPageToolInput,
+  type RenamePageToolInput,
   type RequestHumanReviewToolInput,
+  type ReorderIntent,
   type RollbackToRevisionToolInput,
   type SearchIndexUpdaterJobData,
   type TripleExtractorJobData,
@@ -246,6 +253,24 @@ function assertObservedPage(ctx: AgentToolContext, pageId: string): void {
   }
 }
 
+function assertObservedFolder(ctx: AgentToolContext, folderId: string): void {
+  if (
+    !ctx.state.seenFolderIds.has(folderId) &&
+    !ctx.state.createdFolderIds.has(folderId)
+  ) {
+    const observedFolderIds = [...ctx.state.seenFolderIds].slice(0, 100);
+    throw new AgentToolError(
+      "invalid_target_page",
+      `Folder ${folderId} was not observed earlier in this agent run`,
+      { folderId, observedFolderIds },
+      {
+        hint: "Move targets must come from list_folder or a create_folder result in this run. List or create the folder first, then retry with an observed folderId.",
+        candidates: observedFolderIds,
+      },
+    );
+  }
+}
+
 function assertPageNotMutated(ctx: AgentToolContext, pageId: string): void {
   if (ctx.state.mutatedPageIds.has(pageId)) {
     throw new AgentToolError(
@@ -259,6 +284,52 @@ function assertPageNotMutated(ctx: AgentToolContext, pageId: string): void {
 function assertCanMutatePage(ctx: AgentToolContext, pageId: string): void {
   assertObservedPage(ctx, pageId);
   assertPageNotMutated(ctx, pageId);
+}
+
+function structureError(err: unknown): never {
+  if (err instanceof PageStructureError) {
+    throw new AgentToolError(
+      err.statusCode === 404 ? "not_found" : "conflict",
+      err.message,
+      { code: err.errorCode, detail: err.code },
+    );
+  }
+  throw err;
+}
+
+function toReorderIntent(args: MovePageToolInput): ReorderIntent | undefined {
+  switch (args.reorderIntent) {
+    case "before":
+    case "after":
+      return {
+        kind: args.reorderIntent,
+        anchorId: args.reorderAnchorPageId!,
+      };
+    case "append":
+      return { kind: "asLastChild" };
+    case "explicit":
+    case undefined:
+      return undefined;
+  }
+}
+
+function normalizeMoveParents(args: MovePageToolInput): {
+  parentPageId?: string | null;
+  parentFolderId?: string | null;
+} {
+  if (args.newParentPageId !== undefined) {
+    return {
+      parentPageId: args.newParentPageId,
+      parentFolderId: null,
+    };
+  }
+  if (args.newParentFolderId !== undefined) {
+    return {
+      parentPageId: null,
+      parentFolderId: args.newParentFolderId,
+    };
+  }
+  return {};
 }
 
 function observedRevisionIdForPage(
@@ -935,6 +1006,338 @@ async function createPage(
     },
     createdPageIds: [page.id],
     mutatedPageIds: [page.id],
+  };
+}
+
+async function movePage(
+  input: CreateMutateToolsInput,
+  ctx: AgentToolContext,
+  args: MovePageToolInput,
+): Promise<AgentToolResult> {
+  assertCanMutatePage(ctx, args.pageId);
+  if (args.newParentPageId) assertObservedPage(ctx, args.newParentPageId);
+  if (args.newParentFolderId) assertObservedFolder(ctx, args.newParentFolderId);
+  if (args.reorderAnchorPageId && args.reorderAnchorPageId !== args.pageId) {
+    assertObservedPage(ctx, args.reorderAnchorPageId);
+  }
+
+  const status = mutationDecisionStatus(input, "update", args.confidence);
+  const [current] = await ctx.db
+    .select({
+      id: pages.id,
+      parentPageId: pages.parentPageId,
+      parentFolderId: pages.parentFolderId,
+      sortOrder: pages.sortOrder,
+      currentRevisionId: pages.currentRevisionId,
+    })
+    .from(pages)
+    .where(
+      and(
+        eq(pages.id, args.pageId),
+        eq(pages.workspaceId, ctx.workspaceId),
+        isNull(pages.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!current) {
+    throw new AgentToolError("not_found", `Page ${args.pageId} not found`, {
+      pageId: args.pageId,
+    });
+  }
+
+  const rationale = {
+    from: {
+      parentPageId: current.parentPageId,
+      parentFolderId: current.parentFolderId,
+      sortOrder: current.sortOrder,
+    },
+    to: {
+      newParentPageId: args.newParentPageId,
+      newParentFolderId: args.newParentFolderId,
+      newSortOrder: args.newSortOrder,
+      reorderIntent: args.reorderIntent,
+      reorderAnchorPageId: args.reorderAnchorPageId,
+    },
+  };
+
+  if (status !== "auto_applied") {
+    const decision = await createDecision(ctx, input, {
+      action: "update",
+      status,
+      confidence: args.confidence,
+      reason: args.reason,
+      tool: "move_page",
+      targetPageId: args.pageId,
+      rationale,
+    });
+    return {
+      data: {
+        decisionId: decision.id,
+        pageId: args.pageId,
+        status,
+        action: "update",
+      },
+    };
+  }
+
+  let result: Awaited<ReturnType<typeof updatePageStructure>>;
+  try {
+    const parentPatch = normalizeMoveParents(args);
+    result = await updatePageStructure({
+      db: ctx.db,
+      workspaceId: ctx.workspaceId,
+      pageId: args.pageId,
+      actorUserId: null,
+      modelRunId: input.modelRunId,
+      ...parentPatch,
+      sortOrder: args.newSortOrder,
+      reorderIntent: toReorderIntent(args),
+      auditAction: "agent.move_page",
+      auditAfterJson: {
+        source: activitySource(input, "ingestion_agent_auto"),
+        ingestionId: input.ingestion.id,
+        scheduledRunId: input.scheduledRunId ?? null,
+        agentRunId: input.agentRunId,
+        tool: "move_page",
+        reason: args.reason,
+        ...rationale,
+      },
+    });
+  } catch (err) {
+    structureError(err);
+  }
+
+  const decision = await createDecision(ctx, input, {
+    action: "update",
+    status,
+    confidence: args.confidence,
+    reason: args.reason,
+    tool: "move_page",
+    targetPageId: args.pageId,
+    rationale,
+  });
+
+  if (result.parentChanged && result.before.currentRevisionId) {
+    await input.extractionQueue?.add(
+      JOB_NAMES.TRIPLE_EXTRACTOR,
+      {
+        workspaceId: ctx.workspaceId,
+        pageId: args.pageId,
+        revisionId: result.before.currentRevisionId,
+        useReconciliation: input.ingestion.useReconciliation ?? true,
+      },
+      {
+        jobId: `move:${args.pageId}:${Date.now()}`,
+        ...DEFAULT_JOB_OPTIONS,
+      },
+    );
+    await ctx.db.insert(auditLogs).values({
+      workspaceId: ctx.workspaceId,
+      modelRunId: input.modelRunId,
+      entityType: "page",
+      entityId: args.pageId,
+      action: "reextract_enqueued",
+      afterJson: {
+        reason: "parent_changed",
+        tool: "move_page",
+        ingestionId: input.ingestion.id,
+        scheduledRunId: input.scheduledRunId ?? null,
+        decisionId: decision.id,
+        previousParentPageId: result.before.parentPageId,
+        previousParentFolderId: result.before.parentFolderId,
+      },
+    });
+  }
+
+  return {
+    data: {
+      decisionId: decision.id,
+      pageId: args.pageId,
+      status,
+      action: "update",
+      parentChanged: result.parentChanged,
+    },
+    mutatedPageIds: [args.pageId],
+  };
+}
+
+async function renamePage(
+  input: CreateMutateToolsInput,
+  ctx: AgentToolContext,
+  args: RenamePageToolInput,
+): Promise<AgentToolResult> {
+  assertCanMutatePage(ctx, args.pageId);
+  const status = mutationDecisionStatus(input, "update", args.confidence);
+  const [current] = await ctx.db
+    .select({ title: pages.title, slug: pages.slug })
+    .from(pages)
+    .where(
+      and(
+        eq(pages.id, args.pageId),
+        eq(pages.workspaceId, ctx.workspaceId),
+        isNull(pages.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!current) {
+    throw new AgentToolError("not_found", `Page ${args.pageId} not found`, {
+      pageId: args.pageId,
+    });
+  }
+
+  const rationale = {
+    from: { title: current.title, slug: current.slug },
+    to: { newTitle: args.newTitle, newSlug: args.newSlug },
+  };
+
+  if (status !== "auto_applied") {
+    const decision = await createDecision(ctx, input, {
+      action: "update",
+      status,
+      confidence: args.confidence,
+      reason: args.reason,
+      tool: "rename_page",
+      targetPageId: args.pageId,
+      rationale,
+    });
+    return {
+      data: {
+        decisionId: decision.id,
+        pageId: args.pageId,
+        status,
+        action: "update",
+      },
+    };
+  }
+
+  let result: Awaited<ReturnType<typeof updatePageStructure>>;
+  try {
+    result = await updatePageStructure({
+      db: ctx.db,
+      workspaceId: ctx.workspaceId,
+      pageId: args.pageId,
+      actorUserId: null,
+      modelRunId: input.modelRunId,
+      title: args.newTitle,
+      slug: args.newSlug,
+      auditAction: "agent.rename_page",
+      auditAfterJson: {
+        source: activitySource(input, "ingestion_agent_auto"),
+        ingestionId: input.ingestion.id,
+        scheduledRunId: input.scheduledRunId ?? null,
+        agentRunId: input.agentRunId,
+        tool: "rename_page",
+        reason: args.reason,
+        ...rationale,
+      },
+    });
+  } catch (err) {
+    structureError(err);
+  }
+
+  const decision = await createDecision(ctx, input, {
+    action: "update",
+    status,
+    confidence: args.confidence,
+    reason: args.reason,
+    tool: "rename_page",
+    targetPageId: args.pageId,
+    rationale,
+  });
+
+  return {
+    data: {
+      decisionId: decision.id,
+      pageId: args.pageId,
+      status,
+      action: "update",
+      slugChanged: result.slugChanged,
+    },
+    mutatedPageIds: [args.pageId],
+  };
+}
+
+async function createFolder(
+  input: CreateMutateToolsInput,
+  ctx: AgentToolContext,
+  args: CreateFolderToolInput,
+): Promise<AgentToolResult> {
+  if (args.parentFolderId) assertObservedFolder(ctx, args.parentFolderId);
+  const status = mutationDecisionStatus(input, "create", args.confidence);
+
+  if (status !== "auto_applied") {
+    const decision = await createDecision(ctx, input, {
+      action: "create",
+      status,
+      confidence: args.confidence,
+      reason: args.reason,
+      tool: "create_folder",
+      rationale: {
+        name: args.name,
+        parentFolderId: args.parentFolderId ?? null,
+      },
+    });
+    return {
+      data: {
+        decisionId: decision.id,
+        status,
+        action: "create",
+        proposedName: args.name,
+      },
+    };
+  }
+
+  let folder: Awaited<ReturnType<typeof createFolderStructure>>;
+  try {
+    folder = await createFolderStructure({
+      db: ctx.db,
+      workspaceId: ctx.workspaceId,
+      actorUserId: null,
+      modelRunId: input.modelRunId,
+      name: args.name,
+      parentFolderId: args.parentFolderId ?? null,
+      allocateUniqueSlug: true,
+      auditAction: "agent.create_folder",
+      auditAfterJson: {
+        source: activitySource(input, "ingestion_agent_auto"),
+        ingestionId: input.ingestion.id,
+        scheduledRunId: input.scheduledRunId ?? null,
+        agentRunId: input.agentRunId,
+        tool: "create_folder",
+        reason: args.reason,
+        name: args.name,
+        parentFolderId: args.parentFolderId ?? null,
+      },
+    });
+  } catch (err) {
+    structureError(err);
+  }
+
+  const decision = await createDecision(ctx, input, {
+    action: "create",
+    status,
+    confidence: args.confidence,
+    reason: args.reason,
+    tool: "create_folder",
+    rationale: {
+      folderId: folder.id,
+      name: args.name,
+      parentFolderId: args.parentFolderId ?? null,
+      slug: folder.slug,
+    },
+  });
+
+  return {
+    data: {
+      decisionId: decision.id,
+      folderId: folder.id,
+      status,
+      action: "create",
+      name: folder.name,
+      slug: folder.slug,
+    },
+    observedFolderIds: [folder.id],
+    createdFolderIds: [folder.id],
   };
 }
 
@@ -1679,6 +2082,29 @@ export function createMutateTools(
       schema: agentMutateToolInputSchemas.create_page,
       execute: (ctx, args) =>
         createPage(input, ctx, args as CreatePageToolInput),
+    },
+    move_page: {
+      name: "move_page",
+      description:
+        "Move an observed page to a new parent folder/page or reorder it within siblings.",
+      schema: agentMutateToolInputSchemas.move_page,
+      execute: (ctx, args) => movePage(input, ctx, args as MovePageToolInput),
+    },
+    rename_page: {
+      name: "rename_page",
+      description:
+        "Change an observed page title and/or slug without creating a new revision.",
+      schema: agentMutateToolInputSchemas.rename_page,
+      execute: (ctx, args) =>
+        renamePage(input, ctx, args as RenamePageToolInput),
+    },
+    create_folder: {
+      name: "create_folder",
+      description:
+        "Create a new folder under an observed parent folder or the workspace root.",
+      schema: agentMutateToolInputSchemas.create_folder,
+      execute: (ctx, args) =>
+        createFolder(input, ctx, args as CreateFolderToolInput),
     },
     rollback_to_revision: {
       name: "rollback_to_revision",

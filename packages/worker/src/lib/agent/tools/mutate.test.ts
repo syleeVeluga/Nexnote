@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
+import { agentMutateToolInputSchemas } from "@wekiflow/shared";
 import { createAgentRunState, AgentToolError } from "../types.js";
 import { createMutateTools, type CreateMutateToolsInput } from "./mutate.js";
 
@@ -13,6 +14,7 @@ const sourcePageId = "77777777-7777-4777-8777-777777777777";
 const baseRevisionId = "88888888-8888-4888-8888-888888888888";
 const sourceRevisionId = "99999999-9999-4999-8999-999999999999";
 const rollbackTargetRevisionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const folderId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 class FakeDb {
   readonly insertedValues: unknown[] = [];
@@ -51,7 +53,14 @@ class FakeDb {
       values: (values: unknown) => {
         this.insertedValues.push(values);
         return {
-          returning: async () => [{ id: this.returningIds.shift() ?? "id" }],
+          returning: async () => [
+            {
+              ...(values && !Array.isArray(values) && typeof values === "object"
+                ? (values as Record<string, unknown>)
+                : {}),
+              id: this.returningIds.shift() ?? "id",
+            },
+          ],
           onConflictDoNothing: async () => [],
         };
       },
@@ -120,9 +129,14 @@ function input(
   };
 }
 
-function ctx(db: FakeDb, seenPageIds: string[] = []) {
+function ctx(
+  db: FakeDb,
+  seenPageIds: string[] = [],
+  seenFolderIds: string[] = [],
+) {
   const state = createAgentRunState();
   for (const pageId of seenPageIds) state.seenPageIds.add(pageId);
+  for (const folderId of seenFolderIds) state.seenFolderIds.add(folderId);
   return {
     db: db as never,
     workspaceId,
@@ -138,6 +152,146 @@ function currentPage(
 ) {
   return [{ id, title, currentRevisionId: revisionId, contentMd }];
 }
+
+function pageStructureRow(id: string, title = "Existing", slug = "existing") {
+  return [
+    {
+      id,
+      workspaceId,
+      parentPageId: null,
+      parentFolderId: null,
+      title,
+      slug,
+      status: "draft",
+      sortOrder: 0,
+      currentRevisionId: baseRevisionId,
+      deletedAt: null,
+    },
+  ];
+}
+
+describe("createMutateTools reorganize tools", () => {
+  it("rejects rename_page slugs that are not URL-safe slugs", () => {
+    const result = agentMutateToolInputSchemas.rename_page.safeParse({
+      pageId: canonicalPageId,
+      newSlug: "Not A Slug",
+      confidence: 0.95,
+      reason: "clearer URL",
+    });
+
+    assert.equal(result.success, false);
+  });
+
+  it("rejects move_page when the target folder was not observed", async () => {
+    const tools = createMutateTools(input());
+    await assert.rejects(
+      tools.move_page.execute(ctx(new FakeDb(), [canonicalPageId]), {
+        pageId: canonicalPageId,
+        newParentFolderId: folderId,
+        confidence: 0.95,
+        reason: "move into the new section",
+      }),
+      (err) =>
+        err instanceof AgentToolError && err.code === "invalid_target_page",
+    );
+  });
+
+  it("auto-applies create_folder and records the new folder as observed", async () => {
+    const db = new FakeDb({
+      selectQueue: [[], [], []],
+      returningIds: ["folder-id", "decision-id"],
+    });
+    const tools = createMutateTools(input());
+    const context = ctx(db);
+
+    const result = await tools.create_folder.execute(context, {
+      name: "Research",
+      confidence: 0.95,
+      reason: "group related research pages",
+    });
+    const data = result.data as { folderId: string; status: string };
+
+    assert.equal(data.folderId, "folder-id");
+    assert.equal(data.status, "auto_applied");
+    assert.deepEqual(result.createdFolderIds, ["folder-id"]);
+  });
+
+  it("clears the old page parent when moving a page into a folder", async () => {
+    const db = new FakeDb({
+      selectQueue: [
+        [
+          {
+            id: canonicalPageId,
+            parentPageId: sourcePageId,
+            parentFolderId: null,
+            sortOrder: 0,
+            currentRevisionId: baseRevisionId,
+          },
+        ],
+        [
+          {
+            ...pageStructureRow(canonicalPageId)[0],
+            parentPageId: sourcePageId,
+          },
+        ],
+        [{ id: folderId, workspaceId, parentFolderId: null }],
+        [],
+        [
+          {
+            ...pageStructureRow(canonicalPageId)[0],
+            parentPageId: null,
+            parentFolderId: folderId,
+          },
+        ],
+      ],
+      returningIds: ["decision-id"],
+    });
+    const tools = createMutateTools(input());
+
+    const result = await tools.move_page.execute(
+      ctx(db, [canonicalPageId], [folderId]),
+      {
+        pageId: canonicalPageId,
+        newParentFolderId: folderId,
+        confidence: 0.95,
+        reason: "move into the research folder",
+      },
+    );
+
+    assert.equal((result.data as { parentChanged: boolean }).parentChanged, true);
+    assert.ok(
+      db.updatedValues.some(
+        (value) =>
+          value &&
+          typeof value === "object" &&
+          (value as { parentPageId?: string | null }).parentPageId === null &&
+          (value as { parentFolderId?: string | null }).parentFolderId ===
+            folderId,
+      ),
+    );
+  });
+
+  it("returns a clear conflict when rename_page hits a slug collision", async () => {
+    const db = new FakeDb({
+      selectQueue: [
+        [{ title: "Existing", slug: "existing" }],
+        pageStructureRow(canonicalPageId),
+        [{ id: sourcePageId }],
+      ],
+    });
+    const tools = createMutateTools(input());
+
+    await assert.rejects(
+      tools.rename_page.execute(ctx(db, [canonicalPageId]), {
+        pageId: canonicalPageId,
+        newSlug: "taken",
+        confidence: 0.95,
+        reason: "clearer URL",
+      }),
+      (err) => err instanceof AgentToolError && err.code === "conflict",
+    );
+  });
+});
 
 describe("createMutateTools destructive scheduled tools", () => {
   it("exposes delete_page and merge_pages only for scheduled origin", () => {
