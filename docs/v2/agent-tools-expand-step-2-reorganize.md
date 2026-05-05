@@ -225,15 +225,15 @@ dispatcher `observeResult()` ([dispatcher.ts:82-100](../../packages/worker/src/l
 
 ## 11. Verification checklist
 
-- [ ] 기존 PATCH `/pages/:id` 회귀 테스트 모두 통과 (lib 추출)
-- [ ] 기존 POST `/folders` 회귀 테스트 모두 통과 (lib 추출)
-- [ ] 3 agent tool 의 단위 테스트 통과
-- [ ] move_page 후 triple-extractor enqueue 확인
-- [ ] move_page 후 pagePaths 신규 행 + 이전 행 isCurrent=false
-- [ ] rename_page slug 변경 시 redirect 행 생성
-- [ ] create_folder 후 seenFolderIds 등록 → 같은 run 의 후속 move_page 가 그 폴더로 정상 이동
-- [ ] AgentTracePanel 에 3 신규 tool 라벨 정상 렌더 (한/영)
-- [ ] activity feed 에 "AI moved *Page X* to *Folder Y*" 포맷 정상
+- [x] 기존 PATCH `/pages/:id` 회귀 테스트 모두 통과 (lib 추출)
+- [x] 기존 POST `/folders` 회귀 테스트 모두 통과 (lib 추출)
+- [x] 3 agent tool 의 단위 테스트 통과
+- [x] move_page 후 triple-extractor enqueue 확인
+- [x] move_page 후 pagePaths 신규 행 + 이전 행 isCurrent=false
+- [x] rename_page slug 변경 시 redirect 행 생성
+- [x] create_folder 후 seenFolderIds 등록 → 같은 run 의 후속 move_page 가 그 폴더로 정상 이동
+- [x] AgentTracePanel 에 3 신규 tool 라벨 정상 렌더 (한/영)
+- [x] activity feed 에 "AI moved *Page X* to *Folder Y*" 포맷 정상
 
 ## 12. Open questions
 

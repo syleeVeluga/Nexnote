@@ -156,14 +156,14 @@ async function rollbackTool(
 
 ## 5. Verification checklist
 
-- [ ] PATCH `/pages/:id/revisions/:revisionId/rollback` 기존 테스트 모두 통과 (lib 추출 회귀)
-- [ ] `rollback_to_revision` agent tool — seenPageIds 미관측 거부
-- [ ] 새 revision 의 `source='rollback'`, `actorType='ai'`, `baseRevisionId=target.id`
-- [ ] `pages.currentRevisionId` 가 새 revision 으로 갱신
-- [ ] `revision_diffs` 행 생성 (lineDiff/blockOpsDiff)
-- [ ] `audit_logs` 에 `action='rollback'` 행 (ingestion 경로 / API 경로 둘 다)
-- [ ] autonomous_shadow 에서 결정 status `suggested`
-- [ ] `triple-extractor` enqueue (revision 갱신 → triple 재추출 — 기존 동작)
+- [x] PATCH `/pages/:id/revisions/:revisionId/rollback` 기존 테스트 모두 통과 (lib 추출 회귀)
+- [x] `rollback_to_revision` agent tool — seenPageIds 미관측 거부
+- [x] 새 revision 의 `source='rollback'`, `actorType='ai'`, `baseRevisionId=target.id`
+- [x] `pages.currentRevisionId` 가 새 revision 으로 갱신
+- [x] `revision_diffs` 행 생성 (lineDiff/blockOpsDiff)
+- [x] `audit_logs` 에 `action='rollback'` 행 (ingestion 경로 / API 경로 둘 다)
+- [x] autonomous_shadow 에서 결정 status `suggested`
+- [x] `triple-extractor` enqueue (revision 갱신 → triple 재추출 — 기존 동작)
 
 ## 6. Open questions
 

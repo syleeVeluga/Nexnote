@@ -156,16 +156,16 @@ if (body.autonomyMode === "autonomous") {
 
 ## 5. Verification checklist
 
-- [ ] migration `0020_agent_autonomy.sql` 정방향/역방향 동작
-- [ ] Drizzle schema 와 SQL migration 컬럼명/타입 일치
-- [ ] `classifyDecisionStatus` 단위 테스트 (action 우선순위 보존 포함)
-- [ ] `mutate.ts` autonomous 모드 destructive 노출 + per-run cap
-- [ ] Per-day Redis 카운터 — 정확한 reset 시각, fail-open (Redis 다운 시) 동작
-- [ ] `PATCH /workspaces/:id/autonomy` — parity gate 미통과 시 409
-- [ ] Kill switch — `autonomy_paused_until > now()` 면 ingestion-agent worker 진입 즉시 abort
-- [ ] AISettingsPage — 토글 / kill switch / destructive 사용량 모두 동작
-- [ ] human-conflict + autonomous → patch 적용 + `audit_logs.action='autonomous_overrode_human_conflict'` 행
-- [ ] autonomous_shadow + confidence 0.95 update → 결정 status `suggested` (shadow downgrade)
+- [x] migration `0020_agent_autonomy.sql` 정방향/역방향 동작
+- [x] Drizzle schema 와 SQL migration 컬럼명/타입 일치
+- [x] `classifyDecisionStatus` 단위 테스트 (action 우선순위 보존 포함)
+- [x] `mutate.ts` autonomous 모드 destructive 노출 + per-run cap
+- [x] Per-day Redis 카운터 — 정확한 reset 시각, fail-open (Redis 다운 시) 동작
+- [x] `PATCH /workspaces/:id/autonomy` — parity gate 미통과 시 409
+- [x] Kill switch — `autonomy_paused_until > now()` 면 ingestion-agent worker 진입 즉시 abort
+- [x] AISettingsPage — 토글 / kill switch / destructive 사용량 모두 동작
+- [x] human-conflict + autonomous → patch 적용 + `audit_logs.action='autonomous_overrode_human_conflict'` 행
+- [x] autonomous_shadow + confidence 0.95 update → 결정 status `suggested` (shadow downgrade)
 
 ## 6. Open questions
 

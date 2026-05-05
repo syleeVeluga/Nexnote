@@ -229,14 +229,14 @@ Use these read tools:
 
 ## 11. Verification checklist
 
-- [ ] 4 agent tool 단위 테스트 통과
-- [ ] frontmatter parser — 8 케이스 모두 통과
-- [ ] find_backlinks — 위키링크 정확 매칭, false-positive 방어 (짧은 title)
-- [ ] find_backlinks — 결과의 backlink page 들이 seenPageIds 에 등록 → 후속 read_page 정상
-- [ ] read_revision_history — pagination, workspaceId 경계
-- [ ] read_revision — workspaceId 경계, 다른 페이지 revision 거부
-- [ ] dispatcher quota — 4 도구 모두 정확히 enforce
-- [ ] AISettingsPage diagnostics 에 4 도구 사용량 표시 (선택)
+- [x] 4 agent tool 단위 테스트 통과
+- [x] frontmatter parser — 8 케이스 모두 통과
+- [x] find_backlinks — 위키링크 정확 매칭, false-positive 방어 (짧은 title)
+- [x] find_backlinks — 결과의 backlink page 들이 seenPageIds 에 등록 → 후속 read_page 정상
+- [x] read_revision_history — pagination, workspaceId 경계
+- [x] read_revision — workspaceId 경계, 다른 페이지 revision 거부
+- [x] dispatcher quota — 4 도구 모두 정확히 enforce
+- [x] AISettingsPage diagnostics 에 4 도구 사용량 표시 (선택)
 
 ## 12. Open questions
 
