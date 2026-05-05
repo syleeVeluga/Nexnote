@@ -31,6 +31,7 @@ import type {
   ContentReformatterJobResult,
   AIRequest,
   AIBudgetMeta,
+  AIProvider,
 } from "@wekiflow/shared";
 import { createJobLogger } from "../logger.js";
 
@@ -92,7 +93,7 @@ async function getOrCreateReformatTokenId(
   return created.id;
 }
 
-function getReformatProvider(): { provider: "openai" | "gemini"; model: string } {
+function getReformatProvider(): { provider: AIProvider; model: string } {
   if (process.env["AI_TEST_MODE"] === "mock") {
     return { provider: "openai", model: "mock-e2e" };
   }

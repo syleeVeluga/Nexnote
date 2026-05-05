@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { modelRuns, predicateDisplayLabels } from "@wekiflow/db";
 import { getAIAdapter, getDefaultProvider } from "../ai-gateway.js";
-import type { AIRequest } from "@wekiflow/shared";
+import type { AIProvider, AIRequest } from "@wekiflow/shared";
 import { MODE_OUTPUT_RESERVE, normalizeAIModelId } from "@wekiflow/shared";
 
 const PROMPT_VERSION = "predicate-label-v2";
@@ -53,7 +53,7 @@ interface PredicateLabelLocaleDescriptor {
 }
 
 function getPredicateLabelProvider(): {
-  provider: "openai" | "gemini";
+  provider: AIProvider;
   model: string;
 } {
   if (process.env["AI_TEST_MODE"] === "mock") {

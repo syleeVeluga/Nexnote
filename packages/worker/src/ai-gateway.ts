@@ -558,13 +558,198 @@ class GeminiAdapter implements AIAdapter {
   }
 }
 
-// TODO(claude): register Anthropic adapter here once the `AIProvider` union in
-// @wekiflow/shared includes "anthropic" and an AnthropicAdapter is added — the
-// large-context pre-chunk rollout (Phase 0) is provider-aware but ships with
-// only OpenAI + Gemini wired.
+interface AnthropicWireMessage {
+  role: "user" | "assistant";
+  content:
+    | string
+    | Array<
+        | { type: "text"; text: string }
+        | {
+            type: "tool_use";
+            id: string;
+            name: string;
+            input: JsonRecord;
+          }
+        | {
+            type: "tool_result";
+            tool_use_id: string;
+            content: string;
+          }
+      >;
+}
+
+function toAnthropicMessages(messages: AIMessage[]): {
+  system: string;
+  messages: AnthropicWireMessage[];
+} {
+  const systemParts: string[] = [];
+  const wire: AnthropicWireMessage[] = [];
+
+  for (const message of messages) {
+    if (message.role === "system") {
+      systemParts.push(message.content);
+      continue;
+    }
+
+    if (message.role === "tool") {
+      wire.push({
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: message.toolCallId ?? "tool_use",
+            content: message.content,
+          },
+        ],
+      });
+      continue;
+    }
+
+    if (message.role === "assistant") {
+      const blocks: Exclude<AnthropicWireMessage["content"], string> = [];
+      if (message.content) {
+        blocks.push({ type: "text", text: message.content });
+      }
+      for (const toolCall of message.toolCalls ?? []) {
+        blocks.push({
+          type: "tool_use",
+          id: toolCall.id,
+          name: toolCall.name,
+          input: toolCall.arguments,
+        });
+      }
+      wire.push({
+        role: "assistant",
+        content: blocks.length > 0 ? blocks : message.content,
+      });
+      continue;
+    }
+
+    wire.push({
+      role: "user",
+      content: message.content,
+    });
+  }
+
+  return { system: systemParts.join("\n"), messages: wire };
+}
+
+function toAnthropicTool(tool: AIToolDefinition): JsonRecord {
+  return {
+    name: tool.name,
+    ...(tool.description ? { description: tool.description } : {}),
+    input_schema: tool.parameters,
+  };
+}
+
+function toAnthropicToolChoice(
+  choice?: AIToolChoice,
+): JsonRecord | undefined {
+  if (!choice) return undefined;
+  if (choice === "required") return { type: "any" };
+  if (choice === "none") return { type: "none" };
+  return { type: "auto" };
+}
+
+function normalizeAnthropicToolCalls(
+  blocks:
+    | Array<{
+        type?: string;
+        id?: string;
+        name?: string;
+        input?: unknown;
+      }>
+    | undefined,
+): NormalizedToolCall[] | undefined {
+  const toolUses = blocks?.filter((block) => block.type === "tool_use") ?? [];
+  if (!toolUses.length) return undefined;
+  return toolUses.map((block, index) => {
+    const name = block.name ?? "unknown_tool";
+    return {
+      id: block.id ?? normalizeToolCallId(index, name),
+      name,
+      arguments: parseToolArguments(block.input ?? {}),
+    };
+  });
+}
+
+function extractAnthropicText(
+  blocks: Array<{ type?: string; text?: string }> | undefined,
+): string {
+  return (
+    blocks
+      ?.filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .filter((text): text is string => typeof text === "string")
+      .join("") ?? ""
+  );
+}
+
+class AnthropicAdapter implements AIAdapter {
+  readonly provider = "anthropic" as const;
+
+  async chat(request: AIRequest): Promise<AIResponse> {
+    const apiKey = process.env["ANTHROPIC_API_KEY"];
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required");
+
+    const start = Date.now();
+    const { system, messages } = toAnthropicMessages(request.messages);
+
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: request.model,
+        ...(system ? { system } : {}),
+        messages,
+        temperature: request.temperature ?? 0.2,
+        max_tokens: request.maxTokens ?? 2048,
+        ...(request.tools?.length
+          ? { tools: request.tools.map(toAnthropicTool) }
+          : {}),
+        ...(request.toolChoice
+          ? { tool_choice: toAnthropicToolChoice(request.toolChoice) }
+          : {}),
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Anthropic API error ${res.status}: ${text}`);
+    }
+
+    const data = (await res.json()) as {
+      content: Array<{
+        type?: string;
+        text?: string;
+        id?: string;
+        name?: string;
+        input?: unknown;
+      }>;
+      stop_reason?: string | null;
+      usage: { input_tokens: number; output_tokens: number };
+    };
+
+    const toolCalls = normalizeAnthropicToolCalls(data.content);
+    return {
+      content: extractAnthropicText(data.content),
+      ...(toolCalls ? { toolCalls } : {}),
+      tokenInput: data.usage.input_tokens,
+      tokenOutput: data.usage.output_tokens,
+      latencyMs: Date.now() - start,
+      finishReason: data.stop_reason ?? null,
+    };
+  }
+}
+
 const adapters: Record<AIProvider, AIAdapter> = {
   openai: new OpenAIAdapter(),
   gemini: new GeminiAdapter(),
+  anthropic: new AnthropicAdapter(),
 };
 const mockAdapter = new MockAIAdapter();
 
@@ -598,7 +783,15 @@ export function getDefaultProvider(): { provider: AIProvider; model: string } {
       ),
     };
   }
+  if (process.env["ANTHROPIC_API_KEY"]) {
+    return {
+      provider: "anthropic",
+      model: normalizeAIModelId(
+        process.env["ANTHROPIC_MODEL"] ?? AI_MODELS.ANTHROPIC_DEFAULT,
+      ),
+    };
+  }
   throw new Error(
-    "No AI provider configured. Set OPENAI_API_KEY or GEMINI_API_KEY.",
+    "No AI provider configured. Set OPENAI_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY.",
   );
 }

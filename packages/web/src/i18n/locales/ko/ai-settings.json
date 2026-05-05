@@ -20,7 +20,8 @@
   "providers": {
     "inherit": "상속",
     "openai": "OpenAI",
-    "gemini": "Gemini"
+    "gemini": "Gemini",
+    "anthropic": "Anthropic"
   },
   "values": {
     "notApplicable": "해당 없음",

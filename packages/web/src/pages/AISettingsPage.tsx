@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import {
   AGENT_MODEL_PRESETS_BY_PROVIDER,
+  AI_PROVIDERS,
   type AgentModelPreset,
   type AIProvider,
   type AutonomyMode,
@@ -40,7 +41,7 @@ const AUTONOMY_MODES: AutonomyMode[] = [
   "autonomous_shadow",
   "autonomous",
 ];
-const AGENT_PROVIDERS: AIProvider[] = ["openai", "gemini"];
+const AGENT_PROVIDERS: readonly AIProvider[] = AI_PROVIDERS;
 type ProviderChoice = AIProvider | "inherit";
 
 function percent(value: number | null, fallback = "n/a"): string {

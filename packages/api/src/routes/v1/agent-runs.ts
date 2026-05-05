@@ -50,13 +50,16 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
 function parseAgentProvider(
   value: string | null | undefined,
 ): AIProvider | null {
-  return value === "openai" || value === "gemini" ? value : null;
+  return value === "openai" || value === "gemini" || value === "anthropic"
+    ? value
+    : null;
 }
 
 function defaultProviderFromEnv(env: NodeJS.ProcessEnv): AIProvider | null {
   if (env["AI_TEST_MODE"] === "mock") return "openai";
   if (env["OPENAI_API_KEY"]) return "openai";
   if (env["GEMINI_API_KEY"]) return "gemini";
+  if (env["ANTHROPIC_API_KEY"]) return "anthropic";
   return null;
 }
 
@@ -73,6 +76,14 @@ function defaultModelForProvider(
         env["GEMINI_MODEL"] ?? AI_MODELS.GEMINI_DEFAULT,
       ),
       source: env["GEMINI_MODEL"] ? "env" : "default",
+    };
+  }
+  if (provider === "anthropic") {
+    return {
+      model: normalizeAIModelId(
+        env["ANTHROPIC_MODEL"] ?? AI_MODELS.ANTHROPIC_DEFAULT,
+      ),
+      source: env["ANTHROPIC_MODEL"] ? "env" : "default",
     };
   }
   return {

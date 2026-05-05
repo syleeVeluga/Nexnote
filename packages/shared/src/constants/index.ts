@@ -119,17 +119,19 @@ export type ApiTokenScope = (typeof API_TOKEN_SCOPES)[number];
 export const WORKSPACE_ROLES = ["owner", "admin", "editor", "viewer"] as const;
 export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
 
-export const AI_PROVIDERS = ["openai", "gemini"] as const;
+export const AI_PROVIDERS = ["openai", "gemini", "anthropic"] as const;
 export type AIProvider = (typeof AI_PROVIDERS)[number];
 
 export const AI_MODELS = {
   OPENAI_DEFAULT: "gpt-5.4",
   GEMINI_DEFAULT: "gemini-3.1-pro",
+  ANTHROPIC_DEFAULT: "claude-sonnet-4-6",
 } as const;
 
 export const AGENT_MODEL_PRESETS_BY_PROVIDER = {
-  openai: ["gpt-5.4-mini", "gpt-5.4", "gpt-5.4-pro"],
+  openai: ["gpt-5.4-mini", "gpt-5.4", "gpt-5.4-pro", "gpt-5.5"],
   gemini: ["gemini-3.1-flash-lite-preview", "gemini-3.1-pro"],
+  anthropic: ["claude-sonnet-4-6"],
 } as const satisfies Record<AIProvider, readonly string[]>;
 
 export const AGENT_MODEL_PRESETS = [
@@ -219,12 +221,17 @@ export const MODEL_CONTEXT_BUDGETS: Record<string, ModelContextBudget> = {
   "openai:gpt-5.4": { inputTokenBudget: 180_000, safetyMarginRatio: 0.9 },
   "openai:gpt-5.4-pro": { inputTokenBudget: 400_000, safetyMarginRatio: 0.9 },
   "openai:gpt-5.4-mini": { inputTokenBudget: 120_000, safetyMarginRatio: 0.9 },
+  "openai:gpt-5.5": { inputTokenBudget: 400_000, safetyMarginRatio: 0.9 },
   "gemini:gemini-3.1-pro": {
     inputTokenBudget: 800_000,
     safetyMarginRatio: 0.9,
   },
   "gemini:gemini-3.1-flash-lite-preview": {
     inputTokenBudget: 500_000,
+    safetyMarginRatio: 0.9,
+  },
+  "anthropic:claude-sonnet-4-6": {
+    inputTokenBudget: 200_000,
     safetyMarginRatio: 0.9,
   },
 };
