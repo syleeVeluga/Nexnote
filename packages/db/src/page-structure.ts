@@ -705,7 +705,7 @@ export async function createFolderStructure(
     // an advisory lock to keep the read-before-write check from racing.
     if (typeof tx.execute === "function") {
       await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtext(${input.workspaceId}::text)::bigint, hashtext(${parentFolderId ?? ""}::text)::bigint)`,
+        sql`select pg_advisory_xact_lock(hashtext(${input.workspaceId}::text), hashtext(${parentFolderId ?? ""}::text))`,
       );
     }
 

@@ -15,6 +15,7 @@ interface FakeOptions {
 class FakeTx {
   readonly inserts: Array<{ table: unknown; values: unknown }> = [];
   readonly updates: Array<{ table: unknown; set: unknown }> = [];
+  readonly executeQueries: unknown[] = [];
   executeCount = 0;
   private readonly selectQueue: unknown[][];
   private readonly returningQueue: unknown[][];
@@ -59,6 +60,7 @@ class FakeTx {
   }
 
   async execute(_query: unknown) {
+    this.executeQueries.push(_query);
     this.executeCount += 1;
     return [] as unknown[];
   }
@@ -82,6 +84,20 @@ class FakeTx {
     };
     return chain;
   }
+}
+
+function sqlChunkText(query: unknown): string {
+  const chunks = (query as { queryChunks?: unknown[] }).queryChunks ?? [];
+  return chunks
+    .map((chunk) => {
+      if (typeof chunk === "string") return "?";
+      if (chunk && typeof chunk === "object" && "value" in chunk) {
+        const value = (chunk as { value?: unknown }).value;
+        return Array.isArray(value) ? value.join("") : String(value ?? "");
+      }
+      return "";
+    })
+    .join("");
 }
 
 describe("updatePageStructure", () => {
@@ -175,6 +191,13 @@ describe("createFolderStructure", () => {
       tx.executeCount,
       1,
       "expected exactly one execute call (the advisory lock)",
+    );
+    const lockSql = sqlChunkText(tx.executeQueries[0]);
+    assert.match(lockSql, /pg_advisory_xact_lock/);
+    assert.doesNotMatch(
+      lockSql,
+      /::bigint/,
+      "two-argument pg_advisory_xact_lock must receive int4 keys, not bigint",
     );
     assert.ok(
       tx.inserts.some((i) => i.table === folders),
