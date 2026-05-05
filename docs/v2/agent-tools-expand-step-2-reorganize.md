@@ -1,6 +1,6 @@
 # Sub-doc · S2 — Reorganize tools (interface decisions)
 
-> **Status**: 초안 (2026-05-04) · 미착수
+> **Status**: 구현 완료 검증 (2026-05-05)
 > **Scope**: AUTO-2 — `move_page`, `rename_page`, `create_folder` agent tools
 > **Parent RFC**: [`agent-tools-expand-plan.md`](agent-tools-expand-plan.md)
 

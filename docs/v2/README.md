@@ -1,6 +1,6 @@
 # WekiFlow docs/v2/ — Agent autonomy & tool surface expansion
 
-> **상태**: 초안 (2026-05-04)
+> **상태**: 진행 중 (2026-05-05) · S2/S3 도구 확장 landed
 > **유형**: RFC 묶음 인덱스
 > **모티브**: 외부 신호 → 자율 적용 (사람 승인 없이) 의 약속을 코드로 닫기
 
@@ -37,6 +37,12 @@ S1 autonomy + safety nets   → S4 rollback
 ```
 
 S2/S3 는 disjoint 코드 경로 (mutate.ts vs read.ts) 라 병행 PR 가능. S5 는 S1~S4 의 도구 surface 가 안정된 뒤 진입.
+
+## 진행 상태
+
+- S2 Reorganize tools landed: `move_page`, `rename_page`, `create_folder`.
+- S3 Read intelligence tools landed: `read_page_metadata`, `find_backlinks`, `read_revision_history`, `read_revision`.
+- 다음 큰 흐름은 S5 multi-turn replan 운영 강화와 `page-link-extraction-rfc.md` 의 Tier 2 진입 조건 관찰이다.
 
 ## 사용자 결정 사항 (이 묶음의 baseline)
 

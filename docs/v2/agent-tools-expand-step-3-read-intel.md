@@ -1,6 +1,6 @@
 # Sub-doc · S3 — Read intelligence tools (interface decisions)
 
-> **Status**: 초안 (2026-05-04) · 미착수
+> **Status**: 구현 완료 검증 (2026-05-05)
 > **Scope**: AUTO-3 — `read_page_metadata`, `find_backlinks`, `read_revision_history`, `read_revision`
 > **Parent RFC**: [`agent-tools-expand-plan.md`](agent-tools-expand-plan.md)
 
