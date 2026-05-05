@@ -217,6 +217,18 @@ function toOpenAIToolChoice(choice?: AIToolChoice): string | undefined {
   return choice;
 }
 
+function openAIModelSupportsCustomTemperature(model: string): boolean {
+  const normalized = normalizeAIModelId(model).toLowerCase();
+  return !normalized.startsWith("gpt-5");
+}
+
+function openAITemperaturePayload(request: AIRequest): JsonRecord {
+  if (!openAIModelSupportsCustomTemperature(request.model)) {
+    return {};
+  }
+  return { temperature: request.temperature ?? 0.2 };
+}
+
 function toOpenAIMessage(message: AIMessage): OpenAIWireMessage {
   if (message.role === "tool") {
     return {
@@ -420,7 +432,7 @@ class OpenAIAdapter implements AIAdapter {
       body: JSON.stringify({
         model: request.model,
         messages: request.messages.map(toOpenAIMessage),
-        temperature: request.temperature ?? 0.2,
+        ...openAITemperaturePayload(request),
         max_completion_tokens: request.maxTokens ?? 2048,
         ...(request.responseFormat === "json"
           ? { response_format: { type: "json_object" } }

@@ -267,6 +267,54 @@ describe("AI gateway tool-calling normalization", () => {
     globalThis.fetch = savedFetch;
   });
 
+  it("omits temperature for OpenAI GPT-5-family models", async () => {
+    clearAIEnv();
+    process.env["OPENAI_API_KEY"] = "sk-test-key";
+
+    const requests: Array<Record<string, unknown>> = [];
+    globalThis.fetch = (async (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      requests.push(
+        JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
+      );
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: "ok" },
+            },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof globalThis.fetch;
+
+    await getAIAdapter("openai").chat({
+      provider: "openai",
+      model: "gpt-5.4",
+      mode: "agent_plan",
+      promptVersion: "test-openai-temperature",
+      messages: [{ role: "user", content: "go" }],
+      temperature: 0.1,
+    });
+
+    await getAIAdapter("openai").chat({
+      provider: "openai",
+      model: "gpt-4.1",
+      mode: "agent_plan",
+      promptVersion: "test-openai-temperature",
+      messages: [{ role: "user", content: "go" }],
+      temperature: 0.1,
+    });
+
+    assert.equal(requests[0]?.["temperature"], undefined);
+    assert.equal(requests[1]?.["temperature"], 0.1);
+  });
+
   it("normalizes OpenAI and Gemini tool calls to the same shape", async () => {
     clearAIEnv();
     process.env["OPENAI_API_KEY"] = "sk-test-key";
