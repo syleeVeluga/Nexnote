@@ -51,6 +51,7 @@ export interface ScheduledAgentJobData {
   taskId?: string | null;
   triggeredBy: ScheduledRunTriggeredBy;
   pageIds?: string[];
+  targetFolderId?: string | null;
   includeDescendants?: boolean;
   instruction?: string | null;
   requestedByUserId?: string | null;

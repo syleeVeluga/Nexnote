@@ -6,6 +6,7 @@ import { PageMultiPicker } from "./PageMultiPicker.js";
 interface ReorganizeRunFormProps {
   workspaceId: string;
   initialPageIds?: string[];
+  targetFolderId?: string | null;
   includeDescendantsDefault?: boolean;
   showPagePicker?: boolean;
   maxPageLimit?: number;
@@ -17,6 +18,7 @@ interface ReorganizeRunFormProps {
 export function ReorganizeRunForm({
   workspaceId,
   initialPageIds = [],
+  targetFolderId = null,
   includeDescendantsDefault = true,
   showPagePicker = true,
   maxPageLimit = 500,
@@ -56,6 +58,7 @@ export function ReorganizeRunForm({
     try {
       const result = await scheduledAgent.triggerReorganize(workspaceId, {
         pageIds,
+        targetFolderId,
         includeDescendants,
         instruction: instruction.trim() || null,
       });

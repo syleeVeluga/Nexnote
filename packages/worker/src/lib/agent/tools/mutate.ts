@@ -1790,29 +1790,6 @@ async function requestHumanReview(
   ctx: AgentToolContext,
   args: RequestHumanReviewToolInput,
 ): Promise<AgentToolResult> {
-  if (input.origin === "scheduled") {
-    const decision = await createDecision(ctx, input, {
-      action: "noop",
-      status: "noop",
-      confidence: args.confidence,
-      reason: args.reason,
-      tool: "request_human_review",
-      rationale: {
-        scheduledAutonomy: true,
-        convertedFrom: "needs_review",
-        suggestedAction: args.suggestedAction ?? null,
-        suggestedPageIds: args.suggestedPageIds,
-      },
-    });
-    return {
-      data: {
-        decisionId: decision.id,
-        status: "noop",
-        action: "noop",
-      },
-    };
-  }
-
   const decision = await createDecision(ctx, input, {
     action: "needs_review",
     status: "needs_review",

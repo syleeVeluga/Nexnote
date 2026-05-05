@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { scheduledRuns, workspaces } from "@wekiflow/db";
+import { folders, scheduledRuns, workspaces } from "@wekiflow/db";
 import { ERROR_CODES, QUEUE_NAMES, uuidSchema } from "@wekiflow/shared";
 import {
   EDITOR_PLUS_ROLES,
@@ -15,6 +15,7 @@ import { enqueueScheduledAgentRun } from "../../lib/scheduled-agent-enqueue.js";
 
 const reorganizeBodySchema = z.object({
   pageIds: z.array(uuidSchema).min(1).max(500),
+  targetFolderId: uuidSchema.nullable().optional(),
   includeDescendants: z.boolean().optional().default(true),
   instruction: z.string().max(4000).nullable().optional(),
 });
@@ -52,6 +53,21 @@ const scheduledAgentRoutes: FastifyPluginAsync = async (fastify) => {
           code: ERROR_CODES.SCHEDULED_AGENT_DISABLED,
         });
       }
+      if (body.data.targetFolderId) {
+        const [folder] = await fastify.db
+          .select({ id: folders.id })
+          .from(folders)
+          .where(
+            and(
+              eq(folders.id, body.data.targetFolderId),
+              eq(folders.workspaceId, workspaceId),
+            ),
+          )
+          .limit(1);
+        if (!folder) {
+          return reply.code(404).send({ error: "Target folder not found" });
+        }
+      }
 
       const result = await enqueueScheduledAgentRun({
         db: fastify.db,
@@ -59,6 +75,7 @@ const scheduledAgentRoutes: FastifyPluginAsync = async (fastify) => {
         workspaceId,
         triggeredBy: "manual",
         pageIds: body.data.pageIds,
+        targetFolderId: body.data.targetFolderId ?? null,
         includeDescendants: body.data.includeDescendants,
         instruction: body.data.instruction ?? null,
         requestedByUserId: userId,

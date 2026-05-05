@@ -69,7 +69,7 @@ const PLAN_SYSTEM_PROMPT = `You are planning wiki maintenance mutations for Weki
 Use the ingestion and read-only context to propose exact wiki changes.
 Prefer the narrowest safe mutate tool to creating duplicate pages. Keep confidence calibrated.
 Honor workspace operator instructions about where knowledge belongs, source-specific routing, aliases, and forbidden create/update paths.
-If context is insufficient to avoid a duplicate or unsafe rewrite, return request_human_review instead of create_page. In scheduled mode, prefer noop over request_human_review when no safe autonomous change exists.
+If context is insufficient to avoid a duplicate or unsafe rewrite, return request_human_review instead of create_page. Use noop only when no wiki change is needed; use request_human_review when the user asked for a change but you cannot execute it safely.
 
 When you can make an exact edit, return a typed tool plan:
 {
@@ -99,6 +99,7 @@ Tool argument contracts:
 
 Use update_page only when a narrower tool cannot represent the change. Never invent page IDs or block IDs.
 When restructuring is needed, prefer move_page/rename_page over recreating pages. Use create_folder before move_page when the target folder does not exist yet.
+When the user explicitly asks for a new page, use create_page after ruling out an existing duplicate target; do not downgrade the request merely because an existing page could also hold the content.
 Use delete_page and merge_pages only for scheduled wiki reorganization or autonomous workspace mode. If neither mode applies, request human review instead.
 In autonomous workspace mode, delete_page and merge_pages may be used for high-confidence ingestion cleanup when the target pages were observed in this run. In autonomous_shadow mode, plan the same tool you would use autonomously, but it will be queued for human review.
 Use rollback_to_revision only after the target page and rollback revision were observed and the rollback restores the page from a recent autonomous error. Prefer request_human_review if the target revision appears to be recent human-authored work.
@@ -324,15 +325,18 @@ function scheduledPromptPrefix(input: RunIngestionAgentShadowInput): string {
     "Scheduled reorganize mode:",
     "- This is not an external fact ingestion. It is a request to reorganize and improve existing wiki pages.",
     "- Prefer replace_in_page, edit_page_blocks, or edit_page_section over full rewrites.",
-    "- Use create_page only as a last resort when the target knowledge cannot fit into existing selected pages.",
+    "- Use create_page when the user explicitly asks for a new page, after ruling out an existing duplicate target.",
+    "- Otherwise, use create_page only as a last resort when the target knowledge cannot fit into existing selected pages.",
+    "- If the task needs exact source content, call read_page on the selected pages before concluding the context is insufficient.",
     input.allowDestructiveScheduledAgent
       ? "- Use delete_page when a selected page is fully redundant with another existing page."
       : "- Destructive tools are disabled for this workspace; do not plan delete_page.",
     input.allowDestructiveScheduledAgent
       ? "- Use merge_pages to consolidate 2+ short pages into one canonical page; include full mergedContentMd."
       : "- Destructive tools are disabled for this workspace; do not plan merge_pages.",
-    "- Scheduled mutations apply autonomously; do not route cleanup work to human approval.",
-    "- If no safe autonomous change exists, use noop with a clear reason instead of request_human_review.",
+    "- Scheduled mutations apply autonomously when they are safe and exact.",
+    "- If the user asked for a change but no safe autonomous change exists, use request_human_review so the work remains visible in the review queue.",
+    "- Use noop only when the request requires no wiki change.",
   ];
   if (seedPageIds.length > 0) {
     lines.push(
@@ -357,10 +361,14 @@ function mergeAgentInstructions(
 
 function createInitialAgentRunState(
   seedPageIds: string[] | undefined,
+  seedFolderIds: string[] | undefined,
 ): AgentRunState {
   const state = createAgentRunState();
   for (const pageId of seedPageIds ?? []) {
     state.seenPageIds.add(pageId);
+  }
+  for (const folderId of seedFolderIds ?? []) {
+    state.seenFolderIds.add(folderId);
   }
   return state;
 }
@@ -1266,7 +1274,9 @@ export async function runIngestionAgentShadow(
     env: input.env,
   });
 
-  const initialState = createInitialAgentRunState(input.seedPageIds);
+  const initialState = createInitialAgentRunState(input.seedPageIds, [
+    ...(input.ingestion.targetFolderId ? [input.ingestion.targetFolderId] : []),
+  ]);
   const dispatcher = createAgentDispatcher({
     db: input.db,
     workspaceId: input.workspaceId,

@@ -171,6 +171,32 @@ function pageStructureRow(id: string, title = "Existing", slug = "existing") {
 }
 
 describe("createMutateTools reorganize tools", () => {
+  it("keeps scheduled request_human_review visible in the review queue", async () => {
+    const db = new FakeDb();
+    const tools = createMutateTools(input());
+
+    const result = await tools.request_human_review.execute(ctx(db), {
+      reason: "exact content was not read",
+      suggestedAction: "needs_review",
+      suggestedPageIds: [canonicalPageId],
+      confidence: 0.2,
+    });
+
+    assert.deepEqual(result.data, {
+      decisionId: "decision-id",
+      status: "needs_review",
+      action: "needs_review",
+    });
+    assert.equal(
+      (db.insertedValues[0] as { action?: string }).action,
+      "needs_review",
+    );
+    assert.equal(
+      (db.insertedValues[0] as { status?: string }).status,
+      "needs_review",
+    );
+  });
+
   it("rejects rename_page slugs that are not URL-safe slugs", () => {
     const result = agentMutateToolInputSchemas.rename_page.safeParse({
       pageId: canonicalPageId,

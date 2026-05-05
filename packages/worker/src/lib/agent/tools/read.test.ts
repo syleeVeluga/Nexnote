@@ -15,6 +15,19 @@ function fakeReadPageDb(row: Record<string, unknown>): AgentDb {
   } as unknown as AgentDb;
 }
 
+function fakeRowsDb(rows: Array<Record<string, unknown>>): AgentDb {
+  const chain = {
+    from: () => chain,
+    leftJoin: () => chain,
+    where: () => chain,
+    orderBy: () => chain,
+    limit: async () => rows,
+  };
+  return {
+    select: () => chain,
+  } as unknown as AgentDb;
+}
+
 describe("parseMarkdownBlocks", () => {
   it("splits markdown into stable block IDs", () => {
     const markdown = [
@@ -165,5 +178,46 @@ describe("read_page", () => {
     assert.ok(
       (headingBlock?.content.length ?? contentMd.length) < contentMd.length,
     );
+  });
+});
+
+describe("list_recent_pages", () => {
+  it("serializes lastTouchedAt when the database returns a string", async () => {
+    const pageId = "55555555-5555-4555-8555-555555555555";
+    const revisionId = "66666666-6666-4666-8666-666666666666";
+    const tools = createReadOnlyTools();
+
+    const result = await tools.list_recent_pages.execute(
+      {
+        db: fakeRowsDb([
+          {
+            id: pageId,
+            title: "Recent",
+            slug: "recent",
+            path: "recent",
+            currentRevisionId: revisionId,
+            parentFolderId: null,
+            parentPageId: null,
+            updatedAt: "2026-05-05T00:00:00.000Z",
+            lastAiUpdatedAt: null,
+            lastHumanEditedAt: "2026-05-05T01:00:00.000Z",
+            lastTouchedAt: "2026-05-05T01:00:00.000Z",
+          },
+        ]),
+        workspaceId: "workspace-1",
+        state: createAgentRunState(),
+      },
+      { limit: 10 },
+    );
+
+    const data = result.data as {
+      pages: Array<{ lastTouchedAt: string; updatedAt: string }>;
+    };
+    assert.equal(data.pages[0]?.lastTouchedAt, "2026-05-05T01:00:00.000Z");
+    assert.equal(data.pages[0]?.updatedAt, "2026-05-05T00:00:00.000Z");
+    assert.deepEqual(result.observedPageIds, [pageId]);
+    assert.deepEqual(result.observedPageRevisions, [
+      { pageId, revisionId },
+    ]);
   });
 });

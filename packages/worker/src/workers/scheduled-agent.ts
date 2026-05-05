@@ -122,6 +122,7 @@ async function ensureScheduledIngestion(input: {
   normalizedText: string;
   instruction: string | null;
   pageIds: string[];
+  targetFolderId?: string | null;
   includeDescendants: boolean;
 }): Promise<typeof ingestions.$inferSelect> {
   const idempotencyKey = `scheduled-run:${input.scheduledRunId}`;
@@ -152,10 +153,12 @@ async function ensureScheduledIngestion(input: {
         scheduledRunId: input.scheduledRunId,
         taskId: input.taskId,
         pageIds: input.pageIds,
+        targetFolderId: input.targetFolderId ?? null,
         includeDescendants: input.includeDescendants,
         instruction: input.instruction,
       },
       normalizedText: input.normalizedText,
+      targetFolderId: input.targetFolderId ?? null,
       status: "processing",
     })
     .returning();
@@ -339,6 +342,7 @@ export function createScheduledAgentWorker(): Worker {
 
       const runInput: ScheduledAgentInput = {
         pageIds: job.data.pageIds ?? task?.targetPageIds ?? [],
+        targetFolderId: job.data.targetFolderId ?? null,
         includeDescendants:
           job.data.includeDescendants ?? task?.includeDescendants ?? true,
         instruction: job.data.instruction ?? task?.instruction ?? null,
@@ -381,6 +385,7 @@ export function createScheduledAgentWorker(): Worker {
           normalizedText: adapted.normalizedText,
           instruction: runInput.instruction ?? null,
           pageIds: adapted.seedPageIds,
+          targetFolderId: runInput.targetFolderId ?? null,
           includeDescendants: runInput.includeDescendants,
         });
 

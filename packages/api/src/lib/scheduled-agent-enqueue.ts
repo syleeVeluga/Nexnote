@@ -15,6 +15,7 @@ export async function enqueueScheduledAgentRun(input: {
   triggeredBy: ScheduledAgentJobData["triggeredBy"];
   taskId?: string | null;
   pageIds?: string[];
+  targetFolderId?: string | null;
   includeDescendants?: boolean;
   instruction?: string | null;
   requestedByUserId?: string | null;
@@ -37,6 +38,7 @@ export async function enqueueScheduledAgentRun(input: {
       taskId: input.taskId ?? null,
       triggeredBy: input.triggeredBy,
       pageIds: input.pageIds,
+      targetFolderId: input.targetFolderId ?? null,
       includeDescendants: input.includeDescendants,
       instruction: input.instruction ?? null,
       requestedByUserId: input.requestedByUserId ?? null,

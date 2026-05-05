@@ -446,6 +446,7 @@ export function FolderPage() {
         <FolderReorganizeModal
           open={reorganizeOpen}
           workspaceId={current.id}
+          folderId={folderId}
           folderName={folder.name}
           pageIds={reorganizePageIds}
           maxPageLimit={current.scheduledPerRunPageLimit}

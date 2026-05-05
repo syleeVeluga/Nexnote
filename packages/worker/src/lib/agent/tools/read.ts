@@ -88,8 +88,16 @@ function positiveIntEnv(
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function iso(value: Date | null | undefined): string | null {
-  return value ? value.toISOString() : null;
+type DateLike = Date | string | number;
+
+function toIsoString(value: DateLike): string {
+  if (value instanceof Date) return value.toISOString();
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
+}
+
+function iso(value: DateLike | null | undefined): string | null {
+  return value == null ? null : toIsoString(value);
 }
 
 function createPageSummary(row: {
@@ -100,9 +108,9 @@ function createPageSummary(row: {
   currentRevisionId: string | null;
   parentFolderId: string | null;
   parentPageId: string | null;
-  updatedAt: Date;
-  lastAiUpdatedAt: Date | null;
-  lastHumanEditedAt: Date | null;
+  updatedAt: DateLike;
+  lastAiUpdatedAt: DateLike | null;
+  lastHumanEditedAt: DateLike | null;
 }) {
   return {
     id: row.id,
@@ -112,7 +120,7 @@ function createPageSummary(row: {
     currentRevisionId: row.currentRevisionId,
     parentFolderId: row.parentFolderId,
     parentPageId: row.parentPageId,
-    updatedAt: row.updatedAt.toISOString(),
+    updatedAt: toIsoString(row.updatedAt),
     lastAiUpdatedAt: iso(row.lastAiUpdatedAt),
     lastHumanEditedAt: iso(row.lastHumanEditedAt),
   };
@@ -722,7 +730,7 @@ async function listFolder(
     folderId,
     folders: childFolders.map((folder) => ({
       ...folder,
-      updatedAt: folder.updatedAt.toISOString(),
+      updatedAt: toIsoString(folder.updatedAt),
     })),
     pages: childPages.map((page) => ({
       ...createPageSummary(page),
@@ -921,7 +929,7 @@ async function listRecentPages(
   const result = {
     pages: rows.map((row) => ({
       ...createPageSummary(row),
-      lastTouchedAt: row.lastTouchedAt.toISOString(),
+      lastTouchedAt: toIsoString(row.lastTouchedAt),
     })),
   };
 
@@ -1395,7 +1403,7 @@ async function readRevisionHistory(
     actorType: row.actorType,
     source: row.source,
     revisionNote: row.revisionNote,
-    createdAt: row.createdAt.toISOString(),
+    createdAt: toIsoString(row.createdAt),
     changedBlocks: row.changedBlocks ?? null,
     sourceIngestionId: row.sourceIngestionId ?? null,
     sourceDecisionId: row.sourceDecisionId ?? null,
@@ -1510,7 +1518,7 @@ async function readRevision(
       actorType: row.actorType,
       source: row.source,
       revisionNote: row.revisionNote,
-      createdAt: row.createdAt.toISOString(),
+      createdAt: toIsoString(row.createdAt),
       contentMd: input.includeContent ? row.contentMd : null,
       contentJson: input.includeContent ? row.contentJson : null,
       lineDiff: row.diffMd ?? null,

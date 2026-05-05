@@ -5,6 +5,7 @@ import { ReorganizeRunForm } from "./ReorganizeRunForm.js";
 interface FolderReorganizeModalProps {
   open: boolean;
   workspaceId: string;
+  folderId: string;
   folderName: string;
   pageIds: string[];
   maxPageLimit: number;
@@ -15,6 +16,7 @@ interface FolderReorganizeModalProps {
 export function FolderReorganizeModal({
   open,
   workspaceId,
+  folderId,
   folderName,
   pageIds,
   maxPageLimit,
@@ -65,6 +67,7 @@ export function FolderReorganizeModal({
           <ReorganizeRunForm
             workspaceId={workspaceId}
             initialPageIds={pageIds}
+            targetFolderId={folderId}
             includeDescendantsDefault
             showPagePicker={false}
             maxPageLimit={maxPageLimit}

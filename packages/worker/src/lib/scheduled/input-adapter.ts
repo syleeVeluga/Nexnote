@@ -1,9 +1,10 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { pages } from "@wekiflow/db";
+import { folders, pages } from "@wekiflow/db";
 import type { AgentDb } from "../agent/types.js";
 
 export interface ScheduledAgentInput {
   pageIds: string[];
+  targetFolderId?: string | null;
   includeDescendants: boolean;
   instruction?: string | null;
   perRunPageLimit: number;
@@ -107,6 +108,23 @@ export async function buildScheduledAgentInput(
     },
   );
   const pageRows = await loadActivePages(db, workspaceId, pageIds);
+  const [targetFolder] = input.targetFolderId
+    ? await db
+        .select({
+          id: folders.id,
+          name: folders.name,
+          slug: folders.slug,
+          parentFolderId: folders.parentFolderId,
+        })
+        .from(folders)
+        .where(
+          and(
+            eq(folders.workspaceId, workspaceId),
+            eq(folders.id, input.targetFolderId),
+          ),
+        )
+        .limit(1)
+    : [];
   const byId = new Map(pageRows.map((page) => [page.id, page]));
   const orderedPages = pageIds.flatMap((id) => {
     const page = byId.get(id);
@@ -118,6 +136,9 @@ export async function buildScheduledAgentInput(
     "",
     "The user selected these existing pages as the maintenance scope.",
     "Call read_page before editing whenever exact current markdown or block IDs are needed.",
+    targetFolder
+      ? `Create any new pages requested by the user inside target folder "${targetFolder.name}" (${targetFolder.id}) slug=${targetFolder.slug}.`
+      : "No target folder was provided for new pages; only use create_page when the destination is unambiguous.",
     "",
     "## Selected pages",
     ...orderedPages.map(

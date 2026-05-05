@@ -474,6 +474,7 @@ export const scheduledAgent = {
     workspaceId: string,
     body: {
       pageIds: string[];
+      targetFolderId?: string | null;
       includeDescendants?: boolean;
       instruction?: string | null;
     },
