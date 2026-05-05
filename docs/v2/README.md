@@ -20,6 +20,7 @@
 | [`agent-loop-step-5-multi-turn-replan.md`](agent-loop-step-5-multi-turn-replan.md) | sub-doc | S5 인터페이스 |
 | [`spawn-subagent-rfc.md`](spawn-subagent-rfc.md) | placeholder RFC | S6 (후속 — S5 운영 데이터 수집 후 진입) |
 | [`page-link-extraction-rfc.md`](page-link-extraction-rfc.md) | placeholder RFC | S3.5 (find_backlinks Tier 2 — 후속) |
+| [`folder-graph-plan.md`](folder-graph-plan.md) | feature RFC (UX stream) | sprint 무관 — 병행 가능 |
 
 ## Sprint 시퀀싱
 

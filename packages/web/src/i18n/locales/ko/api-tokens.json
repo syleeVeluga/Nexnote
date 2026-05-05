@@ -31,7 +31,7 @@
     "meta": "{{hint}} · {{creator}} 님이 생성",
     "createdOn": "생성일 {{date}}",
     "lastUsed": "최근 사용 {{value}}",
-    "lastUsedNever": "사용 이력 없음",
+    "lastUsedNever": "기록 없음",
     "revoked": "철회됨",
     "revoke": "철회"
   },
