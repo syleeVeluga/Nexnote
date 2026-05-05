@@ -27,6 +27,7 @@ import { TaskFormModal } from "../components/scheduled/TaskFormModal.js";
 function statusTone(status: ScheduledRun["status"]): BadgeTone {
   if (status === "running") return "blue";
   if (status === "failed") return "red";
+  if (status === "partial") return "warm";
   return "green";
 }
 

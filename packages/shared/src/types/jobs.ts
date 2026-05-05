@@ -32,7 +32,14 @@ export interface IngestionAgentJobData {
 export interface IngestionAgentJobResult {
   ingestionId: string;
   agentRunId: string;
-  status: "shadow" | "completed" | "failed" | "timeout" | "paused";
+  status:
+    | "shadow"
+    | "completed"
+    | "failed"
+    | "timeout"
+    | "partial"
+    | "aborted"
+    | "paused";
   proposedMutations: number;
   totalTokens: number;
 }
@@ -53,7 +60,7 @@ export interface ScheduledAgentJobData {
 export interface ScheduledAgentJobResult {
   scheduledRunId: string;
   agentRunId?: string | null;
-  status: "completed" | "failed";
+  status: "completed" | "partial" | "failed";
   decisionCount: number;
   totalTokens: number;
 }

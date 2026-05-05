@@ -90,7 +90,7 @@ export const scheduledRuns = pgTable(
     ),
     check(
       "scheduled_runs_status_chk",
-      sql`${t.status} IN ('running','completed','failed')`,
+      sql`${t.status} IN ('running','completed','partial','failed')`,
     ),
     check("scheduled_runs_decision_count_chk", sql`${t.decisionCount} >= 0`),
     check("scheduled_runs_tokens_in_chk", sql`${t.tokensIn} >= 0`),

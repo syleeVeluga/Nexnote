@@ -111,6 +111,7 @@ export interface AgentDispatcherOptions {
 export interface AgentDispatcher {
   readonly state: AgentRunState;
   invalidateCacheForToolCall(toolCall: NormalizedToolCall): void;
+  invalidateReadCacheForPage(pageId: string): void;
   dispatchToolCalls(
     toolCalls: NormalizedToolCall[],
   ): Promise<AgentToolExecution[]>;

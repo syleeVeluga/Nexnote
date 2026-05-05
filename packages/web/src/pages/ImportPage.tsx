@@ -128,7 +128,9 @@ export function ImportPage() {
         for (let attempt = 0; attempt < 30; attempt += 1) {
           const detail = await ingestionsApi.get(workspaceId, ingestionId);
           const done =
-            detail.status === "completed" || detail.status === "failed";
+            detail.status === "completed" ||
+            detail.status === "partial" ||
+            detail.status === "failed";
           if (!done) {
             await new Promise((resolve) => window.setTimeout(resolve, 1000));
             continue;
