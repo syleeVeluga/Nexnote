@@ -157,6 +157,21 @@ export interface SearchIndexUpdaterJobResult {
   indexed: boolean;
 }
 
+/** Data passed to the page-link-extractor job */
+export interface PageLinkExtractorJobData {
+  pageId: string;
+  revisionId: string;
+  workspaceId: string;
+}
+
+/** Result returned from the page-link-extractor job */
+export interface PageLinkExtractorJobResult {
+  pageId: string;
+  revisionId: string;
+  linksCreated: number;
+  brokenLinks: number;
+}
+
 /** Data passed to the content-reformatter job */
 export interface ContentReformatterJobData {
   pageId: string;

@@ -282,6 +282,7 @@ export const QUEUE_NAMES = {
   EXTRACTION: "extraction",
   PUBLISH: "publish",
   SEARCH: "search",
+  LINKS: "links",
   REFORMAT: "reformat",
   SYNTHESIS: "synthesis",
 } as const;
@@ -294,6 +295,7 @@ export const QUEUE_KEYS = [
   QUEUE_NAMES.EXTRACTION,
   QUEUE_NAMES.PUBLISH,
   QUEUE_NAMES.SEARCH,
+  QUEUE_NAMES.LINKS,
   QUEUE_NAMES.REFORMAT,
   QUEUE_NAMES.SYNTHESIS,
 ] as const;
@@ -307,6 +309,7 @@ export const JOB_NAMES = {
   TRIPLE_EXTRACTOR: "triple-extractor",
   PUBLISH_RENDERER: "publish-renderer",
   SEARCH_INDEX_UPDATER: "search-index-updater",
+  PAGE_LINK_EXTRACTOR: "page-link-extractor",
   CONTENT_REFORMATTER: "content-reformatter",
   SYNTHESIS_GENERATOR: "synthesis-generator",
 } as const;

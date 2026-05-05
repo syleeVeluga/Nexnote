@@ -32,6 +32,7 @@ export const PIPELINE_QUEUE_KEYS: QueueKey[] = [
   QUEUE_NAMES.REFORMAT,
   QUEUE_NAMES.PUBLISH,
   QUEUE_NAMES.SEARCH,
+  QUEUE_NAMES.LINKS,
   QUEUE_NAMES.EXTRACTION,
 ];
 
@@ -81,9 +82,9 @@ const STAGE_DEFINITIONS: PipelineStageDefinition[] = [
   {
     key: "connect",
     label: "Connect",
-    description: "Triples and entity links are extracted for the graph.",
-    queueKeys: [QUEUE_NAMES.EXTRACTION],
-    jobNames: [JOB_NAMES.TRIPLE_EXTRACTOR],
+    description: "Triples, backlinks, and entity links are extracted for the graph.",
+    queueKeys: [QUEUE_NAMES.EXTRACTION, QUEUE_NAMES.LINKS],
+    jobNames: [JOB_NAMES.TRIPLE_EXTRACTOR, JOB_NAMES.PAGE_LINK_EXTRACTOR],
   },
 ];
 

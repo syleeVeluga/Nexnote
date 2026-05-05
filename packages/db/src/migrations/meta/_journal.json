@@ -176,6 +176,13 @@
       "when": 1778299200000,
       "tag": "0024_scheduled_run_partial_status",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1778302800000,
+      "tag": "0025_page_links",
+      "breakpoints": true
     }
   ]
 }

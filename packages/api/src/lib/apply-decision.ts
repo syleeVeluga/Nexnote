@@ -24,7 +24,10 @@ import {
   ERROR_CODES,
   IMPORT_SOURCE_NAMES,
 } from "@wekiflow/shared";
-import type { TripleExtractorJobData } from "@wekiflow/shared";
+import type {
+  PageLinkExtractorJobData,
+  TripleExtractorJobData,
+} from "@wekiflow/shared";
 import {
   collectDescendantPageIds,
   PageDeletionError,
@@ -35,6 +38,7 @@ export interface ApplyDecisionCtx {
   db: Database;
   extractionQueue: Queue;
   searchQueue: Queue;
+  linkQueue: Queue;
   workspaceId: string;
   decision: IngestionDecision;
   userId: string;
@@ -267,7 +271,7 @@ async function createMergeRedirects(input: {
 export async function approveDecision(
   ctx: ApplyDecisionCtx,
 ): Promise<ApplyDecisionResult | ApplyDecisionError> {
-  const { db, extractionQueue, searchQueue, workspaceId, decision, userId } =
+  const { db, extractionQueue, searchQueue, linkQueue, workspaceId, decision, userId } =
     ctx;
   const ingestionId = decision.ingestionId;
 
@@ -401,6 +405,16 @@ export async function approveDecision(
         revisionId: revision.id,
         workspaceId,
       },
+      DEFAULT_JOB_OPTIONS,
+    );
+    const linkData: PageLinkExtractorJobData = {
+      pageId: page.id,
+      revisionId: revision.id,
+      workspaceId,
+    };
+    await linkQueue.add(
+      JOB_NAMES.PAGE_LINK_EXTRACTOR,
+      linkData,
       DEFAULT_JOB_OPTIONS,
     );
 
@@ -562,6 +576,15 @@ export async function approveDecision(
     );
     await searchQueue.add(
       JOB_NAMES.SEARCH_INDEX_UPDATER,
+      {
+        pageId: decision.targetPageId,
+        revisionId,
+        workspaceId,
+      },
+      DEFAULT_JOB_OPTIONS,
+    );
+    await linkQueue.add(
+      JOB_NAMES.PAGE_LINK_EXTRACTOR,
       {
         pageId: decision.targetPageId,
         revisionId,
@@ -740,6 +763,15 @@ export async function approveDecision(
       ),
       searchQueue.add(
         JOB_NAMES.SEARCH_INDEX_UPDATER,
+        {
+          pageId: decision.targetPageId,
+          revisionId: decision.proposedRevisionId,
+          workspaceId,
+        },
+        DEFAULT_JOB_OPTIONS,
+      ),
+      linkQueue.add(
+        JOB_NAMES.PAGE_LINK_EXTRACTOR,
         {
           pageId: decision.targetPageId,
           revisionId: decision.proposedRevisionId,

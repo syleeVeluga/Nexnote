@@ -33,6 +33,7 @@ import {
 } from "@wekiflow/shared";
 import type {
   PublishRendererJobData,
+  PageLinkExtractorJobData,
   TripleExtractorJobData,
   SearchIndexUpdaterJobData,
   ContentReformatterJobData,
@@ -586,6 +587,17 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         DEFAULT_JOB_OPTIONS,
       );
 
+      const linkData: PageLinkExtractorJobData = {
+        pageId: result.page.id,
+        revisionId: result.revision.id,
+        workspaceId,
+      };
+      await fastify.queues.links.add(
+        JOB_NAMES.PAGE_LINK_EXTRACTOR,
+        linkData,
+        DEFAULT_JOB_OPTIONS,
+      );
+
       return reply.code(201).send({
         page: mapPageDto({
           ...result.page,
@@ -1125,6 +1137,16 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
         DEFAULT_JOB_OPTIONS,
       );
 
+      await fastify.queues.links.add(
+        JOB_NAMES.PAGE_LINK_EXTRACTOR,
+        {
+          pageId,
+          revisionId: result.id,
+          workspaceId,
+        },
+        DEFAULT_JOB_OPTIONS,
+      );
+
       return reply.code(201).send({
         revision: mapRevisionDto(result),
       });
@@ -1455,6 +1477,16 @@ const pageRoutes: FastifyPluginAsync = async (fastify) => {
       await fastify.queues.search.add(
         JOB_NAMES.SEARCH_INDEX_UPDATER,
         searchData,
+        DEFAULT_JOB_OPTIONS,
+      );
+
+      await fastify.queues.links.add(
+        JOB_NAMES.PAGE_LINK_EXTRACTOR,
+        {
+          pageId,
+          revisionId: result.newRevisionId,
+          workspaceId,
+        },
         DEFAULT_JOB_OPTIONS,
       );
 

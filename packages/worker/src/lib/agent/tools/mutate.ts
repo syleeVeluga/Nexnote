@@ -41,6 +41,7 @@ import {
   type MovePageToolInput,
   type NoopToolInput,
   type PatchGeneratorJobData,
+  type PageLinkExtractorJobData,
   type ReplaceInPageToolInput,
   type RenamePageToolInput,
   type RequestHumanReviewToolInput,
@@ -86,6 +87,7 @@ export interface CreateMutateToolsInput {
   patchQueue?: QueueLike<PatchGeneratorJobData>;
   extractionQueue?: QueueLike<TripleExtractorJobData>;
   searchQueue?: QueueLike<SearchIndexUpdaterJobData>;
+  linkQueue?: QueueLike<PageLinkExtractorJobData>;
 }
 
 interface CurrentPage {
@@ -475,6 +477,15 @@ async function enqueuePostApply(
   );
   await input.searchQueue?.add(
     JOB_NAMES.SEARCH_INDEX_UPDATER,
+    {
+      pageId,
+      revisionId,
+      workspaceId: ctx.workspaceId,
+    },
+    DEFAULT_JOB_OPTIONS,
+  );
+  await input.linkQueue?.add(
+    JOB_NAMES.PAGE_LINK_EXTRACTOR,
     {
       pageId,
       revisionId,

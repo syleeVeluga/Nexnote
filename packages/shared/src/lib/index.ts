@@ -33,3 +33,11 @@ export {
   type FocusedInputEntry,
   type FocusedInputResult,
 } from "./chunk-diff.js";
+export {
+  PAGE_LINK_TYPES,
+  extractPageLinks,
+  normalizePageLinkTarget,
+  pageLinkTargetLookupKeys,
+  type ExtractedPageLink,
+  type PageLinkType,
+} from "./page-links.js";

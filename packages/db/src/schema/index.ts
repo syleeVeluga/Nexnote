@@ -6,6 +6,7 @@ export * from "./ingestions.js";
 export * from "./chunks.js";
 export * from "./entities.js";
 export * from "./triples.js";
+export * from "./page-links.js";
 export * from "./predicate-labels.js";
 export * from "./agent-runs.js";
 export * from "./scheduled.js";
@@ -19,6 +20,7 @@ import * as _ingestions from "./ingestions.js";
 import * as _chunks from "./chunks.js";
 import * as _entities from "./entities.js";
 import * as _triples from "./triples.js";
+import * as _pageLinks from "./page-links.js";
 import * as _predicateLabels from "./predicate-labels.js";
 import * as _agentRuns from "./agent-runs.js";
 import * as _scheduled from "./scheduled.js";
@@ -33,6 +35,7 @@ export const schema = {
   ..._chunks,
   ..._entities,
   ..._triples,
+  ..._pageLinks,
   ..._predicateLabels,
   ..._agentRuns,
   ..._scheduled,

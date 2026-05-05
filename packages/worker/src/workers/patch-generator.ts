@@ -27,6 +27,7 @@ import {
 import type {
   PatchGeneratorJobData,
   PatchGeneratorJobResult,
+  PageLinkExtractorJobData,
   TripleExtractorJobData,
   AIRequest,
   AIBudgetMeta,
@@ -508,6 +509,17 @@ Produce the merged Markdown:`,
           pageId: targetPageId,
           revisionId: revision.id,
         },
+        DEFAULT_JOB_OPTIONS,
+      );
+      const linkData: PageLinkExtractorJobData = {
+        workspaceId,
+        pageId: targetPageId,
+        revisionId: revision.id,
+      };
+      const linkQueue = getQueue(QUEUE_NAMES.LINKS);
+      await linkQueue.add(
+        JOB_NAMES.PAGE_LINK_EXTRACTOR,
+        linkData,
         DEFAULT_JOB_OPTIONS,
       );
 

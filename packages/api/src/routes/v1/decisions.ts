@@ -469,6 +469,7 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
         db: fastify.db,
         extractionQueue: fastify.queues.extraction,
         searchQueue: fastify.queues.search,
+        linkQueue: fastify.queues.links,
         workspaceId,
         decision,
         userId,
@@ -526,6 +527,7 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
         db: fastify.db,
         extractionQueue: fastify.queues.extraction,
         searchQueue: fastify.queues.search,
+        linkQueue: fastify.queues.links,
         workspaceId,
         decision,
         userId,
@@ -626,6 +628,7 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
           db: fastify.db,
           extractionQueue: fastify.queues.extraction,
           searchQueue: fastify.queues.search,
+          linkQueue: fastify.queues.links,
           workspaceId,
           decision,
           userId,
@@ -663,6 +666,7 @@ const decisionRoutes: FastifyPluginAsync = async (fastify) => {
         db: fastify.db,
         extractionQueue: fastify.queues.extraction,
         searchQueue: fastify.queues.search,
+        linkQueue: fastify.queues.links,
         workspaceId,
         decision,
         userId,
@@ -1241,11 +1245,12 @@ async function undoRevisionDecision(input: {
   db: Database;
   extractionQueue: Queue;
   searchQueue: Queue;
+  linkQueue: Queue;
   workspaceId: string;
   decision: IngestionDecision;
   userId: string;
 }): Promise<UndoDecisionResponse | UndoDecisionErrorResponse> {
-  const { db, extractionQueue, searchQueue, workspaceId, decision, userId } =
+  const { db, extractionQueue, searchQueue, linkQueue, workspaceId, decision, userId } =
     input;
 
   try {
@@ -1406,6 +1411,15 @@ async function undoRevisionDecision(input: {
         },
         DEFAULT_JOB_OPTIONS,
       ),
+      linkQueue.add(
+        JOB_NAMES.PAGE_LINK_EXTRACTOR,
+        {
+          pageId: result.pageId,
+          revisionId: result.revisionId,
+          workspaceId,
+        },
+        DEFAULT_JOB_OPTIONS,
+      ),
     ]);
 
     return {
@@ -1467,11 +1481,12 @@ async function undoMergeDecision(input: {
   db: Database;
   extractionQueue: Queue;
   searchQueue: Queue;
+  linkQueue: Queue;
   workspaceId: string;
   decision: IngestionDecision;
   userId: string;
 }): Promise<UndoDecisionResponse | UndoDecisionErrorResponse> {
-  const { db, extractionQueue, searchQueue, workspaceId, decision, userId } =
+  const { db, extractionQueue, searchQueue, linkQueue, workspaceId, decision, userId } =
     input;
   const meta = readMergeMeta(decision.rationaleJson);
   if (
@@ -1690,6 +1705,15 @@ async function undoMergeDecision(input: {
       ),
       searchQueue.add(
         JOB_NAMES.SEARCH_INDEX_UPDATER,
+        {
+          pageId: result.pageId,
+          revisionId: result.revisionId,
+          workspaceId,
+        },
+        DEFAULT_JOB_OPTIONS,
+      ),
+      linkQueue.add(
+        JOB_NAMES.PAGE_LINK_EXTRACTOR,
         {
           pageId: result.pageId,
           revisionId: result.revisionId,

@@ -124,12 +124,14 @@ function ctx(input: {
   db: FakeDb;
   extractionQueue?: FakeQueue;
   searchQueue?: FakeQueue;
+  linkQueue?: FakeQueue;
   decision: Record<string, unknown>;
 }) {
   return {
     db: input.db as never,
     extractionQueue: (input.extractionQueue ?? new FakeQueue()) as never,
     searchQueue: (input.searchQueue ?? new FakeQueue()) as never,
+    linkQueue: (input.linkQueue ?? new FakeQueue()) as never,
     workspaceId,
     userId,
     decision: {

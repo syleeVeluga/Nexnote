@@ -11,6 +11,7 @@ import {
   createTripleExtractorWorker,
   createPublishRendererWorker,
   createSearchIndexUpdaterWorker,
+  createPageLinkExtractorWorker,
   createContentReformatterWorker,
   createSynthesisGeneratorWorker,
 } from "./workers/index.js";
@@ -46,6 +47,7 @@ function startWorkers(): void {
   workers.push(createTripleExtractorWorker());
   workers.push(createPublishRendererWorker());
   workers.push(createSearchIndexUpdaterWorker());
+  workers.push(createPageLinkExtractorWorker());
   workers.push(createContentReformatterWorker());
   if (process.env["ENABLE_SYNTHESIS_WORKER"] === "true") {
     workers.push(createSynthesisGeneratorWorker());
