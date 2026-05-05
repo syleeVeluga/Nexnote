@@ -28,6 +28,7 @@ vi.mock("react-i18next", () => ({
         graphEntityTypes: "Entity Types",
         graphPredicates: "Relationship Types",
         noGraphData: "No relationship data to display",
+        "pages:wiki.folderGraphEmpty": "No relationship data in this folder.",
         graphNoFilteredData: "No relations match the current filters",
         graphVisibleNodes: "{{count}} displayed nodes",
         graphVisibleEdges: "{{count}} displayed relationships",
@@ -311,5 +312,34 @@ describe("GraphPanel", () => {
       }),
     );
     expect(pageGraphMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the folder empty-state copy in folder mode", async () => {
+    folderGraphMock.mockResolvedValue({
+      nodes: [],
+      edges: [],
+      meta: {
+        scope: "folder",
+        folderId: "folder-1",
+        depth: 1,
+        totalNodes: 0,
+        totalEdges: 0,
+        truncated: false,
+      },
+    } satisfies GraphData);
+
+    render(
+      <GraphPanel
+        mode="folder"
+        workspaceId="workspace-1"
+        folderId="folder-1"
+        onClose={() => {}}
+        onNavigateToPage={() => {}}
+      />,
+    );
+
+    expect(
+      await screen.findByText("No relationship data in this folder."),
+    ).toBeInTheDocument();
   });
 });

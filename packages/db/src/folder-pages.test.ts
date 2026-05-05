@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { collectFolderDescendantPageIds } from "./folder-pages.js";
+import {
+  collectFolderDescendantPageIds,
+  collectFolderDescendantPages,
+} from "./folder-pages.js";
 
 const workspaceId = "11111111-1111-4111-8111-111111111111";
 const otherWorkspaceId = "99999999-9999-4999-8999-999999999999";
@@ -64,15 +67,15 @@ describe("collectFolderDescendantPageIds", () => {
     assert.match(db.queryText, /folder_pages AS/);
     assert.match(
       db.queryText,
-      /p\."parent_folder_id" IN \(SELECT "id" FROM folder_tree\)/,
-      "direct-folder branch must scope to the folder_tree CTE",
+      /INNER JOIN folder_tree t ON p\."parent_folder_id" = t\."id"/,
+      "direct-folder branch must join to the folder_tree CTE",
     );
     assert.match(
       db.queryText,
       /INNER JOIN folder_pages fp ON p\."parent_page_id" = fp\."id"/,
       "page-descendant branch must walk parent_page_id",
     );
-    assert.match(db.queryText, /SELECT DISTINCT "id" FROM folder_pages/);
+    assert.match(db.queryText, /GROUP BY "id"/);
   });
 
   it("constrains every recursive level to the requested workspace (cross-workspace folders never leak)", async () => {
@@ -119,8 +122,13 @@ describe("collectFolderDescendantPageIds", () => {
     );
     assert.match(
       dbDefault.queryText,
-      /p\."deleted_at" IS NULL OR false/,
-      "the default call must keep includeDeleted=false in the OR clause",
+      /AND p\."deleted_at" IS NULL/,
+      "the default call must emit a plain deleted_at filter",
+    );
+    assert.doesNotMatch(
+      dbDefault.queryText,
+      /OR false|OR true/,
+      "the deleted filter must not keep a boolean OR parameter in SQL",
     );
 
     const dbIncluded = new FakeDb([]);
@@ -130,11 +138,32 @@ describe("collectFolderDescendantPageIds", () => {
       rootFolderId,
       { includeDeleted: true },
     );
-    assert.match(
+    assert.doesNotMatch(
       dbIncluded.queryText,
-      /p\."deleted_at" IS NULL OR true/,
-      "includeDeleted: true must flow into the OR clause",
+      /p\."deleted_at" IS NULL/,
+      "includeDeleted: true must omit the deleted_at filter entirely",
     );
+  });
+
+  it("can cap collected page IDs and report truncation", async () => {
+    const db = new FakeDb([
+      { id: "page-1" },
+      { id: "page-2" },
+      { id: "page-3" },
+    ]);
+
+    const result = await collectFolderDescendantPages(
+      db as never,
+      workspaceId,
+      rootFolderId,
+      { maxPageIds: 2 },
+    );
+
+    assert.deepEqual(result, {
+      pageIds: ["page-1", "page-2"],
+      truncated: true,
+    });
+    assert.match(db.queryText, /LIMIT 3/);
   });
 
   it("maps postgres-js style execute results ({ rows: [...] })", async () => {

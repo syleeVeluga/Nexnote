@@ -3,7 +3,7 @@ import { eq, and, isNull, count } from "drizzle-orm";
 import {
   folders,
   auditLogs,
-  collectFolderDescendantPageIds,
+  collectFolderDescendantPages,
 } from "@wekiflow/db";
 import {
   createFolderSchema,
@@ -38,6 +38,8 @@ import {
 } from "../../lib/reorder.js";
 import { createFolder, PageStructureError } from "../../lib/create-folder.js";
 import { buildEntityGraph } from "../../lib/graph-builder.js";
+
+const FOLDER_GRAPH_SEED_PAGE_LIMIT = 1000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -258,11 +260,13 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      const seedPageIds = await collectFolderDescendantPageIds(
+      const seedPages = await collectFolderDescendantPages(
         fastify.db,
         workspaceId,
         folderId,
+        { maxPageIds: FOLDER_GRAPH_SEED_PAGE_LIMIT },
       );
+      const seedPageIds = seedPages.pageIds;
 
       if (seedPageIds.length === 0) {
         return reply.code(200).send({
@@ -298,7 +302,7 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
           depth,
           totalNodes: graph.nodes.length,
           totalEdges: graph.edges.length,
-          truncated: graph.truncated,
+          truncated: seedPages.truncated || graph.truncated,
         },
       });
     },

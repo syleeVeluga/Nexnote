@@ -219,6 +219,48 @@ describe("GET /folders/:folderId/graph", () => {
     await app.close();
   });
 
+  it("marks the response truncated when folder seed pages are capped", async () => {
+    const app = await buildTestApp({
+      selectQueue: [
+        [{ role: "owner" }],
+        [{ id: folderId }],
+        [{ subjectEntityId: "E1", objectEntityId: "E2" }],
+        [{ subjectEntityId: "E1", objectEntityId: "E2" }],
+        [
+          { id: "E1", canonicalName: "Entity One", entityType: "concept" },
+          { id: "E2", canonicalName: "Entity Two", entityType: "concept" },
+        ],
+        [
+          { entityId: "E1", pageCount: 1 },
+          { entityId: "E2", pageCount: 1 },
+        ],
+        [
+          {
+            id: "t1",
+            subjectEntityId: "E1",
+            objectEntityId: "E2",
+            predicate: "relates_to",
+            confidence: 0.9,
+            sourcePageId: seedPageA,
+          },
+        ],
+      ],
+      executeQueue: [
+        Array.from({ length: 1001 }, (_, i) => ({ id: `page-${i}` })),
+      ],
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/v1/workspaces/${workspaceId}/folders/${folderId}/graph`,
+    });
+
+    assert.equal(res.statusCode, 200);
+    const body = res.json() as { meta: { truncated: boolean } };
+    assert.equal(body.meta.truncated, true);
+    await app.close();
+  });
+
   it("returns 403 to a non-member of the workspace", async () => {
     const app = await buildTestApp({
       selectQueue: [

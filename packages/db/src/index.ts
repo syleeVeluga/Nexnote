@@ -8,7 +8,11 @@ export {
   type Database,
 } from "./client.js";
 export { insertPageWithUniqueSlug } from "./slug.js";
-export { collectFolderDescendantPageIds } from "./folder-pages.js";
+export {
+  collectFolderDescendantPageIds,
+  collectFolderDescendantPages,
+  type FolderDescendantPagesResult,
+} from "./folder-pages.js";
 export {
   rollbackToRevision,
   RollbackRevisionError,

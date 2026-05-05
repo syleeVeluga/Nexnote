@@ -92,7 +92,7 @@ function getEntityChipStyle(type: string): EntityChipStyle {
 
 export function GraphPanel(props: GraphPanelProps) {
   const { workspaceId, onClose, onNavigateToPage } = props;
-  const { t, i18n } = useTranslation(["editor", "common"]);
+  const { t, i18n } = useTranslation(["editor", "common", "pages"]);
   const locale = resolveSupportedLocale(i18n.resolvedLanguage ?? i18n.language);
   const [depth, setDepth] = useState<1 | 2>(1);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
@@ -115,6 +115,10 @@ export function GraphPanel(props: GraphPanelProps) {
   const filtersInitializedRef = useRef(false);
   const targetId = props.mode === "page" ? props.pageId : props.folderId;
   const currentPageId = props.mode === "page" ? props.pageId : null;
+  const emptyGraphMessage =
+    props.mode === "folder"
+      ? t("pages:wiki.folderGraphEmpty")
+      : t("noGraphData");
 
   useEffect(() => {
     filtersInitializedRef.current = false;
@@ -569,7 +573,7 @@ export function GraphPanel(props: GraphPanelProps) {
             {error}
           </div>
         ) : !hasServerData ? (
-          <div className="graph-empty">{t("noGraphData")}</div>
+          <div className="graph-empty">{emptyGraphMessage}</div>
         ) : !hasVisibleData ? (
           <div className="graph-empty">{t("graphNoFilteredData")}</div>
         ) : (
