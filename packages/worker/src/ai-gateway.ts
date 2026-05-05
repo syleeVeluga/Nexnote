@@ -592,12 +592,15 @@ function toAnthropicMessages(messages: AIMessage[]): {
     }
 
     if (message.role === "tool") {
+      if (!message.toolCallId) {
+        throw new Error("Anthropic tool result messages require toolCallId");
+      }
       wire.push({
         role: "user",
         content: [
           {
             type: "tool_result",
-            tool_use_id: message.toolCallId ?? "tool_use",
+            tool_use_id: message.toolCallId,
             content: message.content,
           },
         ],

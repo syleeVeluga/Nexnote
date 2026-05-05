@@ -1,7 +1,7 @@
 import { describe, it, before, after } from "node:test";
 import { strict as assert } from "node:assert";
 import { getAIAdapter, getDefaultProvider } from "./ai-gateway.js";
-import type { AIRequest, NormalizedToolCall } from "@wekiflow/shared";
+import type { AIProvider, AIRequest, NormalizedToolCall } from "@wekiflow/shared";
 
 // ---------------------------------------------------------------------------
 // Helper: save and restore environment variables around each suite
@@ -9,8 +9,10 @@ import type { AIRequest, NormalizedToolCall } from "@wekiflow/shared";
 const ENV_KEYS = [
   "OPENAI_API_KEY",
   "GEMINI_API_KEY",
+  "ANTHROPIC_API_KEY",
   "OPENAI_MODEL",
   "GEMINI_MODEL",
+  "ANTHROPIC_MODEL",
   "AI_TEST_MODE",
 ] as const;
 
@@ -40,10 +42,15 @@ function clearAIEnv(): void {
   }
 }
 
-function makeToolFixtureRequest(provider: "openai" | "gemini"): AIRequest {
+function makeToolFixtureRequest(provider: AIProvider): AIRequest {
   return {
     provider,
-    model: provider === "openai" ? "gpt-5.4" : "gemini-3.1-pro",
+    model:
+      provider === "openai"
+        ? "gpt-5.4"
+        : provider === "gemini"
+          ? "gemini-3.1-pro"
+          : "claude-sonnet-4-6",
     mode: "route_decision",
     promptVersion: "test-tool-calling",
     messages: [
@@ -97,6 +104,13 @@ describe("getAIAdapter", () => {
     assert.equal(typeof adapter.chat, "function");
   });
 
+  it("returns an adapter for the anthropic provider", () => {
+    const adapter = getAIAdapter("anthropic");
+    assert.ok(adapter, "adapter should be defined");
+    assert.equal(adapter.provider, "anthropic");
+    assert.equal(typeof adapter.chat, "function");
+  });
+
   it("returns different adapter instances for different providers", () => {
     const openai = getAIAdapter("openai");
     const gemini = getAIAdapter("gemini");
@@ -136,10 +150,20 @@ describe("getDefaultProvider", () => {
     assert.equal(result.model, "gemini-3.1-pro");
   });
 
+  it("returns anthropic when only ANTHROPIC_API_KEY is set", () => {
+    clearAIEnv();
+    process.env["ANTHROPIC_API_KEY"] = "anthropic-test-key";
+
+    const result = getDefaultProvider();
+    assert.equal(result.provider, "anthropic");
+    assert.equal(result.model, "claude-sonnet-4-6");
+  });
+
   it("prefers openai when both keys are set", () => {
     clearAIEnv();
     process.env["OPENAI_API_KEY"] = "sk-test-key";
     process.env["GEMINI_API_KEY"] = "gem-test-key";
+    process.env["ANTHROPIC_API_KEY"] = "anthropic-test-key";
 
     const result = getDefaultProvider();
     assert.equal(result.provider, "openai");
@@ -178,6 +202,16 @@ describe("getDefaultProvider", () => {
     assert.equal(result.model, "gemini-3.1-pro-custom");
   });
 
+  it("respects ANTHROPIC_MODEL override", () => {
+    clearAIEnv();
+    process.env["ANTHROPIC_API_KEY"] = "anthropic-test-key";
+    process.env["ANTHROPIC_MODEL"] = "claude-opus-test";
+
+    const result = getDefaultProvider();
+    assert.equal(result.provider, "anthropic");
+    assert.equal(result.model, "claude-opus-test");
+  });
+
   it("normalizes legacy Gemini flash-lite model ids", () => {
     clearAIEnv();
     process.env["GEMINI_API_KEY"] = "gem-test-key";
@@ -204,6 +238,15 @@ describe("getDefaultProvider", () => {
 
     const result = getDefaultProvider();
     assert.equal(result.model, "gemini-3.1-pro");
+  });
+
+  it("uses default model when ANTHROPIC_MODEL is not set", () => {
+    clearAIEnv();
+    process.env["ANTHROPIC_API_KEY"] = "anthropic-test-key";
+    // explicitly no ANTHROPIC_MODEL
+
+    const result = getDefaultProvider();
+    assert.equal(result.model, "claude-sonnet-4-6");
   });
 });
 
@@ -532,5 +575,189 @@ describe("AI gateway tool-calling normalization", () => {
     assert.deepEqual(geminiFunctionCall?.args, toolCall.arguments);
     assert.equal(geminiFunctionResponse?.name, toolCall.name);
     assert.deepEqual(geminiFunctionResponse?.response, { results: [] });
+  });
+
+  it("maps Anthropic messages, tools, tool choice, and tool calls", async () => {
+    clearAIEnv();
+    process.env["ANTHROPIC_API_KEY"] = "anthropic-test-key";
+
+    let capturedBody: Record<string, unknown> | null = null;
+    let capturedHeaders: { apiKey: string | null; version: string | null } | null =
+      null;
+    globalThis.fetch = (async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      assert.equal(input.toString(), "https://api.anthropic.com/v1/messages");
+      capturedBody = JSON.parse(String(init?.body ?? "{}")) as Record<
+        string,
+        unknown
+      >;
+      const headers = new Headers(init?.headers);
+      capturedHeaders = {
+        apiKey: headers.get("x-api-key"),
+        version: headers.get("anthropic-version"),
+      };
+      return new Response(
+        JSON.stringify({
+          content: [
+            { type: "text", text: "Searching." },
+            {
+              type: "tool_use",
+              id: "toolu_01_search",
+              name: "search_pages",
+              input: { query: "redis", limit: 5 },
+            },
+          ],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 11, output_tokens: 7 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof globalThis.fetch;
+
+    const response = await getAIAdapter("anthropic").chat(
+      makeToolFixtureRequest("anthropic"),
+    );
+
+    assert.equal(response.content, "Searching.");
+    assert.deepEqual(response.toolCalls, [
+      {
+        id: "toolu_01_search",
+        name: "search_pages",
+        arguments: { query: "redis", limit: 5 },
+      },
+    ]);
+    assert.equal(response.tokenInput, 11);
+    assert.equal(response.tokenOutput, 7);
+    assert.equal(response.finishReason, "tool_use");
+
+    const headers = capturedHeaders as
+      | { apiKey: string | null; version: string | null }
+      | null;
+    assert.equal(headers?.apiKey, "anthropic-test-key");
+    assert.equal(headers?.version, "2023-06-01");
+
+    const body = capturedBody as {
+      system?: string;
+      messages?: Array<{ role?: string; content?: unknown }>;
+      tools?: Array<{ name?: string; input_schema?: unknown }>;
+      tool_choice?: { type?: string };
+    } | null;
+    assert.equal(body?.system, "Use tools when useful.");
+    assert.deepEqual(body?.messages, [
+      { role: "user", content: "Find Redis pages." },
+    ]);
+    assert.equal(body?.tools?.[0]?.name, "search_pages");
+    assert.deepEqual(body?.tools?.[0]?.input_schema, {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        limit: { type: "integer" },
+      },
+      required: ["query"],
+    });
+    assert.deepEqual(body?.tool_choice, { type: "any" });
+  });
+
+  it("maps Anthropic prior tool calls and tool results by tool_use id", async () => {
+    clearAIEnv();
+    process.env["ANTHROPIC_API_KEY"] = "anthropic-test-key";
+
+    let capturedBody: Record<string, unknown> | null = null;
+    globalThis.fetch = (async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      void input;
+      capturedBody = JSON.parse(String(init?.body ?? "{}")) as Record<
+        string,
+        unknown
+      >;
+      return new Response(
+        JSON.stringify({
+          content: [{ type: "text", text: "ok" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 13, output_tokens: 1 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof globalThis.fetch;
+
+    const toolCall: NormalizedToolCall = {
+      id: "toolu_01_search",
+      name: "search_pages",
+      arguments: { query: "redis" },
+    };
+
+    await getAIAdapter("anthropic").chat({
+      ...makeToolFixtureRequest("anthropic"),
+      messages: [
+        { role: "system", content: "Use tools when useful." },
+        { role: "user", content: "Find Redis pages." },
+        { role: "assistant", content: "", toolCalls: [toolCall] },
+        {
+          role: "tool",
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          content: JSON.stringify({ results: [] }),
+        },
+        { role: "user", content: "Continue." },
+      ],
+    });
+
+    const body = capturedBody as {
+      messages?: Array<{
+        role?: string;
+        content?: Array<{
+          type?: string;
+          id?: string;
+          name?: string;
+          input?: Record<string, unknown>;
+          tool_use_id?: string;
+          content?: string;
+        }>;
+      }>;
+    } | null;
+    const assistantToolUse = body?.messages?.[1]?.content?.[0];
+    const toolResult = body?.messages?.[2]?.content?.[0];
+    assert.deepEqual(assistantToolUse, {
+      type: "tool_use",
+      id: toolCall.id,
+      name: toolCall.name,
+      input: toolCall.arguments,
+    });
+    assert.deepEqual(toolResult, {
+      type: "tool_result",
+      tool_use_id: toolCall.id,
+      content: JSON.stringify({ results: [] }),
+    });
+  });
+
+  it("rejects Anthropic tool result messages without toolCallId", async () => {
+    clearAIEnv();
+    process.env["ANTHROPIC_API_KEY"] = "anthropic-test-key";
+
+    let fetchCalled = false;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as typeof globalThis.fetch;
+
+    await assert.rejects(
+      getAIAdapter("anthropic").chat({
+        ...makeToolFixtureRequest("anthropic"),
+        messages: [
+          { role: "user", content: "Find Redis pages." },
+          {
+            role: "tool",
+            toolName: "search_pages",
+            content: JSON.stringify({ results: [] }),
+          },
+        ],
+      }),
+      /toolCallId/,
+    );
+    assert.equal(fetchCalled, false);
   });
 });
