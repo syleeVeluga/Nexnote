@@ -1,6 +1,6 @@
 # PRD — AI 보조 Markdown 지식 위키/문서 서비스
 
-> **문서 위치:** 이 PRD는 v1 제품 사양으로 [`docs/`](.)에 보관된다. 오케스트레이터 가이드는 루트 [`AGENTS.md`](../AGENTS.md) / [`CLAUDE.md`](../CLAUDE.md), 활성 백로그는 [`TASKS.md`](TASKS.md), 데이터 모델은 [`ERD 초안 — AI 기반 Markdown 지식 위키 서비스.md`](ERD%20%EC%B4%88%EC%95%88%20%E2%80%94%20AI%20%EA%B8%B0%EB%B0%98%20Markdown%20%EC%A7%80%EC%8B%9D%20%EC%9C%84%ED%82%A4%20%EC%84%9C%EB%B9%84%EC%8A%A4.md), 구현 RFC는 [`ingestion-agent-plan.md`](ingestion-agent-plan.md) 등 `docs/<scope>-plan.md` 형태로 분리되어 있다.
+> **문서 위치:** 이 PRD는 v1 제품 사양으로 [`docs/product/`](.)에 보관된다. 오케스트레이터 가이드는 루트 [`AGENTS.md`](../../AGENTS.md) / [`CLAUDE.md`](../../CLAUDE.md), 활성 백로그는 [`TASKS.md`](../backlog/TASKS.md), 데이터 모델은 [`ERD — AI 기반 Markdown 지식 위키 서비스.md`](../architecture/ERD%20%EC%B4%88%EC%95%88%20%E2%80%94%20AI%20%EA%B8%B0%EB%B0%98%20Markdown%20%EC%A7%80%EC%8B%9D%20%EC%9C%84%ED%82%A4%20%EC%84%9C%EB%B9%84%EC%8A%A4.md), 운영 가이드 등은 `docs/guides/` 형태로 분리되어 보관된다.
 >
 > **차세대 ingestion 방향성 (2026-04-29 RFC 승인):** 단일-shot route-classifier가 항상 새 페이지를 만드는 한계를 해소하기 위해 tool-calling **ingestion agent**(1 ingestion → N 페이지 fan-out, VS-Code 스타일 라인/블록/섹션 패치)로 교체될 예정. 자세한 사항은 [`ingestion-agent-plan.md`](ingestion-agent-plan.md) 참고. 본 PRD의 §13 AI 출력 계약과 §14 ingestion 흐름은 v1 단일-shot 기준으로 보존되며, 에이전트 도입 후 별도 RFC로 갱신된다.
 

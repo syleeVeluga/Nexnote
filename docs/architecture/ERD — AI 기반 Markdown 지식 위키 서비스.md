@@ -1,6 +1,6 @@
 # ERD 초안 — AI 기반 Markdown 지식 위키 서비스
 
-> **문서 위치:** 본 ERD는 [`docs/`](.) 산하 데이터 모델 기준 문서다. 백로그 [`TASKS.md`](TASKS.md), PRD [`PRD — ...md`](PRD%20%E2%80%94%20AI%20%EB%B3%B4%EC%A1%B0%20Markdown%20%EC%A7%80%EC%8B%9D%20%EC%9C%84%ED%82%A4%EB%AC%B8%EC%84%9C%20%EC%84%9C%EB%B9%84%EC%8A%A4.md), 오케스트레이터 가이드 루트 [`AGENTS.md`](../AGENTS.md) / [`CLAUDE.md`](../CLAUDE.md) 참고.
+> **문서 위치:** 본 ERD는 [`docs/architecture/`](.) 산하 데이터 모델 기준 문서다. 백로그 [`TASKS.md`](../backlog/TASKS.md), PRD [`PRD — ...md`](../product/PRD%20%E2%80%94%20AI%20%EB%B3%B4%EC%A1%B0%20Markdown%20%EC%A7%80%EC%8B%9D%20%EC%9C%84%ED%82%A4%EB%AC%B8%EC%84%9C%20%EC%84%9C%EB%B9%84%EC%8A%A4.md), 오케스트레이터 가이드 루트 [`AGENTS.md`](../../AGENTS.md) / [`CLAUDE.md`](../../CLAUDE.md) 참고.
 >
 > **예정된 스키마 추가 (2026-04-29 RFC):** Ingestion Agent 도입에 따라 다음 변경이 있다 — (a) 신규 `agent_runs` 테이블 (`ingestion_id`, `workspace_id`, `status`, `plan_json`, `steps_json`, `decisions_count`, `total_tokens`, ...), (b) `model_runs` / `ingestion_decisions`에 nullable `agent_run_id` FK 추가, (c) `workspaces`에 `ingestion_mode TEXT NOT NULL DEFAULT 'classic'` 컬럼 추가. 모두 NULL fallback이라 기존 classic classifier 행과 공존. 상세는 [`ingestion-agent-plan.md`](ingestion-agent-plan.md) §"Schema 변경" 절. 마이그레이션 번호는 `0015_agent_runs.sql` 예정.
 
