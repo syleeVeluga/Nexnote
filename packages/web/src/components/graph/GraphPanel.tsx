@@ -1,10 +1,4 @@
-import {
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-  useMemo,
-} from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import ForceGraph2D from "react-force-graph-2d";
@@ -252,7 +246,9 @@ export function GraphPanel(props: GraphPanelProps) {
     setActiveEntityTypes((prev) => {
       if (prev.length === 0) return prev;
       const surviving = prev.filter((value) => nextTypes.includes(value));
-      return surviving.length > 0 || nextTypes.length === 0 ? surviving : nextTypes;
+      return surviving.length > 0 || nextTypes.length === 0
+        ? surviving
+        : nextTypes;
     });
 
     setActivePredicates((prev) => {
@@ -281,7 +277,11 @@ export function GraphPanel(props: GraphPanelProps) {
   const focusState = useMemo(
     () =>
       visibleGraph
-        ? getFocusedNeighborhood(visibleGraph, selectedEntityId, hoveredEntityId)
+        ? getFocusedNeighborhood(
+            visibleGraph,
+            selectedEntityId,
+            hoveredEntityId,
+          )
         : {
             activeNodeId: null,
             nodeIds: new Set<string>(),
@@ -295,24 +295,21 @@ export function GraphPanel(props: GraphPanelProps) {
     [graphFilters, filterCandidates],
   );
 
-  const predicateLabels = useMemo(
-    () => {
-      const apiLabels = new Map<string, string>();
-      for (const edge of graphData?.edges ?? []) {
-        if (edge.displayPredicate) {
-          apiLabels.set(edge.predicate, edge.displayPredicate);
-        }
+  const predicateLabels = useMemo(() => {
+    const apiLabels = new Map<string, string>();
+    for (const edge of graphData?.edges ?? []) {
+      if (edge.displayPredicate) {
+        apiLabels.set(edge.predicate, edge.displayPredicate);
       }
+    }
 
-      return new Map(
-        filterCandidates.predicates.map((item) => [
-          item.value,
-          getPredicateDisplayLabel(t, item.value, apiLabels.get(item.value)),
-        ]),
-      );
-    },
-    [filterCandidates.predicates, graphData?.edges, t],
-  );
+    return new Map(
+      filterCandidates.predicates.map((item) => [
+        item.value,
+        getPredicateDisplayLabel(t, item.value, apiLabels.get(item.value)),
+      ]),
+    );
+  }, [filterCandidates.predicates, graphData?.edges, t]);
 
   useEffect(() => {
     if (!selectedEntityId || !visibleGraph) return;
@@ -455,7 +452,11 @@ export function GraphPanel(props: GraphPanelProps) {
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
         ctx.fillStyle = "#1f2937";
-        ctx.fillText(label, node.x ?? 0, (node.y ?? 0) + size + 2 / globalScale);
+        ctx.fillText(
+          label,
+          node.x ?? 0,
+          (node.y ?? 0) + size + 2 / globalScale,
+        );
       }
       ctx.restore();
     },
@@ -539,151 +540,191 @@ export function GraphPanel(props: GraphPanelProps) {
         </button>
       </div>
 
-      <div className="graph-toolbar">
-        <div className="graph-controls">
-          <span className="graph-controls-label">{t("graphDepth")}:</span>
-          <button
-            className={`depth-btn${depth === 1 ? " active" : ""}`}
-            onClick={() => handleDepthChange(1)}
-            aria-pressed={depth === 1}
-            aria-label={`${t("graphDepth")} 1`}
-          >
-            1
-          </button>
-          <button
-            className={`depth-btn${depth === 2 ? " active" : ""}`}
-            onClick={() => handleDepthChange(2)}
-            aria-pressed={depth === 2}
-            aria-label={`${t("graphDepth")} 2`}
-          >
-            2
-          </button>
-          <span className="graph-controls-label">{t("graphNodeLimit")}:</span>
-          {NODE_LIMIT_PRESETS.map((limit) => (
-            <button
-              key={limit}
-              className={`depth-btn${nodeLimit === limit ? " active" : ""}`}
-              onClick={() => handleNodeLimitChange(limit)}
-              aria-pressed={nodeLimit === limit}
-              aria-label={`${t("graphNodeLimit")} ${limit}`}
-            >
-              {limit}
-            </button>
-          ))}
-          <span className="graph-controls-label">{t("graphNodeLabels")}:</span>
-          <button
-            className={`depth-btn${showNodeLabels ? " active" : ""}`}
-            onClick={() => setShowNodeLabels((value) => !value)}
-            aria-pressed={showNodeLabels}
-          >
-            {showNodeLabels
-              ? t("graphNodeLabelsOn")
-              : t("graphNodeLabelsOff")}
-          </button>
-        </div>
-
-        <div className="graph-filter-groups">
-          <div className="graph-filter-group">
-            <span className="graph-controls-label">{t("graphEntityTypes")}:</span>
-            <div className="graph-chip-list">
-              {filterCandidates.entityTypes.map((item) => (
+      <div className="graph-content">
+        <aside className="graph-toolbar">
+          <div className="graph-controls">
+            <div className="graph-control-group">
+              <span className="graph-controls-label">{t("graphDepth")}:</span>
+              <div className="graph-button-row">
                 <button
-                  key={item.value}
-                  className={`graph-chip graph-chip-entity${activeEntityTypes.includes(item.value) ? " active" : ""}`}
-                  style={getEntityChipStyle(item.value)}
-                  onClick={() => toggleEntityType(item.value)}
-                  aria-pressed={activeEntityTypes.includes(item.value)}
+                  className={`depth-btn${depth === 1 ? " active" : ""}`}
+                  onClick={() => handleDepthChange(1)}
+                  aria-pressed={depth === 1}
+                  aria-label={`${t("graphDepth")} 1`}
                 >
-                  <span
-                    className="graph-chip-swatch"
-                    style={{ backgroundColor: getNodeColor(item.value) }}
-                    aria-hidden="true"
-                  />
-                  {item.value}
-                  <span className="graph-chip-count">{item.count}</span>
+                  1
                 </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="graph-filter-group">
-            <span className="graph-controls-label">{t("graphPredicates")}:</span>
-            <div className="graph-chip-list">
-              {filterCandidates.predicates.map((item) => (
                 <button
-                  key={item.value}
-                  className={`graph-chip${activePredicates.includes(item.value) ? " active" : ""}`}
-                  onClick={() => togglePredicate(item.value)}
-                  aria-pressed={activePredicates.includes(item.value)}
+                  className={`depth-btn${depth === 2 ? " active" : ""}`}
+                  onClick={() => handleDepthChange(2)}
+                  aria-pressed={depth === 2}
+                  aria-label={`${t("graphDepth")} 2`}
                 >
-                  {predicateLabels.get(item.value) ?? item.value}
-                  <span className="graph-chip-count">{item.count}</span>
+                  2
                 </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="graph-meta-bar">
-        <span>{t("graphVisibleNodes", { count: visibleGraph?.nodes.length ?? 0 })}</span>
-        <span>{t("graphVisibleEdges", { count: visibleGraph?.edges.length ?? 0 })}</span>
-        <span className={`graph-meta-pill${filtersApplied ? " active" : ""}`}>
-          {filtersApplied ? t("graphFiltersApplied") : t("graphFiltersInactive")}
-        </span>
-      </div>
-
-      <div className="graph-container" ref={containerRef}>
-        {loading ? (
-          <div className="graph-empty">{t("common:loading")}</div>
-        ) : error ? (
-          <div className="graph-empty" style={{ color: "#dc2626" }}>
-            {error}
-          </div>
-        ) : !hasServerData ? (
-          <div className="graph-empty">{emptyGraphMessage}</div>
-        ) : !hasVisibleData ? (
-          <div className="graph-empty">{t("graphNoFilteredData")}</div>
-        ) : (
-          <>
-            <ForceGraph2D
-              ref={forceGraphRef}
-              graphData={forceGraphData}
-              width={dimensions.width}
-              height={dimensions.height}
-              onNodeClick={(node) => setSelectedEntityId((node as GNode).id)}
-              onNodeHover={(node) =>
-                setHoveredEntityId(node ? (node as GNode).id : null)
-              }
-              nodeCanvasObject={paintNode}
-              nodePointerAreaPaint={(
-                node: GNode,
-                color: string,
-                ctx: CanvasRenderingContext2D,
-              ) => {
-                const size = Math.sqrt(node.val ?? 1) * 3;
-                ctx.beginPath();
-                ctx.arc(node.x ?? 0, node.y ?? 0, size + 2, 0, 2 * Math.PI);
-                ctx.fillStyle = color;
-                ctx.fill();
-              }}
-              linkColor={linkColor2D}
-              linkWidth={(link: GLink) =>
-                Math.max((link.confidence ?? 0.5) * 2, 0.75)
-              }
-              linkDirectionalArrowLength={3}
-              linkDirectionalArrowRelPos={1}
-              linkCanvasObjectMode={() => "after" as const}
-              linkCanvasObject={paintLink}
-              cooldownTicks={200}
-            />
-            {graphData?.meta.truncated && (
-              <div className="graph-truncated-notice">
-                {t("graphTruncated", { limit: graphData.meta.totalNodes })}
               </div>
+            </div>
+
+            <div className="graph-control-group">
+              <span className="graph-controls-label">
+                {t("graphNodeLimit")}:
+              </span>
+              <div className="graph-button-row">
+                {NODE_LIMIT_PRESETS.map((limit) => (
+                  <button
+                    key={limit}
+                    className={`depth-btn${nodeLimit === limit ? " active" : ""}`}
+                    onClick={() => handleNodeLimitChange(limit)}
+                    aria-pressed={nodeLimit === limit}
+                    aria-label={`${t("graphNodeLimit")} ${limit}`}
+                  >
+                    {limit}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="graph-control-group">
+              <span className="graph-controls-label">
+                {t("graphNodeLabels")}:
+              </span>
+              <div className="graph-button-row">
+                <button
+                  className={`depth-btn${showNodeLabels ? " active" : ""}`}
+                  onClick={() => setShowNodeLabels((value) => !value)}
+                  aria-pressed={showNodeLabels}
+                >
+                  {showNodeLabels
+                    ? t("graphNodeLabelsOn")
+                    : t("graphNodeLabelsOff")}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="graph-filter-groups">
+            <div className="graph-filter-group">
+              <span className="graph-controls-label">
+                {t("graphEntityTypes")}:
+              </span>
+              <div className="graph-chip-list">
+                {filterCandidates.entityTypes.map((item) => (
+                  <button
+                    key={item.value}
+                    className={`graph-chip graph-chip-entity${activeEntityTypes.includes(item.value) ? " active" : ""}`}
+                    style={getEntityChipStyle(item.value)}
+                    onClick={() => toggleEntityType(item.value)}
+                    aria-pressed={activeEntityTypes.includes(item.value)}
+                  >
+                    <span
+                      className="graph-chip-swatch"
+                      style={{ backgroundColor: getNodeColor(item.value) }}
+                      aria-hidden="true"
+                    />
+                    {item.value}
+                    <span className="graph-chip-count">{item.count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="graph-filter-group">
+              <span className="graph-controls-label">
+                {t("graphPredicates")}:
+              </span>
+              <div className="graph-chip-list">
+                {filterCandidates.predicates.map((item) => (
+                  <button
+                    key={item.value}
+                    className={`graph-chip${activePredicates.includes(item.value) ? " active" : ""}`}
+                    onClick={() => togglePredicate(item.value)}
+                    aria-pressed={activePredicates.includes(item.value)}
+                  >
+                    {predicateLabels.get(item.value) ?? item.value}
+                    <span className="graph-chip-count">{item.count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <div className="graph-visual">
+          <div className="graph-meta-bar">
+            <span>
+              {t("graphVisibleNodes", {
+                count: visibleGraph?.nodes.length ?? 0,
+              })}
+            </span>
+            <span>
+              {t("graphVisibleEdges", {
+                count: visibleGraph?.edges.length ?? 0,
+              })}
+            </span>
+            <span
+              className={`graph-meta-pill${filtersApplied ? " active" : ""}`}
+            >
+              {filtersApplied
+                ? t("graphFiltersApplied")
+                : t("graphFiltersInactive")}
+            </span>
+          </div>
+
+          <div className="graph-container" ref={containerRef}>
+            {loading ? (
+              <div className="graph-empty">{t("common:loading")}</div>
+            ) : error ? (
+              <div className="graph-empty" style={{ color: "#dc2626" }}>
+                {error}
+              </div>
+            ) : !hasServerData ? (
+              <div className="graph-empty">{emptyGraphMessage}</div>
+            ) : !hasVisibleData ? (
+              <div className="graph-empty">{t("graphNoFilteredData")}</div>
+            ) : (
+              <>
+                <ForceGraph2D
+                  ref={forceGraphRef}
+                  graphData={forceGraphData}
+                  width={dimensions.width}
+                  height={dimensions.height}
+                  onNodeClick={(node) =>
+                    setSelectedEntityId((node as GNode).id)
+                  }
+                  onNodeHover={(node) =>
+                    setHoveredEntityId(node ? (node as GNode).id : null)
+                  }
+                  nodeCanvasObject={paintNode}
+                  nodePointerAreaPaint={(
+                    node: GNode,
+                    color: string,
+                    ctx: CanvasRenderingContext2D,
+                  ) => {
+                    const size = Math.sqrt(node.val ?? 1) * 3;
+                    ctx.beginPath();
+                    ctx.arc(node.x ?? 0, node.y ?? 0, size + 2, 0, 2 * Math.PI);
+                    ctx.fillStyle = color;
+                    ctx.fill();
+                  }}
+                  linkColor={linkColor2D}
+                  linkWidth={(link: GLink) =>
+                    Math.max((link.confidence ?? 0.5) * 2, 0.75)
+                  }
+                  linkDirectionalArrowLength={3}
+                  linkDirectionalArrowRelPos={1}
+                  linkCanvasObjectMode={() => "after" as const}
+                  linkCanvasObject={paintLink}
+                  cooldownTicks={200}
+                />
+                {graphData?.meta.truncated && (
+                  <div className="graph-truncated-notice">
+                    {t("graphTruncated", { limit: graphData.meta.totalNodes })}
+                  </div>
+                )}
+              </>
             )}
-          </>
-        )}
+          </div>
+        </div>
       </div>
 
       {selectedEntityId && (
