@@ -73,6 +73,7 @@ function successExecution(
   toolCall: NormalizedToolCall,
   result: unknown,
   deduped: boolean,
+  mutatedPageIds?: string[],
 ): AgentToolExecution {
   return {
     toolCallId: toolCall.id,
@@ -80,6 +81,7 @@ function successExecution(
     ok: true,
     result,
     deduped,
+    ...(mutatedPageIds ? { mutatedPageIds } : {}),
   };
 }
 
@@ -218,7 +220,14 @@ export function createAgentDispatcher(
         const cacheKey = `${toolCall.name}:${stableJson(parsed.data)}`;
         const cached = cache.get(cacheKey);
         if (cached?.ok) {
-          executions.push(successExecution(toolCall, cached.result, true));
+          executions.push(
+            successExecution(
+              toolCall,
+              cached.result,
+              true,
+              cached.mutatedPageIds,
+            ),
+          );
           continue;
         }
 
@@ -240,7 +249,12 @@ export function createAgentDispatcher(
         try {
           const result = await tool.execute(ctx, parsed.data);
           observeResult(state, result);
-          const execution = successExecution(toolCall, result.data, false);
+          const execution = successExecution(
+            toolCall,
+            result.data,
+            false,
+            result.mutatedPageIds,
+          );
           cache.set(cacheKey, execution);
           executions.push(execution);
         } catch (err) {

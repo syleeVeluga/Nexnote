@@ -195,6 +195,19 @@ export interface AgentWorkspaceTokenReservation {
   release(actualTokens: number): Promise<void>;
 }
 
+export interface AgentTurnAbortCheckRequest {
+  turnIndex: number;
+  totalMutationsApplied: number;
+  totalMutationsFailed: number;
+  totalTokens: number;
+}
+
+export interface AgentTurnAbortCheckResult {
+  status: "partial" | "aborted";
+  reason: string;
+  details?: Record<string, unknown>;
+}
+
 export interface RunIngestionAgentShadowInput {
   db: AgentDb;
   workspaceId: string;
@@ -227,6 +240,9 @@ export interface RunIngestionAgentShadowInput {
   reserveWorkspaceTokens?: (
     request: AgentWorkspaceTokenReservationRequest,
   ) => Promise<AgentWorkspaceTokenReservation | null>;
+  checkAbortBeforeTurn?: (
+    request: AgentTurnAbortCheckRequest,
+  ) => Promise<AgentTurnAbortCheckResult | null>;
   onStep?: (step: AgentRunTraceStep) => void | Promise<void>;
   env?: NodeJS.ProcessEnv;
   recordModelRun?: (
@@ -812,7 +828,7 @@ async function executeMutations(input: {
     toolCall: NormalizedToolCall;
     error: AgentToolErrorPayload;
   }) => Promise<AgentPlanMutation | null>;
-}): Promise<{ succeeded: number; failed: number }> {
+}): Promise<{ succeeded: number; failed: number; mutatedPageIds: string[] }> {
   const mutationInput: CreateMutateToolsInput = {
     ingestion: input.ingestion,
     agentRunId: input.agentRunId,
@@ -839,6 +855,7 @@ async function executeMutations(input: {
 
   let succeeded = 0;
   let failed = 0;
+  const mutatedPageIds = new Set<string>();
   for (const [index, mutation] of input.plan.proposedPlan.entries()) {
     const toolCall = mutationToToolCall(mutation, index, input.ingestionText);
     const [execution] = await dispatcher.dispatchToolCalls([toolCall]);
@@ -852,6 +869,9 @@ async function executeMutations(input: {
     });
 
     if (execution.ok) {
+      for (const pageId of execution.mutatedPageIds ?? []) {
+        mutatedPageIds.add(pageId);
+      }
       succeeded += resultDecisionId(execution.result) ? 1 : 0;
       continue;
     }
@@ -885,6 +905,9 @@ async function executeMutations(input: {
           error: repairedExecution.ok ? undefined : repairedExecution.error,
         });
         if (repairedExecution.ok) {
+          for (const pageId of repairedExecution.mutatedPageIds ?? []) {
+            mutatedPageIds.add(pageId);
+          }
           succeeded += resultDecisionId(repairedExecution.result) ? 1 : 0;
           continue;
         }
@@ -921,7 +944,7 @@ async function executeMutations(input: {
     }
   }
 
-  return { succeeded, failed };
+  return { succeeded, failed, mutatedPageIds: [...mutatedPageIds] };
 }
 
 function remainingMs(deadlineMs: number): number {
@@ -1686,12 +1709,10 @@ export async function runIngestionAgentShadow(
           action: "needs_review",
           targetPageId: null,
           confidence: 0,
-          reason:
-            `${partial.reason}; ${partial.remainingPlan.length} proposed mutation(s) were not executed and require human review.`,
+          reason: `${partial.reason}; ${partial.remainingPlan.length} proposed mutation(s) were not executed and require human review.`,
           tool: "request_human_review",
           args: {
-            reason:
-              `${partial.reason}; ${partial.remainingPlan.length} proposed mutation(s) were not executed and require human review.`,
+            reason: `${partial.reason}; ${partial.remainingPlan.length} proposed mutation(s) were not executed and require human review.`,
             confidence: 0,
             suggestedAction: "needs_review",
             suggestedPageIds,
@@ -1735,6 +1756,30 @@ export async function runIngestionAgentShadow(
   }
 
   for (let turnIndex = 0; turnIndex < limits.maxTurns; turnIndex += 1) {
+    const turnAbort = await input.checkAbortBeforeTurn?.({
+      turnIndex,
+      totalMutationsApplied: totalSucceeded,
+      totalMutationsFailed: totalFailed,
+      totalTokens: totals.tokens,
+    });
+    if (turnAbort) {
+      finalStatus = turnAbort.status;
+      if (finalStatus === "partial" && lastModelRun?.id) {
+        totalSucceeded += await queuePartialRunForReview({
+          turnIndex,
+          reason: turnAbort.reason,
+          remainingPlan: pendingUnattemptedPlan(),
+          modelRunId: lastModelRun.id,
+        });
+      }
+      traceStep(input, steps, "turn_aborted", {
+        turnIndex,
+        reason: turnAbort.reason,
+        ...(turnAbort.details ?? {}),
+      });
+      break;
+    }
+
     if (turnIndex > 0) {
       if (remainingMs(deadlineMs) < limits.turnRemainingTimeThresholdMs) {
         finalStatus = totalSucceeded > 0 ? "partial" : "aborted";
@@ -1820,7 +1865,7 @@ export async function runIngestionAgentShadow(
 
     totalSucceeded += execution.succeeded;
     totalFailed += execution.failed;
-    const mutatedPageIds = [...dispatcher.state.mutatedPageIds];
+    const mutatedPageIds = execution.mutatedPageIds;
     for (const pageId of mutatedPageIds) {
       dispatcher.invalidateReadCacheForPage(pageId);
     }

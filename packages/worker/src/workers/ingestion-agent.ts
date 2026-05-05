@@ -685,6 +685,29 @@ export function createIngestionAgentWorker(): Worker {
               workspaceId,
               reservationRequest,
             ),
+          checkAbortBeforeTurn: async (request) => {
+            if (request.turnIndex === 0) return null;
+            const [freshWorkspace] = await db
+              .select({
+                autonomyPausedUntil: workspaces.autonomyPausedUntil,
+              })
+              .from(workspaces)
+              .where(eq(workspaces.id, workspaceId))
+              .limit(1);
+            if (
+              freshWorkspace?.autonomyPausedUntil &&
+              freshWorkspace.autonomyPausedUntil > new Date()
+            ) {
+              return {
+                status: "aborted",
+                reason: "workspace_autonomy_paused",
+                details: {
+                  pausedUntil: freshWorkspace.autonomyPausedUntil.toISOString(),
+                },
+              };
+            }
+            return null;
+          },
           onStep: emitLiveStep,
           recordModelRun,
           mutationQueues:

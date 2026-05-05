@@ -94,6 +94,7 @@ export type AgentToolExecution =
       ok: true;
       result: unknown;
       deduped: boolean;
+      mutatedPageIds?: string[];
     }
   | {
       toolCallId: string;

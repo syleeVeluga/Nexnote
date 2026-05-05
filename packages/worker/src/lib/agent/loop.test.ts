@@ -344,6 +344,8 @@ describe("runIngestionAgentShadow", () => {
     assert.equal(result.planJson.turns?.length, 2);
     assert.equal(result.planJson.turns?.[0]?.plan.proposedPlan.length, 20);
     assert.equal(result.planJson.turns?.[0]?.skippedPlan?.length, 10);
+    assert.deepEqual(result.planJson.turns?.[0]?.mutatedPageIds, [pageId]);
+    assert.deepEqual(result.planJson.turns?.[1]?.mutatedPageIds, [pageId]);
     assert.ok(result.steps.some((step) => step.type === "replan"));
     const replanPrompt = adapter.requests[2]?.messages[1]?.content ?? "";
     assert.match(replanPrompt, /"attempted": 20/);
@@ -418,6 +420,83 @@ describe("runIngestionAgentShadow", () => {
         (step) =>
           step.type === "turn_aborted" &&
           step.payload["reason"] === "max_turns_reached",
+      ),
+    );
+  });
+
+  it("aborts before a replan turn when the workspace pause hook fires", async () => {
+    const calls: unknown[] = [];
+    const mutateTools: Record<string, AgentToolDefinition> = {
+      append_to_page: {
+        name: "append_to_page",
+        description: "test append",
+        schema: agentMutateToolInputSchemas.append_to_page,
+        async execute(_ctx, input) {
+          calls.push(input);
+          return {
+            data: {
+              decisionId: `decision-${calls.length}`,
+              status: "auto_applied",
+            },
+            mutatedPageIds: [pageId],
+          };
+        },
+      },
+    };
+    const adapter = new SequenceAdapter([
+      response({ content: "No tools needed." }),
+      response({
+        content: JSON.stringify({
+          summary: "Append two notes.",
+          proposedPlan: [appendMutation(0), appendMutation(1)],
+          openQuestions: [],
+        }),
+      }),
+    ]);
+    let modelRun = 0;
+
+    const result = await runIngestionAgentShadow({
+      db: fakeDb,
+      workspaceId: "workspace-1",
+      ingestion: {
+        id: "ingestion-1",
+        sourceName: "test",
+        contentType: "text/markdown",
+        titleHint: "Pause",
+        normalizedText: "Bulk notes.",
+        rawPayload: {},
+      },
+      mode: "agent",
+      agentRunId: "33333333-3333-4333-8333-333333333333",
+      adapter,
+      baseProvider: "openai",
+      baseModel: "gpt-5.4",
+      tools: {},
+      mutateTools,
+      env: { ...process.env, AGENT_MAX_MUTATIONS_PER_TURN: "1" },
+      checkAbortBeforeTurn: async ({ turnIndex }) =>
+        turnIndex > 0
+          ? {
+              status: "aborted",
+              reason: "workspace_autonomy_paused",
+              details: { pausedUntil: "2026-05-05T00:00:00.000Z" },
+            }
+          : null,
+      recordModelRun: async () => {
+        modelRun += 1;
+        return { id: `44444444-4444-4444-8444-44444444444${modelRun}` };
+      },
+    });
+
+    assert.equal(result.status, "aborted");
+    assert.equal(result.decisionsCount, 1);
+    assert.equal(calls.length, 1);
+    assert.equal(adapter.requests.length, 2);
+    assert.ok(
+      result.steps.some(
+        (step) =>
+          step.type === "turn_aborted" &&
+          step.payload["reason"] === "workspace_autonomy_paused",
       ),
     );
   });
