@@ -1,6 +1,6 @@
 # Agent Loop Strengthening — Umbrella RFC (S5)
 
-> **상태**: 초안 (2026-05-04) · S5 미착수 (S1~S4 머지 후 진입)
+> **상태**: 진행 중 (2026-05-05) · S5 multi-turn replan 구현/검증 중
 > **유형**: 구현 RFC
 > **모티브**: 대규모 reorganize / 100+ 페이지 ingestion 에서 단일-turn plan + 20-mutation 캡 한계를 multi-turn replan 으로 푼다 — subagent fork 는 별도 후속 RFC
 

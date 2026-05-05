@@ -1,6 +1,6 @@
 # Sub-doc · S5 — Multi-turn replan loop (interface decisions)
 
-> **Status**: 초안 (2026-05-04) · 미착수 (S1~S4 머지 후 진입)
+> **Status**: 진행 중 (2026-05-05) · worker loop 1차 구현/검증 완료
 > **Scope**: AUTO-5 — turn-bounded plan/execute 반복 (subagent fork 없음)
 > **Parent RFC**: [`agent-loop-strengthening-plan.md`](agent-loop-strengthening-plan.md)
 
@@ -280,16 +280,22 @@ ALTER TABLE agent_runs ADD CONSTRAINT agent_runs_status_check
 
 ## 12. Verification checklist
 
-- [ ] AGENT_LIMITS 상수 확장 + 환경변수 override 동작
-- [ ] AgentRunTraceStep 신규 타입 (`replan`, `turn_aborted`) Zod 검증
-- [ ] agent_runs.status check constraint 확장 마이그레이션 정·역방향
-- [ ] runIngestionAgentShadow 가 multi-turn 으로 동작 — 기존 single-turn 회귀 무영향
-- [ ] cache invalidation — turn 사이 mutated page 가 새로 read 되면 fresh content
-- [ ] turn 사이 seenPageIds carryover
-- [ ] empty proposedPlan 시 즉시 종료
-- [ ] kill switch 매 turn 진입 시 재확인
-- [ ] AgentTracePanel 의 turn 그룹핑 UI 정상
-- [ ] BullMQ job timeout 조정 (180s) 적용
+- [x] AGENT_LIMITS 상수 확장 + 환경변수 override 동작
+- [x] AgentRunTraceStep 신규 타입 (`replan`, `turn_aborted`) Zod 검증
+- [x] agent_runs.status check constraint 확장 마이그레이션 적용
+- [x] runIngestionAgentShadow 가 multi-turn 으로 동작 — 기존 single-turn 회귀 무영향
+- [x] cache invalidation — mutated page 대상 read cache 제거
+- [x] turn 사이 seenPageIds carryover
+- [x] empty proposedPlan 시 즉시 종료
+- [x] kill switch 매 replan turn 진입 시 재확인
+- [x] AgentTracePanel 의 turn 그룹핑 UI 정상
+- [ ] BullMQ job timeout 조정 (180s) 적용 여부 최종 확인
+
+2026-05-05 진행 메모:
+- worker loop 검증 보강: turn별 `mutatedPageIds` 기록을 누적 set 이 아닌 해당 turn delta 로 정리.
+- `checkAbortBeforeTurn` hook 추가 및 ingestion worker 에 `autonomy_paused_until` 재조회 연결.
+- dispatcher page 기반 cache invalidation 회귀 테스트 추가.
+- 검증: `pnpm --filter worker test`, `pnpm --filter worker typecheck`.
 
 ## 13. Open questions
 
