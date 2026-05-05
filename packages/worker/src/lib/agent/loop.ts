@@ -1,4 +1,5 @@
 import {
+  AGENT_LIMITS,
   extractIngestionText,
   ingestionAgentPlanSchema,
   estimateTokens,
@@ -901,6 +902,7 @@ async function executeMutations(input: {
     }
 
     let finalError = execution.error;
+    let repairAttempted = false;
     if (input.repairMutation) {
       const repaired = await input.repairMutation({
         index,
@@ -909,6 +911,7 @@ async function executeMutations(input: {
         error: execution.error,
       });
       if (repaired) {
+        repairAttempted = true;
         const repairedToolCall = mutationToToolCall(
           repaired,
           index,
@@ -985,6 +988,7 @@ async function executeMutations(input: {
         targetPageId: mutation.targetPageId,
         ok: false,
         status: "failed",
+        repairAttempted,
         fallbackDecisionId: failureDecisionId,
         error: {
           code: finalError.code,
@@ -992,6 +996,11 @@ async function executeMutations(input: {
           recoverable: finalError.recoverable,
         },
       });
+      // Count the human-review fallback as a "handled" decision so the outer
+      // loop can terminate cleanly when every plan item has produced a row in
+      // ingestion_decisions. The outcome itself stays ok:false / status:"failed"
+      // so UI counters (e.g. AgentTracePanel.isAppliedMutationResult) do not
+      // miscategorise it as auto-applied.
       succeeded += 1;
     } else {
       outcomes.push({
@@ -1001,7 +1010,7 @@ async function executeMutations(input: {
         targetPageId: mutation.targetPageId,
         ok: false,
         status: "failed",
-        repairAttempted: Boolean(input.repairMutation),
+        repairAttempted,
         repaired: false,
         error: {
           code: finalError.code,
@@ -1988,7 +1997,13 @@ export async function runIngestionAgentShadow(
     }
   }
 
-  const executedPlan = allTurns.flatMap((turn) => turn.plan.proposedPlan);
+  // Cap to MAX_TOTAL_MUTATIONS so the persisted plan always validates against
+  // ingestionAgentPlanSchema. The runtime per-turn caps already keep this in
+  // bounds, but pinning the slice here makes the invariant explicit and
+  // resilient to future limit changes.
+  const executedPlan = allTurns
+    .flatMap((turn) => turn.plan.proposedPlan)
+    .slice(0, AGENT_LIMITS.MAX_TOTAL_MUTATIONS);
   const executedOpenQuestions = [
     ...new Set([
       ...allTurns.flatMap((turn) => turn.plan.openQuestions),

@@ -93,6 +93,10 @@ function mutationResultStatus(step: AgentRunTraceStep): string | null {
   return typeof status === "string" ? status : null;
 }
 
+// Counts only auto-applied results — suggested / needs_review decisions and
+// the request_human_review fallback (ok:false, status:"failed") are excluded
+// so the "applied" badge reflects what actually changed pages, not what was
+// queued. agentRun.decisionsCount is the broader handled-decision counter.
 function isAppliedMutationResult(step: AgentRunTraceStep): boolean {
   return (
     step.type === "mutation_result" &&

@@ -432,6 +432,42 @@ export const ingestionAgentPlanSchema = z.object({
 });
 export type IngestionAgentPlan = z.infer<typeof ingestionAgentPlanSchema>;
 
+export const turnMutationOutcomeSchema = z.object({
+  index: z.number().int().min(0),
+  action: z.enum(INGESTION_ACTIONS).optional(),
+  tool: z.string().min(1).max(200).optional(),
+  targetPageId: uuidSchema.nullable(),
+  ok: z.boolean(),
+  status: z.string().min(1).max(64).optional(),
+  decisionId: uuidSchema.optional(),
+  mutatedPageIds: z.array(uuidSchema).optional(),
+  repairAttempted: z.boolean().optional(),
+  repaired: z.boolean().optional(),
+  fallbackDecisionId: uuidSchema.optional(),
+  error: z
+    .object({
+      code: z.string().min(1).max(200),
+      message: z.string().min(1).max(2_000),
+      recoverable: z.boolean(),
+    })
+    .optional(),
+});
+export type TurnMutationOutcome = z.infer<typeof turnMutationOutcomeSchema>;
+
+export const turnRecordSchema = z.object({
+  turnIndex: z.number().int().min(0),
+  plan: ingestionAgentPlanSchema,
+  skippedPlan: z.array(agentPlanMutationSchema).optional(),
+  execution: z.object({
+    succeeded: z.number().int().min(0),
+    failed: z.number().int().min(0),
+    attempted: z.number().int().min(0),
+  }),
+  outcomes: z.array(turnMutationOutcomeSchema).optional(),
+  mutatedPageIds: z.array(uuidSchema),
+});
+export type TurnRecord = z.infer<typeof turnRecordSchema>;
+
 export const agentRunTraceStepSchema = z.object({
   step: z.number().int().min(0),
   type: z.enum([

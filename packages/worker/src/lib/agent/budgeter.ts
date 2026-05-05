@@ -11,9 +11,11 @@ import {
   type AIBudgetMeta,
   type AIMessage,
   type AIProvider,
-  type AgentPlanMutation,
-  type IngestionAgentPlan,
+  type TurnMutationOutcome,
+  type TurnRecord,
 } from "@wekiflow/shared";
+
+export type { TurnMutationOutcome, TurnRecord };
 
 const COMPACTION_THRESHOLD_RATIO = 0.8;
 const COMPACTED_TOOL_PREFIX = "[COMPACTED_TOOL_RESULT]";
@@ -142,7 +144,9 @@ export function readAgentRuntimeLimits(
 }
 
 function providerFromEnv(value: string | undefined): AIProvider | null {
-  if (value === "openai" || value === "gemini") return value;
+  if (value === "openai" || value === "gemini" || value === "anthropic") {
+    return value;
+  }
   return null;
 }
 
@@ -152,6 +156,11 @@ function defaultModelForProvider(
 ): string {
   if (provider === "gemini") {
     return normalizeAIModelId(env["GEMINI_MODEL"] ?? AI_MODELS.GEMINI_DEFAULT);
+  }
+  if (provider === "anthropic") {
+    return normalizeAIModelId(
+      env["ANTHROPIC_MODEL"] ?? AI_MODELS.ANTHROPIC_DEFAULT,
+    );
   }
   return normalizeAIModelId(env["OPENAI_MODEL"] ?? AI_MODELS.OPENAI_DEFAULT);
 }
@@ -708,34 +717,6 @@ ${JSON.stringify(compaction.notices, null, 2)}`,
       slotAllocations,
     },
     compactionNotices: compaction.notices,
-  };
-}
-
-export interface TurnRecord {
-  turnIndex: number;
-  plan: IngestionAgentPlan;
-  skippedPlan?: IngestionAgentPlan["proposedPlan"];
-  execution: { succeeded: number; failed: number; attempted: number };
-  outcomes?: TurnMutationOutcome[];
-  mutatedPageIds: string[];
-}
-
-export interface TurnMutationOutcome {
-  index: number;
-  action?: AgentPlanMutation["action"];
-  tool?: AgentPlanMutation["tool"] | string;
-  targetPageId: string | null;
-  ok: boolean;
-  status?: string;
-  decisionId?: string;
-  mutatedPageIds?: string[];
-  repairAttempted?: boolean;
-  repaired?: boolean;
-  fallbackDecisionId?: string;
-  error?: {
-    code: string;
-    message: string;
-    recoverable: boolean;
   };
 }
 
