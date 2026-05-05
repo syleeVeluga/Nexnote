@@ -515,7 +515,7 @@ describe("runIngestionAgentShadow", () => {
     );
   });
 
-  it("aborts before a replan turn when the workspace pause hook fires", async () => {
+  it("returns partial before a replan turn when the workspace pause hook fires after mutations", async () => {
     const calls: unknown[] = [];
     const mutateTools: Record<string, AgentToolDefinition> = {
       append_to_page: {
@@ -565,10 +565,10 @@ describe("runIngestionAgentShadow", () => {
       tools: {},
       mutateTools,
       env: { ...process.env, AGENT_MAX_MUTATIONS_PER_TURN: "1" },
-      checkAbortBeforeTurn: async ({ turnIndex }) =>
+      checkAbortBeforeTurn: async ({ turnIndex, totalMutationsApplied }) =>
         turnIndex > 0
           ? {
-              status: "aborted",
+              status: totalMutationsApplied > 0 ? "partial" : "aborted",
               reason: "workspace_autonomy_paused",
               details: { pausedUntil: "2026-05-05T00:00:00.000Z" },
             }
@@ -579,7 +579,7 @@ describe("runIngestionAgentShadow", () => {
       },
     });
 
-    assert.equal(result.status, "aborted");
+    assert.equal(result.status, "partial");
     assert.equal(result.decisionsCount, 1);
     assert.equal(calls.length, 1);
     assert.equal(adapter.requests.length, 2);

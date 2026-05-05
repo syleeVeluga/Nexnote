@@ -699,7 +699,8 @@ export function createIngestionAgentWorker(): Worker {
               freshWorkspace.autonomyPausedUntil > new Date()
             ) {
               return {
-                status: "aborted",
+                status:
+                  request.totalMutationsApplied > 0 ? "partial" : "aborted",
                 reason: "workspace_autonomy_paused",
                 details: {
                   pausedUntil: freshWorkspace.autonomyPausedUntil.toISOString(),
