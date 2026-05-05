@@ -10,7 +10,10 @@ import { useTranslation } from "react-i18next";
 import ForceGraph2D from "react-force-graph-2d";
 import type { NodeObject, LinkObject } from "react-force-graph-2d";
 import type { GraphNode, GraphEdge, GraphData } from "@wekiflow/shared";
-import { pages as pagesApi } from "../../lib/api-client.js";
+import {
+  folders as foldersApi,
+  pages as pagesApi,
+} from "../../lib/api-client.js";
 import { resolveSupportedLocale } from "../../i18n/locale.js";
 import { NodeInspector } from "./NodeInspector.js";
 import { getNodeColor } from "./graph-colors.js";
@@ -23,12 +26,21 @@ import {
   type GraphViewFilters,
 } from "./graph-helpers.js";
 
-interface GraphPanelProps {
-  workspaceId: string;
-  pageId: string;
-  onClose: () => void;
-  onNavigateToPage: (pageId: string) => void;
-}
+type GraphPanelProps =
+  | {
+      mode: "page";
+      workspaceId: string;
+      pageId: string;
+      onClose: () => void;
+      onNavigateToPage: (pageId: string) => void;
+    }
+  | {
+      mode: "folder";
+      workspaceId: string;
+      folderId: string;
+      onClose: () => void;
+      onNavigateToPage: (pageId: string) => void;
+    };
 
 const DEFAULT_PANEL_WIDTH = 760;
 const MIN_PANEL_WIDTH = 280;
@@ -78,12 +90,8 @@ function getEntityChipStyle(type: string): EntityChipStyle {
   };
 }
 
-export function GraphPanel({
-  workspaceId,
-  pageId,
-  onClose,
-  onNavigateToPage,
-}: GraphPanelProps) {
+export function GraphPanel(props: GraphPanelProps) {
+  const { workspaceId, onClose, onNavigateToPage } = props;
   const { t, i18n } = useTranslation(["editor", "common"]);
   const locale = resolveSupportedLocale(i18n.resolvedLanguage ?? i18n.language);
   const [depth, setDepth] = useState<1 | 2>(1);
@@ -105,6 +113,8 @@ export function GraphPanel({
     null,
   );
   const filtersInitializedRef = useRef(false);
+  const targetId = props.mode === "page" ? props.pageId : props.folderId;
+  const currentPageId = props.mode === "page" ? props.pageId : null;
 
   useEffect(() => {
     filtersInitializedRef.current = false;
@@ -112,7 +122,7 @@ export function GraphPanel({
     setHoveredEntityId(null);
     setActiveEntityTypes([]);
     setActivePredicates([]);
-  }, [workspaceId, pageId]);
+  }, [workspaceId, props.mode, targetId]);
 
   const handleResizePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -175,20 +185,25 @@ export function GraphPanel({
   useEffect(() => {
     setLoading(true);
     setError(null);
-    pagesApi
-      .graph(workspaceId, pageId, {
-        depth,
-        limit: depth === 1 ? 400 : 800,
-        minConfidence: MIN_GRAPH_CONFIDENCE,
-        locale,
-      })
+    const opts = {
+      depth,
+      limit: depth === 1 ? 400 : 800,
+      minConfidence: MIN_GRAPH_CONFIDENCE,
+      locale,
+    };
+    const fetcher =
+      props.mode === "page"
+        ? () => pagesApi.graph(workspaceId, props.pageId, opts)
+        : () => foldersApi.graph(workspaceId, props.folderId, opts);
+
+    fetcher()
       .then((res) => setGraphData(res))
       .catch((err) => {
         setError(err instanceof Error ? err.message : t("noGraphData"));
         setGraphData(null);
       })
       .finally(() => setLoading(false));
-  }, [workspaceId, pageId, depth, locale, t]);
+  }, [workspaceId, props.mode, targetId, depth, locale, t]);
 
   const filterCandidates = useMemo(
     () =>
@@ -602,7 +617,7 @@ export function GraphPanel({
         <NodeInspector
           workspaceId={workspaceId}
           entityId={selectedEntityId}
-          currentPageId={pageId}
+          currentPageId={currentPageId}
           graphData={visibleGraph}
           onClose={() => setSelectedEntityId(null)}
           onSelectEntity={setSelectedEntityId}

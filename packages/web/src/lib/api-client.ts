@@ -282,6 +282,13 @@ export interface Folder {
   updatedAt: string;
 }
 
+export interface GraphQueryOpts {
+  depth?: number;
+  limit?: number;
+  minConfidence?: number;
+  locale?: "ko" | "en";
+}
+
 export const folders = {
   list(
     workspaceId: string,
@@ -322,6 +329,17 @@ export const folders = {
     return request<void>(`/workspaces/${workspaceId}/folders/${folderId}`, {
       method: "DELETE",
     });
+  },
+  graph(workspaceId: string, folderId: string, params?: GraphQueryOpts) {
+    const q = buildQuery({
+      depth: params?.depth,
+      limit: params?.limit,
+      minConfidence: params?.minConfidence,
+      locale: params?.locale,
+    });
+    return request<GraphData>(
+      `/workspaces/${workspaceId}/folders/${folderId}/graph${q}`,
+    );
   },
 };
 
@@ -675,12 +693,7 @@ export const pages = {
   graph(
     workspaceId: string,
     pageId: string,
-    params?: {
-      depth?: number;
-      limit?: number;
-      minConfidence?: number;
-      locale?: "ko" | "en";
-    },
+    params?: GraphQueryOpts,
   ) {
     const q = buildQuery({
       depth: params?.depth,

@@ -19,13 +19,23 @@ export interface GraphEdge {
 export interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
-  meta: {
-    pageId: string;
-    depth: number;
-    totalNodes: number;
-    totalEdges: number;
-    truncated: boolean;
-  };
+  meta:
+    | {
+        scope: "page";
+        pageId: string;
+        depth: number;
+        totalNodes: number;
+        totalEdges: number;
+        truncated: boolean;
+      }
+    | {
+        scope: "folder";
+        folderId: string;
+        depth: number;
+        totalNodes: number;
+        totalEdges: number;
+        truncated: boolean;
+      };
 }
 
 export interface EntityProvenanceExcerpt {
