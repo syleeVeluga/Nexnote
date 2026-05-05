@@ -545,12 +545,16 @@ export function GraphPanel(props: GraphPanelProps) {
           <button
             className={`depth-btn${depth === 1 ? " active" : ""}`}
             onClick={() => handleDepthChange(1)}
+            aria-pressed={depth === 1}
+            aria-label={`${t("graphDepth")} 1`}
           >
             1
           </button>
           <button
             className={`depth-btn${depth === 2 ? " active" : ""}`}
             onClick={() => handleDepthChange(2)}
+            aria-pressed={depth === 2}
+            aria-label={`${t("graphDepth")} 2`}
           >
             2
           </button>
@@ -560,6 +564,8 @@ export function GraphPanel(props: GraphPanelProps) {
               key={limit}
               className={`depth-btn${nodeLimit === limit ? " active" : ""}`}
               onClick={() => handleNodeLimitChange(limit)}
+              aria-pressed={nodeLimit === limit}
+              aria-label={`${t("graphNodeLimit")} ${limit}`}
             >
               {limit}
             </button>

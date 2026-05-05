@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { forwardRef, useImperativeHandle } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GraphData } from "@wekiflow/shared";
 import { GraphPanel } from "./GraphPanel.js";
@@ -60,30 +61,55 @@ vi.mock("../../lib/api-client.js", () => ({
   },
 }));
 
-vi.mock("react-force-graph-2d", () => ({
-  default: ({
-    graphData,
-    onNodeClick,
-    onNodeHover,
-  }: {
-    graphData: { nodes: Array<{ id: string; label: string }> };
-    onNodeClick?: (node: { id: string; label: string }) => void;
-    onNodeHover?: (node: { id: string; label: string } | null) => void;
-  }) => (
-    <div data-testid="force-graph-2d">
-      {graphData.nodes.map((node) => (
-        <button
-          key={node.id}
-          onClick={() => onNodeClick?.(node)}
-          onMouseEnter={() => onNodeHover?.(node)}
-          onMouseLeave={() => onNodeHover?.(null)}
-        >
-          {node.label}
-        </button>
-      ))}
-    </div>
-  ),
-}));
+vi.mock("react-force-graph-2d", () => {
+  interface ForceGraphMockHandle {
+    d3Force: (name: string) =>
+      | {
+          strength?: (value: number) => void;
+          distance?: (value: number) => void;
+        }
+      | undefined;
+    d3ReheatSimulation: () => void;
+  }
+
+  const ForceGraphMock = forwardRef<
+    ForceGraphMockHandle,
+    {
+      graphData: { nodes: Array<{ id: string; label: string }> };
+      onNodeClick?: (node: { id: string; label: string }) => void;
+      onNodeHover?: (node: { id: string; label: string } | null) => void;
+    }
+  >(({ graphData, onNodeClick, onNodeHover }, ref) => {
+    useImperativeHandle(ref, () => ({
+      d3Force: (name: string) =>
+        name === "charge"
+          ? { strength: vi.fn() }
+          : name === "link"
+            ? { distance: vi.fn() }
+            : undefined,
+      d3ReheatSimulation: vi.fn(),
+    }));
+
+    return (
+      <div data-testid="force-graph-2d">
+        {graphData.nodes.map((node) => (
+          <button
+            key={node.id}
+            onClick={() => onNodeClick?.(node)}
+            onMouseEnter={() => onNodeHover?.(node)}
+            onMouseLeave={() => onNodeHover?.(null)}
+          >
+            {node.label}
+          </button>
+        ))}
+      </div>
+    );
+  });
+
+  ForceGraphMock.displayName = "ForceGraphMock";
+
+  return { default: ForceGraphMock };
+});
 
 
 vi.mock("./NodeInspector.js", () => ({
@@ -189,7 +215,16 @@ describe("GraphPanel", () => {
       }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "2" }));
+    expect(
+      screen.getByRole("button", { name: "Traversal Range 1" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    const depthTwoButton = screen.getByRole("button", {
+      name: "Traversal Range 2",
+    });
+    expect(depthTwoButton).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(depthTwoButton);
 
     await waitFor(() =>
       expect(pageGraphMock).toHaveBeenLastCalledWith("workspace-1", "page-1", {
@@ -199,6 +234,7 @@ describe("GraphPanel", () => {
         locale: "ko",
       }),
     );
+    expect(depthTwoButton).toHaveAttribute("aria-pressed", "true");
 
     expect(
       screen.queryByRole("slider", { name: "Relationship Confidence" }),
@@ -385,7 +421,15 @@ describe("GraphPanel", () => {
 
     await screen.findByTestId("force-graph-2d");
 
-    fireEvent.click(screen.getByRole("button", { name: "100" }));
+    expect(screen.getByRole("button", { name: "Node limit 500" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    const limitButton = screen.getByRole("button", { name: "Node limit 100" });
+    expect(limitButton).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(limitButton);
 
     await waitFor(() =>
       expect(pageGraphMock).toHaveBeenLastCalledWith("workspace-1", "page-1", {
@@ -395,6 +439,7 @@ describe("GraphPanel", () => {
         locale: "ko",
       }),
     );
+    expect(limitButton).toHaveAttribute("aria-pressed", "true");
   });
 
   it("refetches folder graph data with the selected node limit", async () => {
@@ -410,7 +455,7 @@ describe("GraphPanel", () => {
 
     await screen.findByTestId("force-graph-2d");
 
-    fireEvent.click(screen.getByRole("button", { name: "200" }));
+    fireEvent.click(screen.getByRole("button", { name: "Node limit 200" }));
 
     await waitFor(() =>
       expect(folderGraphMock).toHaveBeenLastCalledWith(
