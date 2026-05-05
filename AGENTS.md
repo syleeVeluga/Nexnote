@@ -184,7 +184,7 @@ Rollout is workspace-scoped via `workspaces.ingestion_mode = classic | shadow | 
 The legacy single-shot classifier ([`packages/worker/src/workers/route-classifier.ts`](packages/worker/src/workers/route-classifier.ts)) still owns decisions in `classic`/`shadow` modes. Full agent design in [`docs/archive/v1/ingestion-agent-plan.md`](docs/archive/v1/ingestion-agent-plan.md).
 
 ### Scheduled Agent
-Scheduled Agent reuses the ingestion-agent loop for wiki maintenance without an external payload. Admins enable it in `/settings/ai`, manage cron tasks and recent runs in `/settings/scheduled-agent`, or trigger a folder-scoped run from the folder page. Scheduled mutations are forced to `suggested` unless `workspaces.scheduled_auto_apply=true`. Runs are traceable through `scheduled_runs`, `agent_runs`, an internal ingestion row, and `ingestion_decisions.scheduled_run_id`. See [`docs/archive/v1/scheduled-agent-plan.md`](docs/archive/v1/scheduled-agent-plan.md).
+Scheduled Agent reuses the ingestion-agent loop for both recurring wiki maintenance and user-directed selected-page editing without an external payload. A user can select pages/folders and ask the agent to write a new Markdown document, edit an existing page, append meeting notes, consolidate policy fragments, move/rename pages, or merge duplicates. In this mode the user instruction is the primary task; selected pages may be source material, edit targets, or both. Small selected scopes are prefetched with `read_page(format="markdown")` before planning, and selected source pages must be preserved unless deletion/archive/destructive merge is explicitly requested. Admins enable it in `/settings/ai`, manage cron tasks and recent runs in `/settings/scheduled-agent`, or trigger a folder-scoped run from the folder page. Runs are traceable through `scheduled_runs`, `agent_runs`, an internal ingestion row, and `ingestion_decisions.scheduled_run_id`. See [`docs/architecture/USER_DIRECTED_AGENT_WORKFLOW.md`](docs/architecture/USER_DIRECTED_AGENT_WORKFLOW.md) and [`docs/archive/v1/scheduled-agent-plan.md`](docs/archive/v1/scheduled-agent-plan.md).
 
 ### Editor round-trip
 Block editor (Tiptap/ProseMirror) and Markdown source mode must represent the same document. The canonical store is Markdown. Custom blocks that can't be expressed in standard Markdown use a documented directive syntax. **Round-trip regression tests are essential.**
@@ -201,11 +201,11 @@ Publish creates an immutable snapshot with rendered HTML, TOC JSON, internal lin
 ## AI Output Contracts
 
 The ingestion agent uses a normalized **Tool-Call** contract:
-- **Read tools**: `search_pages` / `read_page` / `list_folder` / `find_related_entities` / `list_recent_pages`
-- **Mutate tools**: `replace_in_page` / `edit_page_blocks` / `edit_page_section` / `update_page` / `append_to_page` / `create_page` / `noop` / `request_human_review`
+- **Read tools**: `search_pages` / `read_page` / `list_folder` / `find_related_entities` / `list_recent_pages` / `read_page_metadata` / `find_backlinks` / `read_revision_history` / `read_revision`
+- **Mutate tools**: `replace_in_page` / `edit_page_blocks` / `edit_page_section` / `update_page` / `append_to_page` / `create_page` / `move_page` / `rename_page` / `create_folder` / `delete_page` / `merge_pages` / `rollback_to_revision` / `noop` / `request_human_review`
 - Explore → plan → execute trace persisted in `agent_runs`. Full schemas in [`docs/archive/v1/ingestion-agent-plan.md`](docs/archive/v1/ingestion-agent-plan.md).
 
-> v2 sprints add `rollback_to_revision` (S4), `move_page` / `rename_page` / `create_folder` (S2), and `read_page_metadata` / `find_backlinks` / `read_revision_history` / `read_revision` (S3) to this surface. The `INGESTION_ACTIONS` enum is intentionally **not** extended; new tool names are tracked separately and cascade through parity gate, classifier, audit renderer, trace UI, and i18n. See [`docs/archive/v2/`](docs/archive/v2/).
+> The `INGESTION_ACTIONS` enum is intentionally **not** extended for newer tool names; tool names are tracked separately and cascade through parity gate, classifier, audit renderer, trace UI, and i18n. Historical v2 design notes are in [`docs/archive/v2/`](docs/archive/v2/).
 
 The classic single-shot path (alive in `classic`/`shadow` modes) emits three structured contracts defined in PRD section 13:
 - **Route Decision**: `{ action, targetPageId, confidence, reason, proposedTitle }`
@@ -217,6 +217,8 @@ The classic single-shot path (alive in `classic`/`shadow` modes) emits three str
 The knowledge-refresh loop is closed end-to-end. Ingestion-agent and Scheduled Agent shipped behind a server-side parity gate (`workspaces.ingestion_mode = classic | shadow | agent`). Review queue, ingestion drill-down, activity feed, freshness badges, conflict downgrade (concurrent human-edit guard), and graph provenance are all live.
 
 **Recent Completion (v2 Agent Autonomy):** Full agent autonomy on top of the existing loop (formerly the v2 RFC bundle) is now fully implemented and active in the system. The agent operates with robust safety nets, multi-turn replanning, rollback capabilities, and extended tools suite (`rollback_to_revision`, `move_page`, `rename_page`, `create_folder`, etc.). Historical RFCs and design discussions for these features are preserved in the `docs/archive/` folder.
+
+**Recent Direction (user-directed knowledge editing):** Scheduled/manual agent runs now treat selected pages as source material, edit targets, or both, and the user instruction as the primary task. This makes "write a new page from these 9 pages", "merge these meeting notes into a policy summary", and similar knowledge-management requests first-class behavior rather than incidental maintenance. See [`docs/architecture/USER_DIRECTED_AGENT_WORKFLOW.md`](docs/architecture/USER_DIRECTED_AGENT_WORKFLOW.md).
 
 **Active direction:**
 Future improvements, missing features, and new goals are tracked primarily in [`docs/backlog/TASKS.md`](docs/backlog/TASKS.md). When starting a new effort, refer to the architecture documentation (`docs/architecture/`) to understand existing constraints, and document any substantial system changes with a new RFC in the `docs/architecture/` or `docs/product/` directories appropriately.

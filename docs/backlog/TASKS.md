@@ -25,9 +25,11 @@ Tasks are grouped by **loop stage**, not by package. Within each stage, **[HIGH]
 >
 > **Ingestion agent through AGENT-8 start landed (2026-04-29 → 2026-04-30):** AGENT-1 (gateway tool-calling normalization), AGENT-2 (`agent_runs` schema + `workspaces.ingestion_mode`), AGENT-3 (read-only dispatcher), AGENT-4 (shadow loop + budgeter), **AGENT-4.5** (parity SQL view + diagnostics API + AISettingsPage dashboard, daily token cap enforcement, dedupe system-message hint, Redis pub/sub SSE live trace, `workspaces.agent_instructions` + system prompt prepend), **AGENT-5** (mutate tier 1·2·3 direct revisions + update_page/append_to_page fallback + create_page/noop/request_human_review, oldest-first 80% context compaction with cache invalidation, mutate self-correction repair turn), **AGENT-6** (`/settings/ai` mode toggle + workspace-scoped model picker + token cap + parity dashboard with server-side promotion gate), **AGENT-7** (IngestionDetailPage fan-out decisions, AgentTracePanel post-hoc/live trace, ReviewQueuePage sibling badge, Activity feed `agent_run_completed` row), and **AGENT-8 start** (`read_page` large-markdown auto blocks fallback, agent-mode execute smoke coverage, model diagnostic strip, BullMQ-safe agent job IDs). Production 'agent' promotion is now mainly gated by parity observation / staged rollout; global classic retirement still requires 2 weeks of clean `agent` operation.
 >
-> **Scheduled Agent UI/backend landed (observed 2026-05-01):** migration `0019_scheduled_agent`, scheduled task/run schema, scheduled-agent queue/worker, manual `POST /workspaces/:id/reorganize-runs`, cron task CRUD under `/workspaces/:id/scheduled-tasks`, BullMQ scheduler registration/removal, `/settings/ai` Scheduled Agent controls, `/settings/scheduled-agent` task/run UI, folder-level reorganize trigger, and trace drawer reuse of `AgentTracePanel` are in the codebase. The old plan was rewritten as current status + remaining work in [`docs/scheduled-agent-plan.md`](scheduled-agent-plan.md).
+> **Scheduled Agent UI/backend landed (observed 2026-05-01):** migration `0019_scheduled_agent`, scheduled task/run schema, scheduled-agent queue/worker, manual `POST /workspaces/:id/reorganize-runs`, cron task CRUD under `/workspaces/:id/scheduled-tasks`, BullMQ scheduler registration/removal, `/settings/ai` Scheduled Agent controls, `/settings/scheduled-agent` task/run UI, folder-level reorganize trigger, and trace drawer reuse of `AgentTracePanel` are in the codebase. Historical plan: [`docs/archive/v1/scheduled-agent-plan.md`](../archive/v1/scheduled-agent-plan.md).
 >
 > **v2 agent tools expansion landed (verified 2026-05-05):** AUTO-2 reorganize tools (`move_page`, `rename_page`, `create_folder`) and AUTO-3 read intelligence tools (`read_page_metadata`, `find_backlinks`, `read_revision_history`, `read_revision`) are present in shared schemas, worker dispatcher/tooling, prompts, trace/activity surfaces, and tests. Verification baseline: worker/api/web tests, full typecheck, and web production build. RFC: [`docs/v2/agent-tools-expand-plan.md`](v2/agent-tools-expand-plan.md).
+>
+> **User-directed agent editing landed (verified 2026-05-05):** manual/folder Scheduled Agent runs now treat selected pages as source material, edit targets, or both. The worker frames these runs as user-directed wiki edit requests, prefetches small selected scopes with `read_page(format="markdown")` before planning, preserves source pages unless destructive change is explicit, and supports new-page synthesis from selected notes/policies/meeting records/data documents. Architecture note: [`docs/architecture/USER_DIRECTED_AGENT_WORKFLOW.md`](../architecture/USER_DIRECTED_AGENT_WORKFLOW.md).
 
 ---
 
@@ -128,7 +130,7 @@ Promote one workspace at a time after parity ≥ target. Retire `route-classifie
 
 ## Stage ②/③ scheduled maintenance — Scheduled Agent
 
-Scheduled Agent runs the existing ingestion-agent loop against selected wiki pages without an external payload. It is documented in [`docs/scheduled-agent-plan.md`](scheduled-agent-plan.md), which now reflects the current code rather than the older backend-first plan.
+Scheduled Agent runs the existing ingestion-agent loop against selected wiki pages without an external payload. It now covers two related surfaces: recurring/scheduled maintenance and user-directed wiki edit runs. For user-directed runs, selected pages may be source material, edit targets, or both; the user instruction is the primary task; small selected scopes are prefetched before planning; and source pages are preserved unless destructive change is explicit. Architecture note: [`docs/architecture/USER_DIRECTED_AGENT_WORKFLOW.md`](../architecture/USER_DIRECTED_AGENT_WORKFLOW.md).
 
 ### SCHED-1 · [DONE · 2026-05-01] Scheduled Agent v1 product surface
 
@@ -137,6 +139,7 @@ Scheduled Agent runs the existing ingestion-agent loop against selected wiki pag
 - Worker: `scheduled-agent` creates internal ingestion/provenance, creates an `agent_runs` trace, calls `runIngestionAgentShadow()` in `mode="agent"` with `origin="scheduled"`, stamps scheduled decisions, records token totals and activity.
 - UI: `/settings/ai` Scheduled Agent controls, `/settings/scheduled-agent` task/run page, manual run modal, task modal, trace drawer, sidebar/breadcrumb navigation, folder-level reorganize trigger.
 - Policy: scheduled mutations are forced to `suggested` unless `scheduled_auto_apply=true`.
+- User-directed behavior: manual/folder runs can now write new pages from selected source pages, edit existing pages, append notes, or consolidate material while preserving source pages unless the user explicitly asks for destructive changes.
 
 ### SCHED-2 · [DONE · 2026-05-01] Review Queue origin surfacing
 
