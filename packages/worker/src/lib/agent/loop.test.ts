@@ -20,6 +20,7 @@ import {
 
 const fakeDb = {} as AgentDb;
 const pageId = "11111111-1111-4111-8111-111111111111";
+const pageId2 = "22222222-2222-4222-8222-222222222222";
 
 function appendMutation(index: number) {
   return {
@@ -939,11 +940,91 @@ describe("runIngestionAgentShadow", () => {
     assert.equal(sawSeedPage, true);
     assert.match(
       adapter.requests[0].messages[0].content,
-      /Scheduled reorganize mode/,
+      /Scheduled user-directed wiki edit mode/,
     );
     assert.match(
       adapter.requests[0].messages[0].content,
       /Remove duplicate sections/,
+    );
+    assert.match(
+      adapter.requests[0].messages[0].content,
+      /Treat the user instruction as the primary task/,
+    );
+  });
+
+  it("prefetches selected scheduled pages before planning", async () => {
+    const readCalls: string[] = [];
+    const tools: Record<string, AgentToolDefinition> = {
+      read_page: {
+        name: "read_page",
+        description: "test read page",
+        schema: agentReadToolInputSchemas.read_page,
+        async execute(_ctx, input) {
+          const parsed = input as { pageId: string; format?: string };
+          readCalls.push(parsed.pageId);
+          return {
+            data: {
+              page: { id: parsed.pageId, title: `Page ${readCalls.length}` },
+              format: parsed.format ?? "markdown",
+              contentMd: `# Page ${readCalls.length}\n\nFull body ${parsed.pageId}.`,
+            },
+            observedPageRevisions: [
+              {
+                pageId: parsed.pageId,
+                revisionId: `revision-${readCalls.length}`,
+              },
+            ],
+          };
+        },
+      },
+    };
+    const adapter = new SequenceAdapter([
+      response({ content: "I have enough scheduled context." }),
+      response({
+        content: JSON.stringify({
+          summary: "Create a consolidated page from the selected pages.",
+          proposedPlan: [
+            {
+              action: "noop",
+              targetPageId: null,
+              confidence: 1,
+              reason: "Test stops after planning.",
+              evidence: [],
+            },
+          ],
+          openQuestions: [],
+        }),
+      }),
+    ]);
+
+    await runIngestionAgentShadow({
+      db: fakeDb,
+      workspaceId: "workspace-1",
+      origin: "scheduled",
+      seedPageIds: [pageId, pageId2],
+      instruction: "Create a new page containing all selected page contents.",
+      ingestion: {
+        id: "ingestion-1",
+        sourceName: "scheduled-agent",
+        contentType: "text/markdown",
+        titleHint: "Scheduled wiki reorganize",
+        normalizedText: `Selected page IDs: ${pageId}, ${pageId2}`,
+        rawPayload: {},
+      },
+      adapter,
+      baseProvider: "openai",
+      baseModel: "gpt-5.4",
+      tools,
+    });
+
+    assert.deepEqual(readCalls, [pageId, pageId2]);
+    const planPrompt = adapter.requests[1]?.messages[1]?.content ?? "";
+    assert.match(planPrompt, /Full body 11111111-1111-4111-8111-111111111111/);
+    assert.match(planPrompt, /Full body 22222222-2222-4222-8222-222222222222/);
+    assert.match(adapter.requests[1]?.messages[0].content ?? "", /drafting new docs/);
+    assert.match(
+      adapter.requests[1]?.messages[0].content ?? "",
+      /Preserve selected source pages/,
     );
   });
 

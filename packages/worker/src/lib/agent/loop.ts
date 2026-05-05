@@ -39,6 +39,7 @@ import {
 } from "./budgeter.js";
 import type {
   AgentDb,
+  AgentDispatcher,
   AgentRunState,
   AgentRunTraceStep,
   AgentToolDefinition,
@@ -50,6 +51,7 @@ import { createAgentRunState } from "./types.js";
 const PROMPT_VERSION = "ingestion-agent-v1";
 const EXPLORE_OUTPUT_RESERVE = Math.min(4_096, MODE_OUTPUT_RESERVE.agent_plan);
 const INGESTION_ACTION_SET = new Set<string>(INGESTION_ACTIONS);
+const DEFAULT_SCHEDULED_SEED_READ_LIMIT = 20;
 
 const EXPLORE_SYSTEM_PROMPT = `You are a read-only exploration agent for WekiFlow's Markdown knowledge wiki.
 Investigate the incoming ingestion with the available read-only tools, then stop calling tools when you have enough context to plan possible wiki updates.
@@ -65,8 +67,9 @@ Pick the lightest read tool for the question:
 - find_backlinks before proposing delete_page or merge_pages — evaluate dependencies first.
 - read_revision_history + read_revision when self-correcting (e.g. before rollback_to_revision). Read history first so the revision is observed for this run.`;
 
-const PLAN_SYSTEM_PROMPT = `You are planning wiki maintenance mutations for WekiFlow.
-Use the ingestion and read-only context to propose exact wiki changes.
+const PLAN_SYSTEM_PROMPT = `You are planning wiki mutations for WekiFlow, a Markdown knowledge manager.
+Use the ingestion, selected source pages, user instruction, and read-only context to propose exact wiki changes.
+This agent supports user-directed document work, not only autonomous maintenance: drafting new pages from provided material, editing existing notes, appending meeting minutes, consolidating policy pages, moving or renaming pages, and merging duplicates.
 Prefer the narrowest safe mutate tool to creating duplicate pages. Keep confidence calibrated.
 Honor workspace operator instructions about where knowledge belongs, source-specific routing, aliases, and forbidden create/update paths.
 If context is insufficient to avoid a duplicate or unsafe rewrite, return request_human_review instead of create_page. Use noop only when no wiki change is needed; use request_human_review when the user asked for a change but you cannot execute it safely.
@@ -100,6 +103,8 @@ Tool argument contracts:
 Use update_page only when a narrower tool cannot represent the change. Never invent page IDs or block IDs.
 When restructuring is needed, prefer move_page/rename_page over recreating pages. Use create_folder before move_page when the target folder does not exist yet.
 When the user explicitly asks for a new page, use create_page after ruling out an existing duplicate target; do not downgrade the request merely because an existing page could also hold the content.
+When the user asks to write a document from selected source pages or provided data, synthesize the requested Markdown page from those sources instead of treating the task as cleanup.
+Preserve selected source pages unless the user explicitly asks to delete, archive, or destructively merge them. "Copy", "consolidate into a new page", "write a new document", and "move contents into a new page while keeping originals" should use create_page without deleting the sources.
 Use delete_page and merge_pages only for scheduled wiki reorganization or autonomous workspace mode. If neither mode applies, request human review instead.
 In autonomous workspace mode, delete_page and merge_pages may be used for high-confidence ingestion cleanup when the target pages were observed in this run. In autonomous_shadow mode, plan the same tool you would use autonomously, but it will be queued for human review.
 Use rollback_to_revision only after the target page and rollback revision were observed and the rollback restores the page from a recent autonomous error. Prefer request_human_review if the target revision appears to be recent human-authored work.
@@ -322,12 +327,17 @@ function scheduledPromptPrefix(input: RunIngestionAgentShadowInput): string {
   if (input.origin !== "scheduled") return "";
   const seedPageIds = [...new Set(input.seedPageIds ?? [])];
   const lines = [
-    "Scheduled reorganize mode:",
-    "- This is not an external fact ingestion. It is a request to reorganize and improve existing wiki pages.",
-    "- Prefer replace_in_page, edit_page_blocks, or edit_page_section over full rewrites.",
+    "Scheduled user-directed wiki edit mode:",
+    "- This is not an external fact ingestion. It is a user-requested wiki editing run over selected pages and instructions.",
+    "- Treat the user instruction as the primary task. Do not narrow it to cleanup/reorganization unless the user asked for that.",
+    "- Selected pages can be source material, edit targets, or both; infer their role from the user instruction.",
+    "- Supported tasks include drafting new docs from selected pages, rewriting notes, appending meeting minutes, consolidating policy pages, moving/renaming pages, creating folders/pages, and merging duplicates.",
+    "- Prefer replace_in_page, edit_page_blocks, or edit_page_section over full rewrites when the user asked to edit an existing page.",
     "- Use create_page when the user explicitly asks for a new page, after ruling out an existing duplicate target.",
     "- Otherwise, use create_page only as a last resort when the target knowledge cannot fit into existing selected pages.",
-    "- If the task needs exact source content, call read_page on the selected pages before concluding the context is insufficient.",
+    "- If the user asks to write a new document from selected pages, synthesize a complete Markdown page from those source pages.",
+    "- Preserve selected source pages unless the user explicitly asks to delete, archive, or destructively merge them.",
+    "- Selected pages are prefetched before planning when the scope is small; if any needed source content is still missing, call read_page before concluding the context is insufficient.",
     input.allowDestructiveScheduledAgent
       ? "- Use delete_page when a selected page is fully redundant with another existing page."
       : "- Destructive tools are disabled for this workspace; do not plan delete_page.",
@@ -601,6 +611,38 @@ function readPageFallbackNotice(result: unknown): string | null {
   );
 }
 
+function nonNegativeIntEnv(
+  env: NodeJS.ProcessEnv | undefined,
+  key: string,
+  fallback: number,
+): number {
+  const raw = env?.[key];
+  if (raw == null || raw.trim().length === 0) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function readPageIdFromToolCall(toolCall: NormalizedToolCall | undefined): {
+  pageId: string | null;
+  exactRead: boolean;
+} {
+  if (!toolCall || toolCall.name !== "read_page") {
+    return { pageId: null, exactRead: false };
+  }
+  const args = toolCall.arguments;
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    return { pageId: null, exactRead: false };
+  }
+  const record = args as Record<string, unknown>;
+  const pageId = typeof record["pageId"] === "string" ? record["pageId"] : null;
+  const format = record["format"];
+  return {
+    pageId,
+    exactRead:
+      format === undefined || format === "markdown" || format === "blocks",
+  };
+}
+
 function normalizeRawPlan(raw: unknown): unknown {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return raw;
@@ -815,6 +857,69 @@ function resultStringField(result: unknown, field: string): string | undefined {
   if (!result || typeof result !== "object") return undefined;
   const value = (result as Record<string, unknown>)[field];
   return typeof value === "string" ? value : undefined;
+}
+
+async function prefetchScheduledSeedPages(input: {
+  runInput: RunIngestionAgentShadowInput;
+  dispatcher: AgentDispatcher;
+  seedPageIds: string[] | undefined;
+  readPageIds: Set<string>;
+  toolContextBlocks: AgentContextBlock[];
+  steps: AgentRunTraceStep[];
+  maxCallsPerTurn: number;
+}): Promise<void> {
+  if (input.runInput.origin !== "scheduled") return;
+  const readLimit = nonNegativeIntEnv(
+    input.runInput.env,
+    "AGENT_SCHEDULED_SEED_READ_LIMIT",
+    DEFAULT_SCHEDULED_SEED_READ_LIMIT,
+  );
+  if (readLimit <= 0) return;
+
+  const pageIds = [...new Set(input.seedPageIds ?? [])]
+    .filter((pageId) => !input.readPageIds.has(pageId))
+    .slice(0, readLimit);
+  if (pageIds.length === 0) return;
+
+  traceStep(input.runInput, input.steps, "tool_result", {
+    name: "read_page",
+    source: "scheduled_seed_prefetch",
+    plannedCalls: pageIds.length,
+    seedPageCount: new Set(input.seedPageIds ?? []).size,
+    limit: readLimit,
+  });
+
+  const chunkSize = Math.max(1, input.maxCallsPerTurn);
+  for (let offset = 0; offset < pageIds.length; offset += chunkSize) {
+    const toolCalls = pageIds.slice(offset, offset + chunkSize).map(
+      (pageId, index): NormalizedToolCall => ({
+        id: `scheduled_seed_read_${offset + index}`,
+        name: "read_page",
+        arguments: { pageId, format: "markdown" },
+      }),
+    );
+    const executions = await input.dispatcher.dispatchToolCalls(toolCalls);
+    for (const execution of executions) {
+      traceStep(input.runInput, input.steps, "tool_result", {
+        name: execution.name,
+        toolCallId: execution.toolCallId,
+        source: "scheduled_seed_prefetch",
+        ok: execution.ok,
+        deduped: execution.ok ? execution.deduped : false,
+        result: execution.ok ? compactJson(execution.result, 4_000) : undefined,
+        error: execution.ok ? undefined : execution.error,
+      });
+      if (!execution.ok) continue;
+      const toolCall = toolCalls.find((call) => call.id === execution.toolCallId);
+      const read = readPageIdFromToolCall(toolCall);
+      if (read.pageId && read.exactRead) input.readPageIds.add(read.pageId);
+      const block = executionToContextBlock(
+        execution,
+        input.toolContextBlocks.length,
+      );
+      if (block) input.toolContextBlocks.push(block);
+    }
+  }
 }
 
 async function executeMutations(input: {
@@ -1292,6 +1397,7 @@ export async function runIngestionAgentShadow(
     { role: "user", content: packedExplore.text },
   ];
   const toolCallsById = new Map<string, NormalizedToolCall>();
+  const readPageIds = new Set<string>();
 
   for (let i = 0; i < limits.maxSteps; i += 1) {
     const compacted = compactAgentMessages({
@@ -1434,6 +1540,10 @@ export async function runIngestionAgentShadow(
         content: stringifyToolMessage(execution),
       });
       if (execution.ok && execution.name === "read_page") {
+        const read = readPageIdFromToolCall(
+          toolCallsById.get(execution.toolCallId),
+        );
+        if (read.pageId && read.exactRead) readPageIds.add(read.pageId);
         const notice = readPageFallbackNotice(execution.result);
         if (notice) {
           messages.push({
@@ -1452,6 +1562,16 @@ export async function runIngestionAgentShadow(
       }
     }
   }
+
+  await prefetchScheduledSeedPages({
+    runInput: input,
+    dispatcher,
+    seedPageIds: input.seedPageIds,
+    readPageIds,
+    toolContextBlocks,
+    steps,
+    maxCallsPerTurn: limits.maxCallsPerTurn,
+  });
 
   const planEstimate =
     initialEstimate +

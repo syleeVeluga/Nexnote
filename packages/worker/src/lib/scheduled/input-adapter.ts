@@ -132,15 +132,18 @@ export async function buildScheduledAgentInput(
   });
   const instruction = input.instruction?.trim();
   const lines = [
-    "# Scheduled wiki reorganize request",
+    "# User-directed wiki edit request",
     "",
-    "The user selected these existing pages as the maintenance scope.",
+    "The user selected these existing pages as source material, edit targets, or both.",
+    "Follow the user instruction as the primary task; do not reinterpret it as cleanup-only.",
+    "The agent may write new Markdown pages, edit existing pages, append notes, consolidate selected material, move/rename pages, or merge duplicates when the instruction asks for it.",
+    "Preserve selected pages unless the user explicitly asks to delete, archive, or destructively merge them.",
     "Call read_page before editing whenever exact current markdown or block IDs are needed.",
     targetFolder
       ? `Create any new pages requested by the user inside target folder "${targetFolder.name}" (${targetFolder.id}) slug=${targetFolder.slug}.`
       : "No target folder was provided for new pages; only use create_page when the destination is unambiguous.",
     "",
-    "## Selected pages",
+    "## Selected source/target pages",
     ...orderedPages.map(
       (page) =>
         `- ${page.title} (${page.id}) slug=${page.slug} currentRevisionId=${page.currentRevisionId ?? "null"}`,
