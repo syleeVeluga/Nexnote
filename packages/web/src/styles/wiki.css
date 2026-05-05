@@ -184,7 +184,7 @@
 }
 
 .folder-graph-section {
-  min-height: 640px;
+  min-height: 1024px;
   display: flex;
   border: 1px solid var(--wf-color-border);
   border-radius: var(--wf-radius-lg);
@@ -195,7 +195,7 @@
 .folder-graph-section .graph-panel {
   width: 100% !important;
   min-width: 0 !important;
-  height: 640px;
+  height: 1024px;
   border-left: 0;
 }
 

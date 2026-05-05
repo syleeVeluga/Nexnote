@@ -24,6 +24,10 @@ vi.mock("react-i18next", () => ({
       const messages: Record<string, string> = {
         graph: "Relationships",
         graphDepth: "Traversal Range",
+        graphNodeLimit: "Node limit",
+        graphNodeLabels: "Node labels",
+        graphNodeLabelsOn: "Shown",
+        graphNodeLabelsOff: "Hidden",
         graphConfidence: "Relationship Confidence",
         graphEntityTypes: "Entity Types",
         graphPredicates: "Relationship Types",
@@ -179,7 +183,7 @@ describe("GraphPanel", () => {
     await waitFor(() =>
       expect(pageGraphMock).toHaveBeenCalledWith("workspace-1", "page-1", {
         depth: 1,
-        limit: 400,
+        limit: 500,
         minConfidence: 0,
         locale: "ko",
       }),
@@ -190,7 +194,7 @@ describe("GraphPanel", () => {
     await waitFor(() =>
       expect(pageGraphMock).toHaveBeenLastCalledWith("workspace-1", "page-1", {
         depth: 2,
-        limit: 800,
+        limit: 1000,
         minConfidence: 0,
         locale: "ko",
       }),
@@ -285,7 +289,7 @@ describe("GraphPanel", () => {
     await waitFor(() =>
       expect(pageGraphMock).toHaveBeenCalledWith("workspace-1", "page-1", {
         depth: 1,
-        limit: 400,
+        limit: 500,
         minConfidence: 0,
         locale: "en",
       }),
@@ -306,7 +310,7 @@ describe("GraphPanel", () => {
     await waitFor(() =>
       expect(folderGraphMock).toHaveBeenCalledWith("workspace-1", "folder-1", {
         depth: 1,
-        limit: 400,
+        limit: 500,
         minConfidence: 0,
         locale: "ko",
       }),
@@ -341,5 +345,84 @@ describe("GraphPanel", () => {
     expect(
       await screen.findByText("No relationship data in this folder."),
     ).toBeInTheDocument();
+  });
+
+  it("toggles the node label control without changing relationship filters", async () => {
+    render(
+      <GraphPanel
+        mode="page"
+        workspaceId="workspace-1"
+        pageId="page-1"
+        onClose={() => {}}
+        onNavigateToPage={() => {}}
+      />,
+    );
+
+    await screen.findByTestId("force-graph-2d");
+
+    const shownButton = screen.getByRole("button", { name: "Shown" });
+    expect(shownButton).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(shownButton);
+
+    expect(screen.getByRole("button", { name: "Hidden" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByText("Relationship Types:")).toBeInTheDocument();
+  });
+
+  it("refetches page graph data with the selected node limit", async () => {
+    render(
+      <GraphPanel
+        mode="page"
+        workspaceId="workspace-1"
+        pageId="page-1"
+        onClose={() => {}}
+        onNavigateToPage={() => {}}
+      />,
+    );
+
+    await screen.findByTestId("force-graph-2d");
+
+    fireEvent.click(screen.getByRole("button", { name: "100" }));
+
+    await waitFor(() =>
+      expect(pageGraphMock).toHaveBeenLastCalledWith("workspace-1", "page-1", {
+        depth: 1,
+        limit: 100,
+        minConfidence: 0,
+        locale: "ko",
+      }),
+    );
+  });
+
+  it("refetches folder graph data with the selected node limit", async () => {
+    render(
+      <GraphPanel
+        mode="folder"
+        workspaceId="workspace-1"
+        folderId="folder-1"
+        onClose={() => {}}
+        onNavigateToPage={() => {}}
+      />,
+    );
+
+    await screen.findByTestId("force-graph-2d");
+
+    fireEvent.click(screen.getByRole("button", { name: "200" }));
+
+    await waitFor(() =>
+      expect(folderGraphMock).toHaveBeenLastCalledWith(
+        "workspace-1",
+        "folder-1",
+        {
+          depth: 1,
+          limit: 200,
+          minConfidence: 0,
+          locale: "ko",
+        },
+      ),
+    );
   });
 });
