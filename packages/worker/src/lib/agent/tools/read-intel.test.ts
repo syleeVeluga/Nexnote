@@ -240,9 +240,78 @@ describe("find_backlinks", () => {
       { pageId: targetId, limit: 30 },
     );
 
-    const data = result.data as { shortTitleSkipped: boolean; total: number };
+    const data = result.data as {
+      confidenceHint: string;
+      shortTitleSkipped: boolean;
+      total: number;
+    };
     assert.equal(data.shortTitleSkipped, true);
     assert.equal(data.total, 0);
+    assert.match(data.confidenceHint, /fallback/);
+  });
+
+  it("dedupes multiple indexed links from the same source page", async () => {
+    const tools = createReadOnlyTools();
+    const targetId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const linkerId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const otherId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+    const db = fakeDb([
+      {
+        rows: [{ id: targetId, title: "Pricing Plan", slug: "pricing-plan" }],
+      },
+      {
+        rows: [
+          {
+            id: linkerId,
+            title: "Customer Notes",
+            slug: "customer-notes",
+            currentRevisionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            contentMd: "[[Pricing Plan]] then [again](/pricing-plan).",
+            positionInMd: 0,
+            linkType: "wikilink",
+            targetSlug: "Pricing Plan",
+          },
+          {
+            id: linkerId,
+            title: "Customer Notes",
+            slug: "customer-notes",
+            currentRevisionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            contentMd: "[[Pricing Plan]] then [again](/pricing-plan).",
+            positionInMd: 22,
+            linkType: "markdown",
+            targetSlug: "pricing-plan",
+          },
+          {
+            id: otherId,
+            title: "Launch Notes",
+            slug: "launch-notes",
+            currentRevisionId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+            contentMd: "See [[Pricing Plan]].",
+            positionInMd: 4,
+            linkType: "wikilink",
+            targetSlug: "Pricing Plan",
+          },
+        ],
+      },
+      { rows: [] },
+    ]);
+
+    const result = await tools.find_backlinks.execute(
+      { db, ...ctxBase, state: createAgentRunState() },
+      { pageId: targetId, limit: 2 },
+    );
+
+    const data = result.data as {
+      backlinks: Array<{ matchType: string; pageId: string }>;
+      total: number;
+    };
+    assert.equal(data.total, 2);
+    assert.deepEqual(
+      data.backlinks.map((item) => item.pageId),
+      [linkerId, otherId],
+    );
+    assert.equal(data.backlinks[0].matchType, "wikilink_title");
   });
 
   it("falls back to scanning current markdown when page_links is empty", async () => {
@@ -362,7 +431,10 @@ describe("read_revision_history", () => {
       { pageId, limit: 20 },
     );
 
-    const data = result.data as { revisions: Array<{ id: string }>; limited: boolean };
+    const data = result.data as {
+      revisions: Array<{ id: string }>;
+      limited: boolean;
+    };
     assert.equal(data.revisions.length, 2);
     assert.equal(data.limited, false);
     assert.deepEqual(result.observedRevisionIds, [r1, r2]);

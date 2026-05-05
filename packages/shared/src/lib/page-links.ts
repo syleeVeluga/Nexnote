@@ -49,18 +49,28 @@ function inRanges(index: number, ranges: Range[]): boolean {
   return ranges.some((range) => index >= range.start && index < range.end);
 }
 
-function isProbablyExternalTarget(target: string): boolean {
+interface NormalizePageLinkTargetOptions {
+  allowSchemeLikeTitle?: boolean;
+}
+
+function isProbablyExternalTarget(
+  target: string,
+  options: NormalizePageLinkTargetOptions = {},
+): boolean {
   return (
     target === "" ||
     target.startsWith("#") ||
-    /^[a-z][a-z0-9+.-]*:/i.test(target) ||
+    (!options.allowSchemeLikeTitle && /^[a-z][a-z0-9+.-]*:/i.test(target)) ||
     target.startsWith("//")
   );
 }
 
-export function normalizePageLinkTarget(target: string): string | null {
+export function normalizePageLinkTarget(
+  target: string,
+  options: NormalizePageLinkTargetOptions = {},
+): string | null {
   const trimmed = target.trim();
-  if (isProbablyExternalTarget(trimmed)) return null;
+  if (isProbablyExternalTarget(trimmed, options)) return null;
 
   const withoutHash = trimmed.split("#", 1)[0] ?? "";
   const withoutQuery = withoutHash.split("?", 1)[0] ?? "";
@@ -71,35 +81,43 @@ export function normalizePageLinkTarget(target: string): string | null {
     decoded = withoutQuery;
   }
 
-  const normalized = decoded
-    .replace(/^\/+/, "")
-    .replace(/\/+$/, "")
-    .trim();
+  const normalized = decoded.replace(/^\/+/, "").replace(/\/+$/, "").trim();
 
   return normalized.length > 0 ? normalized : null;
 }
 
-function addLookupKey(keys: Set<string>, value: string | null | undefined): void {
+function addLookupKey(
+  keys: Set<string>,
+  value: string | null | undefined,
+  options: { preserveCase?: boolean } = {},
+): void {
   if (!value) return;
-  const normalized = normalizePageLinkTarget(value) ?? value.trim();
+  const normalized =
+    normalizePageLinkTarget(value, { allowSchemeLikeTitle: true }) ??
+    value.trim();
   if (!normalized) return;
-  keys.add(normalized.toLowerCase());
+  keys.add(options.preserveCase ? normalized : normalized.toLowerCase());
 }
 
-export function pageLinkTargetLookupKeys(target: string): string[] {
-  const normalized = normalizePageLinkTarget(target);
+export function pageLinkTargetLookupKeys(
+  target: string,
+  options: { preserveCase?: boolean } = {},
+): string[] {
+  const normalized = normalizePageLinkTarget(target, {
+    allowSchemeLikeTitle: true,
+  });
   if (!normalized) return [];
 
   const keys = new Set<string>();
-  addLookupKey(keys, normalized);
+  addLookupKey(keys, normalized, options);
 
   const parts = normalized.split("/").filter(Boolean);
   const leaf = parts.at(-1);
-  addLookupKey(keys, leaf);
+  addLookupKey(keys, leaf, options);
 
   if (parts[0]?.toLowerCase() === "docs") {
-    addLookupKey(keys, parts.slice(1).join("/"));
-    addLookupKey(keys, parts.slice(2).join("/"));
+    addLookupKey(keys, parts.slice(1).join("/"), options);
+    addLookupKey(keys, parts.slice(2).join("/"), options);
   }
 
   return [...keys];
@@ -132,7 +150,9 @@ export function extractPageLinks(markdown: string): ExtractedPageLink[] {
     if (inRanges(wikiMatch.index, codeRanges)) continue;
     const raw = wikiMatch[1].trim();
     const [targetRaw, labelRaw] = raw.split("|", 2);
-    const targetSlug = normalizePageLinkTarget(targetRaw);
+    const targetSlug = normalizePageLinkTarget(targetRaw, {
+      allowSchemeLikeTitle: true,
+    });
     if (!targetSlug) continue;
     const label = labelRaw?.trim() || null;
     pushUnique(links, seen, {
@@ -143,7 +163,8 @@ export function extractPageLinks(markdown: string): ExtractedPageLink[] {
     });
   }
 
-  const markdownLinkPattern = /(?<!!)\[([^\]\n]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+  const markdownLinkPattern =
+    /(?<!!)\[([^\]\n]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
   let markdownMatch: RegExpExecArray | null;
   while ((markdownMatch = markdownLinkPattern.exec(markdown)) !== null) {
     if (inRanges(markdownMatch.index, codeRanges)) continue;

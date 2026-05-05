@@ -1,5 +1,16 @@
 import { createHash } from "node:crypto";
-import { and, asc, count, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import {
   entities,
   entityAliases,
@@ -1062,7 +1073,9 @@ async function readPageMetadata(
       lastAiUpdatedAt: iso(row.lastAiUpdatedAt),
       lastHumanEditedAt: iso(row.lastHumanEditedAt),
       frontmatter: fmResult.data,
-      ...(fmResult.parseError ? { frontmatterParseError: fmResult.parseError } : {}),
+      ...(fmResult.parseError
+        ? { frontmatterParseError: fmResult.parseError }
+        : {}),
       childCount: Number(childCount ?? 0),
       isPublished: Boolean(livePublished),
       hasOpenSuggestions: Number(openSuggestions ?? 0) > 0,
@@ -1084,10 +1097,7 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-type BacklinkMatchType =
-  | "wikilink_title"
-  | "wikilink_slug"
-  | "markdown_link";
+type BacklinkMatchType = "wikilink_title" | "wikilink_slug" | "markdown_link";
 
 interface BacklinkCandidate {
   pageId: string;
@@ -1097,6 +1107,36 @@ interface BacklinkCandidate {
   contentMd: string | null;
   matchType: BacklinkMatchType;
   positionInMd: number;
+}
+
+function matchTypeRank(matchType: BacklinkMatchType): number {
+  if (matchType === "wikilink_title") return 0;
+  if (matchType === "wikilink_slug") return 1;
+  return 2;
+}
+
+function addBacklinkCandidate(
+  candidates: BacklinkCandidate[],
+  byPageId: Map<string, BacklinkCandidate>,
+  candidate: BacklinkCandidate,
+): boolean {
+  const existing = byPageId.get(candidate.pageId);
+  if (!existing) {
+    byPageId.set(candidate.pageId, candidate);
+    candidates.push(candidate);
+    return true;
+  }
+
+  const candidateRank = matchTypeRank(candidate.matchType);
+  const existingRank = matchTypeRank(existing.matchType);
+  if (
+    candidateRank < existingRank ||
+    (candidateRank === existingRank &&
+      candidate.positionInMd < existing.positionInMd)
+  ) {
+    Object.assign(existing, candidate);
+  }
+  return false;
 }
 
 function classifyBacklink(
@@ -1117,10 +1157,7 @@ function classifyBacklink(
   }
   tests.push({
     matchType: "wikilink_slug",
-    pattern: new RegExp(
-      `\\[\\[${escapeRegex(slug)}(?:\\|[^\\]]*)?\\]\\]`,
-      "i",
-    ),
+    pattern: new RegExp(`\\[\\[${escapeRegex(slug)}(?:\\|[^\\]]*)?\\]\\]`, "i"),
   });
   tests.push({
     matchType: "markdown_link",
@@ -1210,23 +1247,28 @@ async function findBacklinks(
     .orderBy(desc(lastTouched))
     .limit(probeLimit);
 
-  const candidates: BacklinkCandidate[] = indexedRows.map((row) => ({
-    pageId: row.id,
-    title: row.title,
-    slug: row.slug,
-    currentRevisionId: row.currentRevisionId,
-    contentMd: row.contentMd,
-    positionInMd: row.positionInMd ?? 0,
-    matchType:
-      row.linkType === "markdown"
-        ? "markdown_link"
-        : row.targetSlug.toLowerCase() === target.title.toLowerCase()
-          ? "wikilink_title"
-          : "wikilink_slug",
-  }));
+  const candidates: BacklinkCandidate[] = [];
+  const candidatesByPageId = new Map<string, BacklinkCandidate>();
+  for (const row of indexedRows) {
+    addBacklinkCandidate(candidates, candidatesByPageId, {
+      pageId: row.id,
+      title: row.title,
+      slug: row.slug,
+      currentRevisionId: row.currentRevisionId,
+      contentMd: row.contentMd,
+      positionInMd: row.positionInMd ?? 0,
+      matchType:
+        row.linkType === "markdown"
+          ? "markdown_link"
+          : row.targetSlug.toLowerCase() === target.title.toLowerCase()
+            ? "wikilink_title"
+            : "wikilink_slug",
+    });
+  }
 
-  const seenPageIds = new Set(candidates.map((row) => row.pageId));
+  let fallbackRan = false;
   if (candidates.length < probeLimit) {
+    fallbackRan = true;
     const scannedRows = await ctx.db
       .select({
         id: pages.id,
@@ -1246,10 +1288,9 @@ async function findBacklinks(
         ),
       )
       .orderBy(desc(lastTouched))
-      .limit(probeLimit + seenPageIds.size);
+      .limit(probeLimit + candidatesByPageId.size);
 
     for (const row of scannedRows) {
-      if (seenPageIds.has(row.id)) continue;
       const classified = classifyBacklink(
         row.contentMd ?? "",
         target.title,
@@ -1257,8 +1298,7 @@ async function findBacklinks(
         { allowTitleWikilink },
       );
       if (!classified) continue;
-      seenPageIds.add(row.id);
-      candidates.push({
+      addBacklinkCandidate(candidates, candidatesByPageId, {
         pageId: row.id,
         title: row.title,
         slug: row.slug,
@@ -1296,10 +1336,9 @@ async function findBacklinks(
       total: backlinks.length,
       limited,
       shortTitleSkipped: !allowTitleWikilink,
-      confidenceHint:
-        indexedRows.length === candidates.length
-          ? "page_links index; current revisions only."
-          : "page_links index plus markdown scan fallback; current revisions only.",
+      confidenceHint: !fallbackRan
+        ? "page_links index; current revisions only."
+        : "page_links index plus markdown scan fallback; current revisions only.",
     },
     observedPageIds: taken.map((row) => row.pageId),
     observedPageRevisions: observedRevisions,
@@ -1393,7 +1432,9 @@ async function isRevisionInCurrentPageChain(
         baseRevisionId: pageRevisions.baseRevisionId,
       })
       .from(pageRevisions)
-      .where(and(eq(pageRevisions.id, cursor), eq(pageRevisions.pageId, pageId)))
+      .where(
+        and(eq(pageRevisions.id, cursor), eq(pageRevisions.pageId, pageId)),
+      )
       .limit(1);
 
     if (!revision) return false;
@@ -1455,8 +1496,7 @@ async function readRevision(
       "Revision must come from revision history this run already observed, or from the observed page's current revision chain.",
       undefined,
       {
-        hint:
-          "Call read_revision_history for the page first, or read_page/read_page_metadata to register the page.",
+        hint: "Call read_revision_history for the page first, or read_page/read_page_metadata to register the page.",
       },
     );
   }
