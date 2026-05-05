@@ -26,6 +26,25 @@ describe("extractPageLinks", () => {
     ]);
   });
 
+  it("keeps scheme-like wikilink page titles", () => {
+    const md = "See [[RFC:1234]] and [[Note: next steps|note]].";
+
+    expect(extractPageLinks(md)).toEqual([
+      {
+        targetSlug: "RFC:1234",
+        linkText: "RFC:1234",
+        linkType: "wikilink",
+        positionInMd: 4,
+      },
+      {
+        targetSlug: "Note: next steps",
+        linkText: "note",
+        linkType: "wikilink",
+        positionInMd: 21,
+      },
+    ]);
+  });
+
   it("skips external URLs, image links, and fenced code", () => {
     const md = [
       "![img](asset)",
@@ -50,7 +69,9 @@ describe("extractPageLinks", () => {
 
 describe("normalizePageLinkTarget", () => {
   it("normalizes page paths and rejects non-page targets", () => {
-    expect(normalizePageLinkTarget("/docs/page?tab=a#section")).toBe("docs/page");
+    expect(normalizePageLinkTarget("/docs/page?tab=a#section")).toBe(
+      "docs/page",
+    );
     expect(normalizePageLinkTarget("#local")).toBeNull();
     expect(normalizePageLinkTarget("mailto:a@example.com")).toBeNull();
   });

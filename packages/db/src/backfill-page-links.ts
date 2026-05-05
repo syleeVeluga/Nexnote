@@ -1,4 +1,14 @@
-import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { extractPageLinks, pageLinkTargetLookupKeys } from "@wekiflow/shared";
 import { closeConnection, getDb } from "./client.js";
 import { pageLinks, pagePaths, pageRevisions, pages } from "./schema/index.js";
@@ -16,11 +26,16 @@ async function resolveTargetPages(
   targets: string[],
 ): Promise<Map<string, string>> {
   const uniqueTargets = [...new Set(targets)].filter(Boolean);
-  const lookupKeys = [
-    ...new Set(uniqueTargets.flatMap((target) => pageLinkTargetLookupKeys(target))),
+  const exactLookupKeys = [
+    ...new Set(
+      uniqueTargets.flatMap((target) => [
+        ...pageLinkTargetLookupKeys(target, { preserveCase: true }),
+        ...pageLinkTargetLookupKeys(target),
+      ]),
+    ),
   ];
   const targetMap = new Map<string, string>();
-  if (lookupKeys.length === 0) return targetMap;
+  if (exactLookupKeys.length === 0) return targetMap;
 
   const slugRows = await db
     .select({
@@ -39,9 +54,9 @@ async function resolveTargetPages(
         eq(pages.workspaceId, workspaceId),
         isNull(pages.deletedAt),
         or(
-          inArray(sql<string>`lower(${pages.slug})`, lookupKeys),
-          inArray(sql<string>`lower(${pages.title})`, lookupKeys),
-          inArray(sql<string>`lower(${pagePaths.path})`, lookupKeys),
+          inArray(pages.slug, exactLookupKeys),
+          inArray(pages.title, exactLookupKeys),
+          inArray(pagePaths.path, exactLookupKeys),
         )!,
       ),
     );
@@ -57,7 +72,8 @@ async function resolveTargetPages(
     }
   }
 
-  for (const target of uniqueTargets) {
+  let unresolvedTargets = uniqueTargets;
+  for (const target of unresolvedTargets) {
     for (const key of pageLinkTargetLookupKeys(target)) {
       const pageId = resolvedByKey.get(key);
       if (pageId) {
@@ -66,17 +82,71 @@ async function resolveTargetPages(
       }
     }
   }
+
+  unresolvedTargets = uniqueTargets.filter((target) => !targetMap.has(target));
+  if (unresolvedTargets.length > 0) {
+    const titleLookupKeys = [
+      ...new Set(
+        unresolvedTargets.flatMap((target) => pageLinkTargetLookupKeys(target)),
+      ),
+    ];
+    const titleRows = await db
+      .select({
+        id: pages.id,
+        title: pages.title,
+      })
+      .from(pages)
+      .where(
+        and(
+          eq(pages.workspaceId, workspaceId),
+          isNull(pages.deletedAt),
+          inArray(sql<string>`lower(${pages.title})`, titleLookupKeys),
+        ),
+      );
+
+    const titleMap = new Map<string, string>();
+    for (const row of titleRows) {
+      for (const key of pageLinkTargetLookupKeys(row.title)) {
+        if (!titleMap.has(key)) titleMap.set(key, row.id);
+      }
+    }
+    for (const target of unresolvedTargets) {
+      for (const key of pageLinkTargetLookupKeys(target)) {
+        const pageId = titleMap.get(key);
+        if (pageId) {
+          targetMap.set(target, pageId);
+          break;
+        }
+      }
+    }
+  }
   return targetMap;
 }
 
 async function backfillPageLinks(): Promise<void> {
   const db = getDb();
-  let offset = 0;
+  let lastPageId: string | null = null;
   let processed = 0;
   let inserted = 0;
   let broken = 0;
 
+  await db.delete(pageLinks).where(sql`
+    NOT EXISTS (
+      SELECT 1
+      FROM "pages" p
+      WHERE p."id" = "page_links"."source_page_id"
+        AND p."deleted_at" IS NULL
+        AND p."current_revision_id" = "page_links"."source_revision_id"
+    )
+  `);
+
   for (;;) {
+    const conditions = [
+      isNull(pages.deletedAt),
+      isNotNull(pages.currentRevisionId),
+    ];
+    if (lastPageId) conditions.push(gt(pages.id, lastPageId));
+
     const rows = await db
       .select({
         pageId: pages.id,
@@ -86,9 +156,9 @@ async function backfillPageLinks(): Promise<void> {
       })
       .from(pages)
       .innerJoin(pageRevisions, eq(pageRevisions.id, pages.currentRevisionId))
-      .where(and(isNull(pages.deletedAt), isNotNull(pages.currentRevisionId)))
-      .limit(BATCH_SIZE)
-      .offset(offset);
+      .where(and(...conditions))
+      .orderBy(asc(pages.id))
+      .limit(BATCH_SIZE);
 
     if (rows.length === 0) break;
 
@@ -101,7 +171,14 @@ async function backfillPageLinks(): Promise<void> {
         extracted.map((link) => link.targetSlug),
       );
 
-      await db.delete(pageLinks).where(eq(pageLinks.sourceRevisionId, row.revisionId));
+      await db
+        .delete(pageLinks)
+        .where(
+          and(
+            eq(pageLinks.workspaceId, row.workspaceId),
+            eq(pageLinks.sourcePageId, row.pageId),
+          ),
+        );
       if (extracted.length > 0) {
         const values = extracted.map((link) => {
           const targetPageId = targetMap.get(link.targetSlug) ?? null;
@@ -123,7 +200,7 @@ async function backfillPageLinks(): Promise<void> {
       processed += 1;
     }
 
-    offset += rows.length;
+    lastPageId = rows[rows.length - 1]?.pageId ?? lastPageId;
   }
 
   console.log(

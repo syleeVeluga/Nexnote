@@ -21,11 +21,16 @@ async function resolveTargetPages(
   targets: string[],
 ): Promise<Map<string, string>> {
   const uniqueTargets = [...new Set(targets)].filter(Boolean);
-  const lookupKeys = [
-    ...new Set(uniqueTargets.flatMap((target) => pageLinkTargetLookupKeys(target))),
+  const exactLookupKeys = [
+    ...new Set(
+      uniqueTargets.flatMap((target) => [
+        ...pageLinkTargetLookupKeys(target, { preserveCase: true }),
+        ...pageLinkTargetLookupKeys(target),
+      ]),
+    ),
   ];
   const targetMap = new Map<string, string>();
-  if (lookupKeys.length === 0) return targetMap;
+  if (exactLookupKeys.length === 0) return targetMap;
 
   const rows = await db
     .select({
@@ -44,9 +49,9 @@ async function resolveTargetPages(
         eq(pages.workspaceId, workspaceId),
         isNull(pages.deletedAt),
         or(
-          inArray(sql<string>`lower(${pages.slug})`, lookupKeys),
-          inArray(sql<string>`lower(${pages.title})`, lookupKeys),
-          inArray(sql<string>`lower(${pagePaths.path})`, lookupKeys),
+          inArray(pages.slug, exactLookupKeys),
+          inArray(pages.title, exactLookupKeys),
+          inArray(pagePaths.path, exactLookupKeys),
         )!,
       ),
     );
@@ -62,12 +67,51 @@ async function resolveTargetPages(
     }
   }
 
-  for (const target of uniqueTargets) {
+  let unresolvedTargets = uniqueTargets;
+  for (const target of unresolvedTargets) {
     for (const key of pageLinkTargetLookupKeys(target)) {
       const pageId = resolvedByKey.get(key);
       if (pageId) {
         targetMap.set(target, pageId);
         break;
+      }
+    }
+  }
+
+  unresolvedTargets = uniqueTargets.filter((target) => !targetMap.has(target));
+  if (unresolvedTargets.length > 0) {
+    const titleLookupKeys = [
+      ...new Set(
+        unresolvedTargets.flatMap((target) => pageLinkTargetLookupKeys(target)),
+      ),
+    ];
+    const titleRows = await db
+      .select({
+        id: pages.id,
+        title: pages.title,
+      })
+      .from(pages)
+      .where(
+        and(
+          eq(pages.workspaceId, workspaceId),
+          isNull(pages.deletedAt),
+          inArray(sql<string>`lower(${pages.title})`, titleLookupKeys),
+        ),
+      );
+
+    const titleMap = new Map<string, string>();
+    for (const row of titleRows) {
+      for (const key of pageLinkTargetLookupKeys(row.title)) {
+        if (!titleMap.has(key)) titleMap.set(key, row.id);
+      }
+    }
+    for (const target of unresolvedTargets) {
+      for (const key of pageLinkTargetLookupKeys(target)) {
+        const pageId = titleMap.get(key);
+        if (pageId) {
+          targetMap.set(target, pageId);
+          break;
+        }
       }
     }
   }
@@ -92,6 +136,7 @@ export function createPageLinkExtractorWorker(): Worker {
         .select({
           contentMd: pageRevisions.contentMd,
           sourcePageId: pageRevisions.pageId,
+          currentRevisionId: pages.currentRevisionId,
           workspaceId: pages.workspaceId,
           deletedAt: pages.deletedAt,
         })
@@ -103,10 +148,34 @@ export function createPageLinkExtractorWorker(): Worker {
       if (
         !revision ||
         revision.sourcePageId !== pageId ||
-        revision.workspaceId !== workspaceId ||
-        revision.deletedAt
+        revision.workspaceId !== workspaceId
       ) {
-        log.warn({ pageId, revisionId, workspaceId }, "Revision not found, skipping");
+        log.warn(
+          { pageId, revisionId, workspaceId },
+          "Revision not found, skipping",
+        );
+        return { pageId, revisionId, linksCreated: 0, brokenLinks: 0 };
+      }
+      if (revision.deletedAt) {
+        await db
+          .delete(pageLinks)
+          .where(
+            and(
+              eq(pageLinks.workspaceId, workspaceId),
+              eq(pageLinks.sourcePageId, pageId),
+            ),
+          );
+        log.warn(
+          { pageId, revisionId, workspaceId },
+          "Page deleted, cleared links",
+        );
+        return { pageId, revisionId, linksCreated: 0, brokenLinks: 0 };
+      }
+      if (revision.currentRevisionId !== revisionId) {
+        log.warn(
+          { pageId, revisionId, currentRevisionId: revision.currentRevisionId },
+          "Revision is no longer current, skipping",
+        );
         return { pageId, revisionId, linksCreated: 0, brokenLinks: 0 };
       }
 
@@ -122,7 +191,14 @@ export function createPageLinkExtractorWorker(): Worker {
       await job.updateProgress(60);
 
       const result = await db.transaction(async (tx) => {
-        await tx.delete(pageLinks).where(eq(pageLinks.sourceRevisionId, revisionId));
+        await tx
+          .delete(pageLinks)
+          .where(
+            and(
+              eq(pageLinks.workspaceId, workspaceId),
+              eq(pageLinks.sourcePageId, pageId),
+            ),
+          );
 
         if (extracted.length === 0) {
           return { linksCreated: 0, brokenLinks: 0 };
