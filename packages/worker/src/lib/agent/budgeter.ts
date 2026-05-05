@@ -11,6 +11,7 @@ import {
   type AIBudgetMeta,
   type AIMessage,
   type AIProvider,
+  type AgentPlanMutation,
   type IngestionAgentPlan,
 } from "@wekiflow/shared";
 
@@ -715,7 +716,27 @@ export interface TurnRecord {
   plan: IngestionAgentPlan;
   skippedPlan?: IngestionAgentPlan["proposedPlan"];
   execution: { succeeded: number; failed: number; attempted: number };
+  outcomes?: TurnMutationOutcome[];
   mutatedPageIds: string[];
+}
+
+export interface TurnMutationOutcome {
+  index: number;
+  action?: AgentPlanMutation["action"];
+  tool?: AgentPlanMutation["tool"] | string;
+  targetPageId: string | null;
+  ok: boolean;
+  status?: string;
+  decisionId?: string;
+  mutatedPageIds?: string[];
+  repairAttempted?: boolean;
+  repaired?: boolean;
+  fallbackDecisionId?: string;
+  error?: {
+    code: string;
+    message: string;
+    recoverable: boolean;
+  };
 }
 
 export function packPlanContextForTurn(input: {
@@ -748,21 +769,20 @@ export function packPlanContextForTurn(input: {
         succeeded: turn.execution.succeeded,
         failed: turn.execution.failed,
         mutatedPageIds: turn.mutatedPageIds,
+        outcomes: turn.outcomes ?? [],
         attemptedActions: turn.plan.proposedPlan.map((mutation, index) => ({
           index,
           action: mutation.action,
           tool: mutation.tool,
           targetPageId: mutation.targetPageId,
         })),
-        unattemptedActions: (turn.skippedPlan ?? []).map(
-          (mutation, index) => ({
-            index: turn.execution.attempted + index,
-            action: mutation.action,
-            tool: mutation.tool,
-            targetPageId: mutation.targetPageId,
-            reason: mutation.reason,
-          }),
-        ),
+        unattemptedActions: (turn.skippedPlan ?? []).map((mutation, index) => ({
+          index: turn.execution.attempted + index,
+          action: mutation.action,
+          tool: mutation.tool,
+          targetPageId: mutation.targetPageId,
+          reason: mutation.reason,
+        })),
       })),
       null,
       2,

@@ -354,6 +354,97 @@ describe("runIngestionAgentShadow", () => {
     assert.match(replanPrompt, /"index": 20/);
   });
 
+  it("passes per-mutation outcomes into replans and preserves executed plan history", async () => {
+    const mutateTools: Record<string, AgentToolDefinition> = {
+      append_to_page: {
+        name: "append_to_page",
+        description: "test append",
+        schema: agentMutateToolInputSchemas.append_to_page,
+        async execute(_ctx, input) {
+          const parsed = input as { contentMd: string };
+          if (parsed.contentMd === "fail") {
+            throw new AgentToolError(
+              "patch_mismatch",
+              "append content did not match the current page",
+            );
+          }
+          return {
+            data: {
+              decisionId: "decision-success",
+              status: "auto_applied",
+            },
+            mutatedPageIds: [pageId],
+          };
+        },
+      },
+    };
+    const failedMutation = {
+      ...appendMutation(1),
+      args: {
+        pageId,
+        contentMd: "fail",
+        confidence: 0.9,
+        reason: "Append note 1.",
+      },
+    };
+    const adapter = new SequenceAdapter([
+      response({ content: "No tools needed." }),
+      response({
+        content: JSON.stringify({
+          summary: "Append two notes.",
+          proposedPlan: [appendMutation(0), failedMutation],
+          openQuestions: [],
+        }),
+      }),
+      response({
+        content: JSON.stringify({
+          summary: "No safe remaining changes.",
+          proposedPlan: [],
+          openQuestions: [],
+        }),
+      }),
+    ]);
+    let modelRun = 0;
+
+    const result = await runIngestionAgentShadow({
+      db: fakeDb,
+      workspaceId: "workspace-1",
+      ingestion: {
+        id: "ingestion-1",
+        sourceName: "test",
+        contentType: "text/markdown",
+        titleHint: "Mixed",
+        normalizedText: "Mixed notes.",
+        rawPayload: {},
+      },
+      mode: "agent",
+      agentRunId: "33333333-3333-4333-8333-333333333333",
+      adapter,
+      baseProvider: "openai",
+      baseModel: "gpt-5.4",
+      tools: {},
+      mutateTools,
+      recordModelRun: async () => {
+        modelRun += 1;
+        return { id: `44444444-4444-4444-8444-44444444444${modelRun}` };
+      },
+    });
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.planJson.proposedPlan.length, 2);
+    assert.equal(result.planJson.turns?.[0]?.outcomes?.length, 2);
+    assert.equal(result.planJson.turns?.[0]?.outcomes?.[0]?.ok, true);
+    assert.equal(result.planJson.turns?.[0]?.outcomes?.[1]?.ok, false);
+    assert.equal(
+      result.planJson.turns?.[0]?.outcomes?.[1]?.error?.code,
+      "patch_mismatch",
+    );
+    const replanPrompt = adapter.requests[2]?.messages[1]?.content ?? "";
+    assert.match(replanPrompt, /"outcomes"/);
+    assert.match(replanPrompt, /"ok": false/);
+    assert.match(replanPrompt, /"patch_mismatch"/);
+  });
+
   it("returns partial when max turns are reached with remaining mutations", async () => {
     const calls: unknown[] = [];
     const mutateTools: Record<string, AgentToolDefinition> = {

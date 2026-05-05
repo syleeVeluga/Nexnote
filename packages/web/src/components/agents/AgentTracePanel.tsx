@@ -84,6 +84,23 @@ function stepTurnIndex(step: AgentRunTraceStep): number | null {
   return typeof payloadTurnIndex === "number" ? payloadTurnIndex : null;
 }
 
+function mutationResultStatus(step: AgentRunTraceStep): string | null {
+  const result = step.payload["result"];
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return null;
+  }
+  const status = (result as Record<string, unknown>)["status"];
+  return typeof status === "string" ? status : null;
+}
+
+function isAppliedMutationResult(step: AgentRunTraceStep): boolean {
+  return (
+    step.type === "mutation_result" &&
+    step.payload["ok"] === true &&
+    mutationResultStatus(step) === "auto_applied"
+  );
+}
+
 function groupSteps(steps: AgentRunTraceStep[]) {
   const groups: Array<{
     key: string;
@@ -113,9 +130,7 @@ function groupSteps(steps: AgentRunTraceStep[]) {
     const proposed =
       group.steps.find((step) => step.type === "plan" || step.type === "replan")
         ?.payload["mutationCount"] ?? 0;
-    const applied = group.steps.filter(
-      (step) => step.type === "mutation_result" && step.payload["ok"] === true,
-    ).length;
+    const applied = group.steps.filter(isAppliedMutationResult).length;
     return {
       ...group,
       title: `${group.title} - ${proposed} proposed, ${applied} applied`,

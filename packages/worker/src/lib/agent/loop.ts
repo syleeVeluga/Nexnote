@@ -33,6 +33,7 @@ import {
   selectAgentModel,
   type AgentContextBlock,
   type AgentModelSelection,
+  type TurnMutationOutcome,
   type TurnRecord,
 } from "./budgeter.js";
 import type {
@@ -801,6 +802,12 @@ function resultDecisionId(result: unknown): string | null {
   return typeof id === "string" ? id : null;
 }
 
+function resultStringField(result: unknown, field: string): string | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const value = (result as Record<string, unknown>)[field];
+  return typeof value === "string" ? value : undefined;
+}
+
 async function executeMutations(input: {
   db: AgentDb;
   workspaceId: string;
@@ -828,7 +835,12 @@ async function executeMutations(input: {
     toolCall: NormalizedToolCall;
     error: AgentToolErrorPayload;
   }) => Promise<AgentPlanMutation | null>;
-}): Promise<{ succeeded: number; failed: number; mutatedPageIds: string[] }> {
+}): Promise<{
+  succeeded: number;
+  failed: number;
+  mutatedPageIds: string[];
+  outcomes: TurnMutationOutcome[];
+}> {
   const mutationInput: CreateMutateToolsInput = {
     ingestion: input.ingestion,
     agentRunId: input.agentRunId,
@@ -856,11 +868,13 @@ async function executeMutations(input: {
   let succeeded = 0;
   let failed = 0;
   const mutatedPageIds = new Set<string>();
+  const outcomes: TurnMutationOutcome[] = [];
   for (const [index, mutation] of input.plan.proposedPlan.entries()) {
     const toolCall = mutationToToolCall(mutation, index, input.ingestionText);
     const [execution] = await dispatcher.dispatchToolCalls([toolCall]);
     traceStep(input, input.steps, "mutation_result", {
       turnIndex: input.turnIndex ?? 0,
+      mutationIndex: index,
       name: execution.name,
       toolCallId: execution.toolCallId,
       ok: execution.ok,
@@ -872,6 +886,16 @@ async function executeMutations(input: {
       for (const pageId of execution.mutatedPageIds ?? []) {
         mutatedPageIds.add(pageId);
       }
+      outcomes.push({
+        index,
+        action: mutation.action,
+        tool: mutation.tool ?? execution.name,
+        targetPageId: mutation.targetPageId,
+        ok: true,
+        status: resultStringField(execution.result, "status"),
+        decisionId: resultDecisionId(execution.result) ?? undefined,
+        mutatedPageIds: execution.mutatedPageIds ?? [],
+      });
       succeeded += resultDecisionId(execution.result) ? 1 : 0;
       continue;
     }
@@ -895,6 +919,7 @@ async function executeMutations(input: {
         ]);
         traceStep(input, input.steps, "mutation_result", {
           turnIndex: input.turnIndex ?? 0,
+          mutationIndex: index,
           name: repairedExecution.name,
           toolCallId: repairedExecution.toolCallId,
           ok: repairedExecution.ok,
@@ -908,6 +933,18 @@ async function executeMutations(input: {
           for (const pageId of repairedExecution.mutatedPageIds ?? []) {
             mutatedPageIds.add(pageId);
           }
+          outcomes.push({
+            index,
+            action: repaired.action ?? mutation.action,
+            tool: repaired.tool ?? repairedExecution.name,
+            targetPageId: repaired.targetPageId ?? mutation.targetPageId,
+            ok: true,
+            status: resultStringField(repairedExecution.result, "status"),
+            decisionId: resultDecisionId(repairedExecution.result) ?? undefined,
+            mutatedPageIds: repairedExecution.mutatedPageIds ?? [],
+            repairAttempted: true,
+            repaired: true,
+          });
           succeeded += resultDecisionId(repairedExecution.result) ? 1 : 0;
           continue;
         }
@@ -935,16 +972,47 @@ async function executeMutations(input: {
       );
       traceStep(input, input.steps, "mutation_result", {
         turnIndex: input.turnIndex ?? 0,
+        mutationIndex: index,
         name: "request_human_review",
         ok: true,
         result: { decisionId: failureDecisionId, status: "failed" },
         source: "mutation_failure_fallback",
       });
+      outcomes.push({
+        index,
+        action: mutation.action,
+        tool: mutation.tool ?? execution.name,
+        targetPageId: mutation.targetPageId,
+        ok: false,
+        status: "failed",
+        fallbackDecisionId: failureDecisionId,
+        error: {
+          code: finalError.code,
+          message: finalError.message,
+          recoverable: finalError.recoverable,
+        },
+      });
       succeeded += 1;
+    } else {
+      outcomes.push({
+        index,
+        action: mutation.action,
+        tool: mutation.tool ?? execution.name,
+        targetPageId: mutation.targetPageId,
+        ok: false,
+        status: "failed",
+        repairAttempted: Boolean(input.repairMutation),
+        repaired: false,
+        error: {
+          code: finalError.code,
+          message: finalError.message,
+          recoverable: finalError.recoverable,
+        },
+      });
     }
   }
 
-  return { succeeded, failed, mutatedPageIds: [...mutatedPageIds] };
+  return { succeeded, failed, mutatedPageIds: [...mutatedPageIds], outcomes };
 }
 
 function remainingMs(deadlineMs: number): number {
@@ -1878,6 +1946,7 @@ export async function runIngestionAgentShadow(
         succeeded: execution.succeeded,
         failed: execution.failed,
       },
+      outcomes: execution.outcomes,
       mutatedPageIds,
     });
 
@@ -1919,10 +1988,26 @@ export async function runIngestionAgentShadow(
     }
   }
 
+  const executedPlan = allTurns.flatMap((turn) => turn.plan.proposedPlan);
+  const executedOpenQuestions = [
+    ...new Set([
+      ...allTurns.flatMap((turn) => turn.plan.openQuestions),
+      ...lastParsed.plan.openQuestions,
+    ]),
+  ];
+  const persistedPlan =
+    executedPlan.length > 0
+      ? {
+          summary: allTurns.map((turn) => turn.plan.summary).join("\n"),
+          proposedPlan: executedPlan,
+          openQuestions: executedOpenQuestions,
+        }
+      : lastParsed.plan;
+
   return {
     status: finalStatus ?? "partial",
     planJson: {
-      ...lastParsed.plan,
+      ...persistedPlan,
       shadow: false,
       model: planModel,
       budget: lastBudget,
