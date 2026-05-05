@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { CSSProperties } from "react";
+import * as d3 from "d3-force";
 import { useTranslation } from "react-i18next";
 import ForceGraph2D from "react-force-graph-2d";
 import type {
@@ -378,8 +379,10 @@ export function GraphPanel(props: GraphPanelProps) {
   useEffect(() => {
     const fg = forceGraphRef.current;
     if (!fg || forceGraphData.nodes.length === 0) return;
-    fg.d3Force("charge")?.strength(-18);
-    fg.d3Force("link")?.distance(18);
+    fg.d3Force("charge")?.strength(-10);
+    fg.d3Force("x", d3.forceX<NodeObject<GNode>>(0).strength(0.015));
+    fg.d3Force("y", d3.forceY<NodeObject<GNode>>(0).strength(0.015));
+    fg.d3Force("link")?.distance(30);
     fg.d3ReheatSimulation();
   }, [forceGraphData]);
 
