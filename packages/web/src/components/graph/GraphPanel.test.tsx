@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GraphData } from "@wekiflow/shared";
 import { GraphPanel } from "./GraphPanel.js";
 
-const graphMock = vi.fn();
+const pageGraphMock = vi.fn();
+const folderGraphMock = vi.fn();
 let resolvedLanguage = "ko";
 
 vi.mock("react-i18next", () => ({
@@ -47,7 +48,10 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("../../lib/api-client.js", () => ({
   pages: {
-    graph: (...args: unknown[]) => graphMock(...args),
+    graph: (...args: unknown[]) => pageGraphMock(...args),
+  },
+  folders: {
+    graph: (...args: unknown[]) => folderGraphMock(...args),
   },
 }));
 
@@ -127,6 +131,7 @@ const sampleGraph: GraphData = {
     },
   ],
   meta: {
+    scope: "page",
     pageId: "page-1",
     depth: 1,
     totalNodes: 3,
@@ -136,8 +141,20 @@ const sampleGraph: GraphData = {
 };
 
 beforeEach(() => {
-  graphMock.mockReset();
-  graphMock.mockResolvedValue(sampleGraph);
+  pageGraphMock.mockReset();
+  pageGraphMock.mockResolvedValue(sampleGraph);
+  folderGraphMock.mockReset();
+  folderGraphMock.mockResolvedValue({
+    ...sampleGraph,
+    meta: {
+      scope: "folder",
+      folderId: "folder-1",
+      depth: 1,
+      totalNodes: 3,
+      totalEdges: 2,
+      truncated: false,
+    },
+  } satisfies GraphData);
   resolvedLanguage = "ko";
   globalThis.ResizeObserver = class ResizeObserver {
     observe() {}
@@ -150,6 +167,7 @@ describe("GraphPanel", () => {
   it("refetches when depth changes and hides confidence controls", async () => {
     render(
       <GraphPanel
+        mode="page"
         workspaceId="workspace-1"
         pageId="page-1"
         onClose={() => {}}
@@ -158,7 +176,7 @@ describe("GraphPanel", () => {
     );
 
     await waitFor(() =>
-      expect(graphMock).toHaveBeenCalledWith("workspace-1", "page-1", {
+      expect(pageGraphMock).toHaveBeenCalledWith("workspace-1", "page-1", {
         depth: 1,
         limit: 400,
         minConfidence: 0,
@@ -169,7 +187,7 @@ describe("GraphPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "2" }));
 
     await waitFor(() =>
-      expect(graphMock).toHaveBeenLastCalledWith("workspace-1", "page-1", {
+      expect(pageGraphMock).toHaveBeenLastCalledWith("workspace-1", "page-1", {
         depth: 2,
         limit: 800,
         minConfidence: 0,
@@ -186,6 +204,7 @@ describe("GraphPanel", () => {
   it("shows the filtered empty state when all entity types are disabled", async () => {
     render(
       <GraphPanel
+        mode="page"
         workspaceId="workspace-1"
         pageId="page-1"
         onClose={() => {}}
@@ -209,6 +228,7 @@ describe("GraphPanel", () => {
   it("renders localized predicate filter chips", async () => {
     render(
       <GraphPanel
+        mode="page"
         workspaceId="workspace-1"
         pageId="page-1"
         onClose={() => {}}
@@ -227,6 +247,7 @@ describe("GraphPanel", () => {
   it("uses entity node colors for active entity filter chips", async () => {
     render(
       <GraphPanel
+        mode="page"
         workspaceId="workspace-1"
         pageId="page-1"
         onClose={() => {}}
@@ -252,6 +273,7 @@ describe("GraphPanel", () => {
 
     render(
       <GraphPanel
+        mode="page"
         workspaceId="workspace-1"
         pageId="page-1"
         onClose={() => {}}
@@ -260,12 +282,34 @@ describe("GraphPanel", () => {
     );
 
     await waitFor(() =>
-      expect(graphMock).toHaveBeenCalledWith("workspace-1", "page-1", {
+      expect(pageGraphMock).toHaveBeenCalledWith("workspace-1", "page-1", {
         depth: 1,
         limit: 400,
         minConfidence: 0,
         locale: "en",
       }),
     );
+  });
+
+  it("fetches folder graphs in folder mode", async () => {
+    render(
+      <GraphPanel
+        mode="folder"
+        workspaceId="workspace-1"
+        folderId="folder-1"
+        onClose={() => {}}
+        onNavigateToPage={() => {}}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(folderGraphMock).toHaveBeenCalledWith("workspace-1", "folder-1", {
+        depth: 1,
+        limit: 400,
+        minConfidence: 0,
+        locale: "ko",
+      }),
+    );
+    expect(pageGraphMock).not.toHaveBeenCalled();
   });
 });

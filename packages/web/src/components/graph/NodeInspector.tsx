@@ -13,7 +13,7 @@ import { getPredicateDisplayLabel } from "./predicate-label.js";
 interface NodeInspectorProps {
   workspaceId: string;
   entityId: string;
-  currentPageId: string;
+  currentPageId?: string | null;
   graphData: GraphData | null;
   onClose: () => void;
   onSelectEntity: (entityId: string) => void;
@@ -337,7 +337,8 @@ export function NodeInspector({
               ) : (
                 detail.sourcePages.map((page: ProvenancePage) => {
                   const preview = page.evidenceExcerpts[0]?.excerpt ?? null;
-                  const isCurrentPage = page.pageId === currentPageId;
+                  const isCurrentPage =
+                    currentPageId != null && page.pageId === currentPageId;
                   return (
                     <div className="node-source-row" key={page.pageId}>
                       <div className="node-source-copy">

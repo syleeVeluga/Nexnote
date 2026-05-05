@@ -699,6 +699,7 @@ export function PageEditorPage() {
 
       {graphOpen && workspace && pageId && (
         <GraphPanel
+          mode="page"
           workspaceId={workspace.id}
           pageId={pageId}
           onClose={() => setGraphOpen(false)}

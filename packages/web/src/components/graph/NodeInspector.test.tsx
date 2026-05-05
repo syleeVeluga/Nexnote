@@ -124,6 +124,7 @@ const graphData: GraphData = {
     },
   ],
   meta: {
+    scope: "page",
     pageId: "page-1",
     depth: 1,
     totalNodes: 3,

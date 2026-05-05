@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
   FileText,
   Folder as FolderIcon,
+  Network,
   Plus,
   UploadCloud,
   Wand2,
@@ -19,10 +25,13 @@ import {
 } from "../lib/api-client.js";
 import { PageShell } from "../components/ui/PageShell.js";
 import { IconButton } from "../components/ui/IconButton.js";
+import { SegmentedTabs } from "../components/ui/SegmentedTabs.js";
 import { FolderReorganizeModal } from "../components/scheduled/FolderReorganizeModal.js";
+import { GraphPanel } from "../components/graph/GraphPanel.js";
 import { WikiDocumentTable } from "../components/wiki/WikiDocumentTable.js";
 
 const FETCH_LIMIT = 200;
+type FolderTab = "list" | "graph";
 
 interface FolderData {
   folder: Folder | null;
@@ -45,7 +54,11 @@ export function FolderPage() {
   const { folderId } = useParams();
   const { current } = useWorkspace();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const timeAgo = useTimeAgo();
+  const initialTab: FolderTab =
+    searchParams.get("tab") === "graph" ? "graph" : "list";
+  const [tab, setTab] = useState<FolderTab>(initialTab);
   const [data, setData] = useState<FolderData>(EMPTY_DATA);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +66,21 @@ export function FolderPage() {
   const [reorganizePageIds, setReorganizePageIds] = useState<string[]>([]);
   const [collectingReorganizePages, setCollectingReorganizePages] =
     useState(false);
+
+  useEffect(() => {
+    setTab(searchParams.get("tab") === "graph" ? "graph" : "list");
+  }, [searchParams]);
+
+  function updateTab(nextTab: FolderTab) {
+    setTab(nextTab);
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextTab === "graph") {
+      nextParams.set("tab", "graph");
+    } else {
+      nextParams.delete("tab");
+    }
+    setSearchParams(nextParams, { replace: true });
+  }
 
   useEffect(() => {
     if (!current || !folderId) return;
@@ -274,110 +302,145 @@ export function FolderPage() {
           })}
         </div>
       ) : (
-        <div className="folder-page-grid">
-          <section className="wiki-section folder-summary-section">
-            <header className="wiki-section-header">
-              <div>
-                <h2>
-                  {t("wiki.folderContents", {
-                    defaultValue: "Folder contents",
-                  })}
-                </h2>
-                <p>{folder.name}</p>
-              </div>
-            </header>
-            <div className="folder-summary-grid">
-              <FolderMetric
-                icon={<FileText size={16} />}
-                label={t("wiki.stats.documents", {
-                  defaultValue: "Documents",
-                })}
-                value={data.directPageTotal}
-              />
-              <FolderMetric
-                icon={<FolderIcon size={16} />}
-                label={t("wiki.stats.folders", { defaultValue: "Folders" })}
-                value={data.childFolderTotal}
-              />
-            </div>
-          </section>
+        <>
+          <SegmentedTabs
+            className="folder-page-tabs"
+            value={tab}
+            onChange={(value) => updateTab(value as FolderTab)}
+            ariaLabel={t("wiki.folderTabs", {
+              defaultValue: "Folder views",
+            })}
+            tabs={[
+              {
+                id: "list",
+                label: t("wiki.tabList", { defaultValue: "List" }),
+                icon: <FileText size={14} />,
+              },
+              {
+                id: "graph",
+                label: t("wiki.tabGraph", { defaultValue: "Graph" }),
+                icon: <Network size={14} />,
+              },
+            ]}
+          />
 
-          {truncated && (
-            <p className="wiki-truncation-note">
-              {t("wiki.truncationNote", {
-                defaultValue:
-                  "Showing the first {{limit}} items per section. Open child folders to see the rest.",
-                limit: FETCH_LIMIT,
-              })}
-            </p>
-          )}
-
-          {sortedChildFolders.length > 0 && (
-            <section className="wiki-section">
-              <header className="wiki-section-header">
-                <div>
-                  <h2>
-                    {t("wiki.childFolders", {
-                      defaultValue: "Child folders",
+          {tab === "list" ? (
+            <div className="folder-page-grid">
+              <section className="wiki-section folder-summary-section">
+                <header className="wiki-section-header">
+                  <div>
+                    <h2>
+                      {t("wiki.folderContents", {
+                        defaultValue: "Folder contents",
+                      })}
+                    </h2>
+                    <p>{folder.name}</p>
+                  </div>
+                </header>
+                <div className="folder-summary-grid">
+                  <FolderMetric
+                    icon={<FileText size={16} />}
+                    label={t("wiki.stats.documents", {
+                      defaultValue: "Documents",
                     })}
-                  </h2>
-                  <p>
-                    {t("wiki.childFoldersDescription", {
-                      defaultValue:
-                        "Drill into a child folder to see its direct documents.",
-                    })}
-                  </p>
+                    value={data.directPageTotal}
+                  />
+                  <FolderMetric
+                    icon={<FolderIcon size={16} />}
+                    label={t("wiki.stats.folders", { defaultValue: "Folders" })}
+                    value={data.childFolderTotal}
+                  />
                 </div>
-              </header>
-              <div className="wiki-folder-grid">
-                {sortedChildFolders.map((childFolder) => (
-                  <Link
-                    key={childFolder.id}
-                    to={`/folders/${childFolder.id}`}
-                    className="wiki-folder-card"
-                  >
-                    <span className="wiki-folder-card-icon" aria-hidden="true">
-                      <FolderIcon size={17} />
-                    </span>
-                    <span className="wiki-folder-card-body">
-                      <strong>{childFolder.name}</strong>
-                      <small>
-                        {t("wiki.childFolderUpdated", {
-                          defaultValue: "Updated {{updated}}",
-                          updated: timeAgo(childFolder.updatedAt),
-                        })}
-                      </small>
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            </section>
-          )}
+              </section>
 
-          <section className="wiki-document-group">
-            <header className="wiki-document-group-header">
-              <div>
-                <h3>
-                  {t("wiki.directDocuments", {
-                    defaultValue: "Direct documents",
-                  })}
-                </h3>
-                <p>
-                  {t("wiki.groupMeta", {
-                    defaultValue: "{{count}} documents",
-                    count: data.directPageTotal,
+              {truncated && (
+                <p className="wiki-truncation-note">
+                  {t("wiki.truncationNote", {
+                    defaultValue:
+                      "Showing the first {{limit}} items per section. Open child folders to see the rest.",
+                    limit: FETCH_LIMIT,
                   })}
                 </p>
-              </div>
-            </header>
-            <WikiDocumentTable
-              pages={sortedDirectPages}
-              emptyMessage={t("wiki.noFolderPages", {
-                defaultValue: "No direct documents in this folder.",
-              })}
-            />
-          </section>
-        </div>
+              )}
+
+              {sortedChildFolders.length > 0 && (
+                <section className="wiki-section">
+                  <header className="wiki-section-header">
+                    <div>
+                      <h2>
+                        {t("wiki.childFolders", {
+                          defaultValue: "Child folders",
+                        })}
+                      </h2>
+                      <p>
+                        {t("wiki.childFoldersDescription", {
+                          defaultValue:
+                            "Drill into a child folder to see its direct documents.",
+                        })}
+                      </p>
+                    </div>
+                  </header>
+                  <div className="wiki-folder-grid">
+                    {sortedChildFolders.map((childFolder) => (
+                      <Link
+                        key={childFolder.id}
+                        to={`/folders/${childFolder.id}`}
+                        className="wiki-folder-card"
+                      >
+                        <span className="wiki-folder-card-icon" aria-hidden="true">
+                          <FolderIcon size={17} />
+                        </span>
+                        <span className="wiki-folder-card-body">
+                          <strong>{childFolder.name}</strong>
+                          <small>
+                            {t("wiki.childFolderUpdated", {
+                              defaultValue: "Updated {{updated}}",
+                              updated: timeAgo(childFolder.updatedAt),
+                            })}
+                          </small>
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <section className="wiki-document-group">
+                <header className="wiki-document-group-header">
+                  <div>
+                    <h3>
+                      {t("wiki.directDocuments", {
+                        defaultValue: "Direct documents",
+                      })}
+                    </h3>
+                    <p>
+                      {t("wiki.groupMeta", {
+                        defaultValue: "{{count}} documents",
+                        count: data.directPageTotal,
+                      })}
+                    </p>
+                  </div>
+                </header>
+                <WikiDocumentTable
+                  pages={sortedDirectPages}
+                  emptyMessage={t("wiki.noFolderPages", {
+                    defaultValue: "No direct documents in this folder.",
+                  })}
+                />
+              </section>
+            </div>
+          ) : (
+            <section className="folder-graph-section">
+              <GraphPanel
+                mode="folder"
+                workspaceId={current.id}
+                folderId={folderId}
+                onClose={() => updateTab("list")}
+                onNavigateToPage={(id) => navigate(`/pages/${id}`)}
+              />
+            </section>
+          )}
+        </>
       )}
       {folder && (
         <FolderReorganizeModal

@@ -1,10 +1,15 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import { eq, and, isNull, count } from "drizzle-orm";
-import { folders, auditLogs } from "@wekiflow/db";
+import {
+  folders,
+  auditLogs,
+  collectFolderDescendantPageIds,
+} from "@wekiflow/db";
 import {
   createFolderSchema,
   updateFolderSchema,
   treePaginationSchema,
+  graphQuerySchema,
   uuidSchema,
   ERROR_CODES,
 } from "@wekiflow/shared";
@@ -32,6 +37,7 @@ import {
   type FolderParent,
 } from "../../lib/reorder.js";
 import { createFolder, PageStructureError } from "../../lib/create-folder.js";
+import { buildEntityGraph } from "../../lib/graph-builder.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -209,6 +215,92 @@ const folderRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       return reply.code(200).send({ data: toFolderDto(folder) });
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // GET /:folderId/graph ??Closed knowledge graph for a folder subtree
+  // -----------------------------------------------------------------------
+  fastify.get(
+    "/:folderId/graph",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const paramsResult = folderParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        return sendValidationError(reply, paramsResult.error.issues);
+      }
+      const { workspaceId, folderId } = paramsResult.data;
+
+      const role = await getMemberRole(
+        fastify.db,
+        workspaceId,
+        request.user.sub,
+      );
+      if (!role) return forbidden(reply);
+
+      const queryResult = graphQuerySchema.safeParse(request.query);
+      if (!queryResult.success) {
+        return sendValidationError(reply, queryResult.error.issues);
+      }
+      const { depth, limit, minConfidence, locale } = queryResult.data;
+
+      const [folder] = await fastify.db
+        .select({ id: folders.id })
+        .from(folders)
+        .where(
+          and(eq(folders.id, folderId), eq(folders.workspaceId, workspaceId)),
+        )
+        .limit(1);
+
+      if (!folder) {
+        return reply.code(404).send({
+          error: "Folder not found",
+          code: ERROR_CODES.FOLDER_NOT_FOUND,
+        });
+      }
+
+      const seedPageIds = await collectFolderDescendantPageIds(
+        fastify.db,
+        workspaceId,
+        folderId,
+      );
+
+      if (seedPageIds.length === 0) {
+        return reply.code(200).send({
+          nodes: [],
+          edges: [],
+          meta: {
+            scope: "folder",
+            folderId,
+            depth,
+            totalNodes: 0,
+            totalEdges: 0,
+            truncated: false,
+          },
+        });
+      }
+
+      const graph = await buildEntityGraph(fastify.db, {
+        workspaceId,
+        seedPageIds,
+        depth: depth as 1 | 2,
+        limit,
+        minConfidence,
+        locale,
+        restrictToSeedScope: true,
+      });
+
+      return reply.code(200).send({
+        nodes: graph.nodes,
+        edges: graph.edges,
+        meta: {
+          scope: "folder",
+          folderId,
+          depth,
+          totalNodes: graph.nodes.length,
+          totalEdges: graph.edges.length,
+          truncated: graph.truncated,
+        },
+      });
     },
   );
 

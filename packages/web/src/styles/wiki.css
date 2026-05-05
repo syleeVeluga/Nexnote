@@ -179,6 +179,30 @@
   gap: var(--wf-space-4);
 }
 
+.folder-page-tabs {
+  margin-bottom: var(--wf-space-4);
+}
+
+.folder-graph-section {
+  min-height: 640px;
+  display: flex;
+  border: 1px solid var(--wf-color-border);
+  border-radius: var(--wf-radius-lg);
+  overflow: hidden;
+  background: var(--wf-color-surface);
+}
+
+.folder-graph-section .graph-panel {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 640px;
+  border-left: 0;
+}
+
+.folder-graph-section .graph-panel-resizer {
+  display: none;
+}
+
 .folder-summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
