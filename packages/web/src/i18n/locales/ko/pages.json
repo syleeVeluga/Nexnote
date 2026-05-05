@@ -31,7 +31,7 @@
     "folderMissing": "이 폴더는 더 이상 존재하지 않습니다.",
     "folderTabs": "폴더 보기",
     "tabList": "목록",
-    "tabGraph": "그래프",
+    "tabGraph": "연결 관계",
     "folderGraphEmpty": "이 폴더에는 표시할 관계 데이터가 없습니다.",
     "parentFolder": "상위 폴더",
     "backToWiki": "위키로 돌아가기",

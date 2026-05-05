@@ -8,7 +8,11 @@ import {
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import ForceGraph2D from "react-force-graph-2d";
-import type { NodeObject, LinkObject } from "react-force-graph-2d";
+import type {
+  ForceGraphMethods,
+  LinkObject,
+  NodeObject,
+} from "react-force-graph-2d";
 import type { GraphNode, GraphEdge, GraphData } from "@wekiflow/shared";
 import {
   folders as foldersApi,
@@ -46,6 +50,11 @@ const DEFAULT_PANEL_WIDTH = 760;
 const MIN_PANEL_WIDTH = 280;
 const MAX_PANEL_WIDTH_RATIO = 0.8;
 const MIN_GRAPH_CONFIDENCE = 0;
+const DEFAULT_NODE_LIMIT_BY_DEPTH: Record<1 | 2, number> = {
+  1: 500,
+  2: 1000,
+};
+const NODE_LIMIT_PRESETS = [100, 200, 500, 1000] as const;
 
 type GNode = NodeObject<{
   id: string;
@@ -100,9 +109,17 @@ export function GraphPanel(props: GraphPanelProps) {
   const [hoveredEntityId, setHoveredEntityId] = useState<string | null>(null);
   const [activeEntityTypes, setActiveEntityTypes] = useState<string[]>([]);
   const [activePredicates, setActivePredicates] = useState<string[]>([]);
+  const [showNodeLabels, setShowNodeLabels] = useState(true);
+  const [nodeLimit, setNodeLimit] = useState<number>(
+    DEFAULT_NODE_LIMIT_BY_DEPTH[1],
+  );
+  const [nodeLimitMode, setNodeLimitMode] = useState<"auto" | "custom">("auto");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const forceGraphRef = useRef<ForceGraphMethods<GNode, GLink> | undefined>(
+    undefined,
+  );
   const [dimensions, setDimensions] = useState({
     width: DEFAULT_PANEL_WIDTH,
     height: 400,
@@ -191,7 +208,7 @@ export function GraphPanel(props: GraphPanelProps) {
     setError(null);
     const opts = {
       depth,
-      limit: depth === 1 ? 400 : 800,
+      limit: nodeLimit,
       minConfidence: MIN_GRAPH_CONFIDENCE,
       locale,
     };
@@ -207,7 +224,7 @@ export function GraphPanel(props: GraphPanelProps) {
         setGraphData(null);
       })
       .finally(() => setLoading(false));
-  }, [workspaceId, props.mode, targetId, depth, locale, t]);
+  }, [workspaceId, props.mode, targetId, depth, nodeLimit, locale, t]);
 
   const filterCandidates = useMemo(
     () =>
@@ -320,6 +337,21 @@ export function GraphPanel(props: GraphPanelProps) {
     );
   }, []);
 
+  const handleDepthChange = useCallback(
+    (nextDepth: 1 | 2) => {
+      setDepth(nextDepth);
+      if (nodeLimitMode === "auto") {
+        setNodeLimit(DEFAULT_NODE_LIMIT_BY_DEPTH[nextDepth]);
+      }
+    },
+    [nodeLimitMode],
+  );
+
+  const handleNodeLimitChange = useCallback((nextLimit: number) => {
+    setNodeLimitMode("custom");
+    setNodeLimit(nextLimit);
+  }, []);
+
   // Keep the graph data structurally stable so react-force-graph does not
   // restart the force simulation on every hover/selection change. Visual
   // state (dim / focus / selected) is derived from focusState + selection
@@ -345,6 +377,14 @@ export function GraphPanel(props: GraphPanelProps) {
 
     return { nodes, links };
   }, [visibleGraph, predicateLabels]);
+
+  useEffect(() => {
+    const fg = forceGraphRef.current;
+    if (!fg || forceGraphData.nodes.length === 0) return;
+    fg.d3Force("charge")?.strength(-18);
+    fg.d3Force("link")?.distance(18);
+    fg.d3ReheatSimulation();
+  }, [forceGraphData]);
 
   const isNodeDimmed = useCallback(
     (id: string) =>
@@ -410,14 +450,16 @@ export function GraphPanel(props: GraphPanelProps) {
         ctx.stroke();
       }
 
-      ctx.font = `${node.isCenter ? "bold " : ""}${fontSize}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "top";
-      ctx.fillStyle = "#1f2937";
-      ctx.fillText(label, node.x ?? 0, (node.y ?? 0) + size + 2 / globalScale);
+      if (showNodeLabels) {
+        ctx.font = `${node.isCenter ? "bold " : ""}${fontSize}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+        ctx.fillStyle = "#1f2937";
+        ctx.fillText(label, node.x ?? 0, (node.y ?? 0) + size + 2 / globalScale);
+      }
       ctx.restore();
     },
-    [focusState, isNodeDimmed, selectedEntityId],
+    [focusState, isNodeDimmed, selectedEntityId, showNodeLabels],
   );
 
   const paintLink = useCallback(
@@ -502,15 +544,35 @@ export function GraphPanel(props: GraphPanelProps) {
           <span className="graph-controls-label">{t("graphDepth")}:</span>
           <button
             className={`depth-btn${depth === 1 ? " active" : ""}`}
-            onClick={() => setDepth(1)}
+            onClick={() => handleDepthChange(1)}
           >
             1
           </button>
           <button
             className={`depth-btn${depth === 2 ? " active" : ""}`}
-            onClick={() => setDepth(2)}
+            onClick={() => handleDepthChange(2)}
           >
             2
+          </button>
+          <span className="graph-controls-label">{t("graphNodeLimit")}:</span>
+          {NODE_LIMIT_PRESETS.map((limit) => (
+            <button
+              key={limit}
+              className={`depth-btn${nodeLimit === limit ? " active" : ""}`}
+              onClick={() => handleNodeLimitChange(limit)}
+            >
+              {limit}
+            </button>
+          ))}
+          <span className="graph-controls-label">{t("graphNodeLabels")}:</span>
+          <button
+            className={`depth-btn${showNodeLabels ? " active" : ""}`}
+            onClick={() => setShowNodeLabels((value) => !value)}
+            aria-pressed={showNodeLabels}
+          >
+            {showNodeLabels
+              ? t("graphNodeLabelsOn")
+              : t("graphNodeLabelsOff")}
           </button>
         </div>
 
@@ -579,6 +641,7 @@ export function GraphPanel(props: GraphPanelProps) {
         ) : (
           <>
             <ForceGraph2D
+              ref={forceGraphRef}
               graphData={forceGraphData}
               width={dimensions.width}
               height={dimensions.height}
