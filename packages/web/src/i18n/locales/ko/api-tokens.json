@@ -1,0 +1,44 @@
+{
+  "title": "API 토큰",
+  "manageDescription": "외부 인제스션 자격 증명을 관리합니다",
+  "createDescription": "외부 인제스션 소스를 위한 범위가 지정된 자격 증명을 만드세요",
+  "insufficientRole": "워크스페이스 소유자와 관리자만 토큰을 관리할 수 있습니다.",
+  "activeBadge": "활성 {{count}}개",
+  "create": {
+    "heading": "토큰 만들기",
+    "subheading": "토큰 값은 생성 직후 한 번만 표시됩니다.",
+    "nameLabel": "이름",
+    "namePlaceholder": "CRM 웹훅",
+    "sourceHintLabel": "소스 이름 힌트",
+    "sourceHintPlaceholder": "crm-webhook",
+    "submit": "생성",
+    "submitting": "생성 중..."
+  },
+  "reveal": {
+    "title": "지금 이 토큰을 복사하세요",
+    "subtitle": "다시 표시되지 않습니다.",
+    "copy": "복사",
+    "copied": "복사됨"
+  },
+  "list": {
+    "heading": "토큰 목록",
+    "subheading": "활성 토큰을 Authorization: Bearer 자격 증명으로 사용하세요.",
+    "loading": "불러오는 중",
+    "empty": "아직 등록된 API 토큰이 없습니다."
+  },
+  "row": {
+    "noSourceHint": "소스 힌트 없음",
+    "meta": "{{hint}} · {{creator}} 님이 생성",
+    "createdOn": "생성일 {{date}}",
+    "lastUsed": "최근 사용 {{value}}",
+    "lastUsedNever": "사용 이력 없음",
+    "revoked": "철회됨",
+    "revoke": "철회"
+  },
+  "confirmRevoke": "\"{{name}}\" 토큰을 철회할까요?",
+  "errors": {
+    "loadFailed": "토큰을 불러오지 못했습니다",
+    "createFailed": "토큰을 생성하지 못했습니다",
+    "revokeFailed": "토큰을 철회하지 못했습니다"
+  }
+}

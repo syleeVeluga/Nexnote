@@ -13,7 +13,7 @@ import { Badge } from "../components/ui/Badge.js";
 const DEFAULT_SCOPE: ApiTokenScope = "ingestions:write";
 
 export function ApiTokensPage() {
-  const { t } = useTranslation(["common"]);
+  const { t, i18n } = useTranslation(["apiTokens", "common"]);
   const { current } = useWorkspace();
   const [items, setItems] = useState<ApiTokenItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -26,6 +26,7 @@ export function ApiTokensPage() {
   const [copied, setCopied] = useState(false);
   const workspaceId = current?.id;
   const canManage = current?.role === "owner" || current?.role === "admin";
+  const dateLocale = i18n.language;
 
   const load = useCallback(async () => {
     if (!workspaceId || !canManage) return;
@@ -35,11 +36,11 @@ export function ApiTokensPage() {
       const res = await apiTokensApi.list(workspaceId, { limit: 100 });
       setItems(res.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load tokens");
+      setError(err instanceof Error ? err.message : t("errors.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, canManage]);
+  }, [workspaceId, canManage, t]);
 
   useEffect(() => {
     void load();
@@ -62,7 +63,7 @@ export function ApiTokensPage() {
       setCopied(false);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create token");
+      setError(err instanceof Error ? err.message : t("errors.createFailed"));
     } finally {
       setCreating(false);
     }
@@ -70,13 +71,14 @@ export function ApiTokensPage() {
 
   async function revokeToken(token: ApiTokenItem) {
     if (!workspaceId || token.revokedAt) return;
-    const ok = window.confirm(`Revoke "${token.name}"?`);
+    const ok = window.confirm(t("confirmRevoke", { name: token.name }));
     if (!ok) return;
+    setError(null);
     try {
       await apiTokensApi.revoke(workspaceId, token.id);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to revoke token");
+      setError(err instanceof Error ? err.message : t("errors.revokeFailed"));
     }
   }
 
@@ -93,26 +95,26 @@ export function ApiTokensPage() {
     return (
       <PageShell
         className="api-tokens-page"
-        title="API Tokens"
-        description="Manage external ingestion credentials"
+        title={t("title")}
+        description={t("manageDescription")}
       >
         <div className="system-empty system-empty-restricted">
-          {t("insufficientRole", {
-            defaultValue: "Only workspace owners and admins can manage tokens.",
-          })}
+          {t("insufficientRole")}
         </div>
       </PageShell>
     );
   }
 
+  const activeCount = items.filter((item) => !item.revokedAt).length;
+
   return (
     <PageShell
       className="api-tokens-page"
-      title="API Tokens"
-      description="Create scoped credentials for external ingestion sources"
+      title={t("title")}
+      description={t("createDescription")}
       actions={
         <Badge tone="blue" size="sm">
-          {items.filter((item) => !item.revokedAt).length} active
+          {t("activeBadge", { count: activeCount })}
         </Badge>
       }
     >
@@ -124,26 +126,26 @@ export function ApiTokensPage() {
             <KeyRound size={18} />
           </span>
           <div>
-            <h2>Create token</h2>
-            <p>The token value is shown once after creation.</p>
+            <h2>{t("create.heading")}</h2>
+            <p>{t("create.subheading")}</p>
           </div>
         </div>
 
         <div className="api-token-form">
           <label>
-            <span>Name</span>
+            <span>{t("create.nameLabel")}</span>
             <input
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="CRM webhook"
+              placeholder={t("create.namePlaceholder")}
             />
           </label>
           <label>
-            <span>Source name hint</span>
+            <span>{t("create.sourceHintLabel")}</span>
             <input
               value={sourceNameHint}
               onChange={(event) => setSourceNameHint(event.target.value)}
-              placeholder="crm-webhook"
+              placeholder={t("create.sourceHintPlaceholder")}
             />
           </label>
           <label className="api-token-scope">
@@ -163,15 +165,15 @@ export function ApiTokensPage() {
             disabled={!name.trim() || !includeIngestionScope || creating}
           >
             <Plus size={14} aria-hidden="true" />
-            {creating ? "Creating..." : "Create"}
+            {creating ? t("create.submitting") : t("create.submit")}
           </button>
         </div>
 
         {revealedToken && (
           <div className="api-token-reveal">
             <div>
-              <strong>Copy this token now</strong>
-              <p>It will not be shown again.</p>
+              <strong>{t("reveal.title")}</strong>
+              <p>{t("reveal.subtitle")}</p>
             </div>
             <code>{revealedToken}</code>
             <button type="button" onClick={copyRevealedToken}>
@@ -180,7 +182,7 @@ export function ApiTokensPage() {
               ) : (
                 <Copy size={14} aria-hidden="true" />
               )}
-              {copied ? "Copied" : "Copy"}
+              {copied ? t("reveal.copied") : t("reveal.copy")}
             </button>
           </div>
         )}
@@ -189,14 +191,14 @@ export function ApiTokensPage() {
       <section className="api-token-list">
         <div className="system-section-header">
           <div>
-            <h2>Tokens</h2>
-            <p>Use active tokens as Authorization: Bearer credentials.</p>
+            <h2>{t("list.heading")}</h2>
+            <p>{t("list.subheading")}</p>
           </div>
-          {loading && <Badge tone="warm">Loading</Badge>}
+          {loading && <Badge tone="warm">{t("list.loading")}</Badge>}
         </div>
 
         {items.length === 0 && !loading ? (
-          <div className="system-empty">No API tokens yet.</div>
+          <div className="system-empty">{t("list.empty")}</div>
         ) : (
           <div className="api-token-table">
             {items.map((item) => (
@@ -204,8 +206,10 @@ export function ApiTokensPage() {
                 <div className="api-token-row-main">
                   <strong>{item.name}</strong>
                   <span>
-                    {item.sourceNameHint || "no source hint"} - created by{" "}
-                    {item.createdBy.name}
+                    {t("row.meta", {
+                      hint: item.sourceNameHint || t("row.noSourceHint"),
+                      creator: item.createdBy.name,
+                    })}
                   </span>
                 </div>
                 <div className="api-token-scopes">
@@ -217,19 +221,24 @@ export function ApiTokensPage() {
                 </div>
                 <div className="api-token-dates">
                   <span>
-                    Created {new Date(item.createdAt).toLocaleDateString()}
+                    {t("row.createdOn", {
+                      date: new Date(item.createdAt).toLocaleDateString(
+                        dateLocale,
+                      ),
+                    })}
                   </span>
                   <span>
-                    Last used{" "}
-                    {item.lastUsedAt
-                      ? new Date(item.lastUsedAt).toLocaleString()
-                      : "never"}
+                    {t("row.lastUsed", {
+                      value: item.lastUsedAt
+                        ? new Date(item.lastUsedAt).toLocaleString(dateLocale)
+                        : t("row.lastUsedNever"),
+                    })}
                   </span>
                 </div>
                 <div className="api-token-status">
                   {item.revokedAt ? (
                     <Badge tone="warm" size="sm">
-                      revoked
+                      {t("row.revoked")}
                     </Badge>
                   ) : (
                     <button
@@ -238,7 +247,7 @@ export function ApiTokensPage() {
                       onClick={() => revokeToken(item)}
                     >
                       <Ban size={13} aria-hidden="true" />
-                      Revoke
+                      {t("row.revoke")}
                     </button>
                   )}
                 </div>
