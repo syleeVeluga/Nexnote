@@ -11,6 +11,7 @@ import {
   type AIBudgetMeta,
   type AIMessage,
   type AIProvider,
+  type IngestionAgentPlan,
 } from "@wekiflow/shared";
 
 const COMPACTION_THRESHOLD_RATIO = 0.8;
@@ -20,7 +21,11 @@ export interface AgentRuntimeLimits {
   maxSteps: number;
   maxCallsPerTurn: number;
   maxMutations: number;
+  maxMutationsPerTurn: number;
+  maxTurns: number;
+  maxTotalMutations: number;
   timeoutMs: number;
+  turnRemainingTimeThresholdMs: number;
   inputTokenBudget: number;
   outputTokenBudget: number;
   workspaceDailyTokenCap: number;
@@ -96,7 +101,27 @@ export function readAgentRuntimeLimits(
       "AGENT_MAX_MUTATIONS",
       AGENT_LIMITS.MAX_MUTATIONS,
     ),
+    maxMutationsPerTurn: positiveIntEnv(
+      env,
+      "AGENT_MAX_MUTATIONS_PER_TURN",
+      positiveIntEnv(
+        env,
+        "AGENT_MAX_MUTATIONS",
+        AGENT_LIMITS.MAX_MUTATIONS_PER_TURN,
+      ),
+    ),
+    maxTurns: positiveIntEnv(env, "AGENT_MAX_TURNS", AGENT_LIMITS.MAX_TURNS),
+    maxTotalMutations: positiveIntEnv(
+      env,
+      "AGENT_MAX_TOTAL_MUTATIONS",
+      AGENT_LIMITS.MAX_TOTAL_MUTATIONS,
+    ),
     timeoutMs: positiveIntEnv(env, "AGENT_TIMEOUT_MS", AGENT_LIMITS.TIMEOUT_MS),
+    turnRemainingTimeThresholdMs: positiveIntEnv(
+      env,
+      "AGENT_TURN_REMAINING_TIME_THRESHOLD_MS",
+      AGENT_LIMITS.TURN_REMAINING_TIME_THRESHOLD_MS,
+    ),
     inputTokenBudget: positiveIntEnv(
       env,
       "AGENT_INPUT_TOKEN_BUDGET",
@@ -683,4 +708,71 @@ ${JSON.stringify(compaction.notices, null, 2)}`,
     },
     compactionNotices: compaction.notices,
   };
+}
+
+export interface TurnRecord {
+  turnIndex: number;
+  plan: IngestionAgentPlan;
+  skippedPlan?: IngestionAgentPlan["proposedPlan"];
+  execution: { succeeded: number; failed: number; attempted: number };
+  mutatedPageIds: string[];
+}
+
+export function packPlanContextForTurn(input: {
+  provider: AIProvider;
+  model: string;
+  systemPrompt: string;
+  ingestionText: string;
+  sourceName: string;
+  contentType: string;
+  titleHint: string | null;
+  blocks: AgentContextBlock[];
+  priorTurns: TurnRecord[];
+  turnIndex: number;
+  env?: NodeJS.ProcessEnv;
+}): PackedAgentContext {
+  if (input.turnIndex === 0) {
+    return packAgentPlanContext(input);
+  }
+
+  const priorTurnsBlock: AgentContextBlock = {
+    key: "prior_turns",
+    label: "Prior turns",
+    text: JSON.stringify(
+      input.priorTurns.map((turn) => ({
+        turn: turn.turnIndex,
+        summary: turn.plan.summary,
+        proposedCount:
+          turn.execution.attempted + (turn.skippedPlan?.length ?? 0),
+        attempted: turn.execution.attempted,
+        succeeded: turn.execution.succeeded,
+        failed: turn.execution.failed,
+        mutatedPageIds: turn.mutatedPageIds,
+        attemptedActions: turn.plan.proposedPlan.map((mutation, index) => ({
+          index,
+          action: mutation.action,
+          tool: mutation.tool,
+          targetPageId: mutation.targetPageId,
+        })),
+        unattemptedActions: (turn.skippedPlan ?? []).map(
+          (mutation, index) => ({
+            index: turn.execution.attempted + index,
+            action: mutation.action,
+            tool: mutation.tool,
+            targetPageId: mutation.targetPageId,
+            reason: mutation.reason,
+          }),
+        ),
+      })),
+      null,
+      2,
+    ),
+    minTokens: 1_000,
+    weight: 5,
+  };
+
+  return packAgentPlanContext({
+    ...input,
+    blocks: [...input.blocks, priorTurnsBlock],
+  });
 }

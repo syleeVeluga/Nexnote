@@ -169,10 +169,7 @@ export async function consumeWorkspaceAutonomyDestructiveLimit(
       );
     }
   } catch (err) {
-    if (
-      err instanceof Error &&
-      err.message.includes("daily cap reached")
-    ) {
+    if (err instanceof Error && err.message.includes("daily cap reached")) {
       throw err;
     }
     // Fail open on Redis outages. The worker queues already depend on Redis,
@@ -441,10 +438,8 @@ export function createIngestionAgentWorker(): Worker {
           agentDailyTokenCap: workspaces.agentDailyTokenCap,
           autonomyMode: workspaces.autonomyMode,
           autonomyPausedUntil: workspaces.autonomyPausedUntil,
-          autonomyMaxDestructivePerRun:
-            workspaces.autonomyMaxDestructivePerRun,
-          autonomyMaxDestructivePerDay:
-            workspaces.autonomyMaxDestructivePerDay,
+          autonomyMaxDestructivePerRun: workspaces.autonomyMaxDestructivePerRun,
+          autonomyMaxDestructivePerDay: workspaces.autonomyMaxDestructivePerDay,
         })
         .from(workspaces)
         .where(eq(workspaces.id, workspaceId))
@@ -743,7 +738,15 @@ export function createIngestionAgentWorker(): Worker {
         if (runMode === "agent") {
           await db
             .update(ingestions)
-            .set({ status: "completed", processedAt: new Date() })
+            .set({
+              status:
+                result.status === "aborted"
+                  ? "failed"
+                  : result.status === "partial"
+                    ? "partial"
+                    : "completed",
+              processedAt: new Date(),
+            })
             .where(eq(ingestions.id, ingestionId));
         }
 
@@ -763,7 +766,7 @@ export function createIngestionAgentWorker(): Worker {
           const [failedRun] = await db
             .update(agentRuns)
             .set({
-              status: "failed",
+              status: "aborted",
               stepsJson: finalSteps,
               totalTokens: err.totalTokens,
               totalLatencyMs: err.totalLatencyMs,
@@ -790,7 +793,7 @@ export function createIngestionAgentWorker(): Worker {
           return {
             ingestionId,
             agentRunId: agentRun.id,
-            status: "failed",
+            status: "aborted",
             proposedMutations: 0,
             totalTokens: err.totalTokens,
           };

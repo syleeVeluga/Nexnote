@@ -27,12 +27,14 @@ function stepIcon(type: AgentRunTraceStep["type"]) {
     case "tool_result":
       return <Search size={13} />;
     case "plan":
+    case "replan":
       return <GitBranch size={13} />;
     case "mutation_result":
       return <Wrench size={13} />;
     case "context_compaction":
       return <Database size={13} />;
     case "shadow_execute_skipped":
+    case "turn_aborted":
       return <Clock3 size={13} />;
     default:
       return <AlertTriangle size={13} />;
@@ -41,8 +43,9 @@ function stepIcon(type: AgentRunTraceStep["type"]) {
 
 function statusTone(status: AgentRunDto["status"]) {
   if (status === "running") return "blue" as const;
-  if (status === "failed" || status === "timeout") return "red" as const;
-  if (status === "shadow") return "warm" as const;
+  if (status === "failed" || status === "timeout" || status === "aborted")
+    return "red" as const;
+  if (status === "shadow" || status === "partial") return "warm" as const;
   return "green" as const;
 }
 
@@ -75,6 +78,51 @@ function compactPayload(payload: Record<string, unknown>): string {
   return JSON.stringify(copy, null, 2);
 }
 
+function stepTurnIndex(step: AgentRunTraceStep): number | null {
+  if (typeof step.turnIndex === "number") return step.turnIndex;
+  const payloadTurnIndex = step.payload["turnIndex"];
+  return typeof payloadTurnIndex === "number" ? payloadTurnIndex : null;
+}
+
+function groupSteps(steps: AgentRunTraceStep[]) {
+  const groups: Array<{
+    key: string;
+    title: string;
+    steps: AgentRunTraceStep[];
+  }> = [];
+  const byKey = new Map<string, (typeof groups)[number]>();
+
+  for (const step of steps) {
+    const turnIndex = stepTurnIndex(step);
+    const key = turnIndex === null ? "setup" : `turn-${turnIndex}`;
+    let group = byKey.get(key);
+    if (!group) {
+      group = {
+        key,
+        title: turnIndex === null ? "Setup" : `Turn ${turnIndex + 1}`,
+        steps: [],
+      };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+    group.steps.push(step);
+  }
+
+  return groups.map((group) => {
+    if (group.key === "setup") return group;
+    const proposed =
+      group.steps.find((step) => step.type === "plan" || step.type === "replan")
+        ?.payload["mutationCount"] ?? 0;
+    const applied = group.steps.filter(
+      (step) => step.type === "mutation_result" && step.payload["ok"] === true,
+    ).length;
+    return {
+      ...group,
+      title: `${group.title} - ${proposed} proposed, ${applied} applied`,
+    };
+  });
+}
+
 export function AgentTracePanel({
   agentRun,
   streamError,
@@ -89,6 +137,7 @@ export function AgentTracePanel({
   }
 
   const sortedSteps = [...agentRun.steps].sort((a, b) => a.step - b.step);
+  const groupedSteps = groupSteps(sortedSteps);
   const running = agentRun.status === "running";
 
   return (
@@ -126,28 +175,38 @@ export function AgentTracePanel({
           </span>
         </div>
       ) : (
-        <ol className="agent-trace-list">
-          {sortedSteps.map((step) => (
-            <li key={`${step.step}-${step.ts}`} className="agent-trace-step">
-              <div className="agent-trace-step-icon" aria-hidden="true">
-                {step.type === "error" ? (
-                  <AlertTriangle size={13} />
-                ) : step.type === "shadow_execute_skipped" ? (
-                  <CheckCircle2 size={13} />
-                ) : (
-                  stepIcon(step.type)
-                )}
-              </div>
-              <div className="agent-trace-step-body">
-                <div className="agent-trace-step-top">
-                  <strong>{stepTitle(step)}</strong>
-                  <span>{new Date(step.ts).toLocaleTimeString()}</span>
-                </div>
-                <pre>{compactPayload(step.payload)}</pre>
-              </div>
-            </li>
+        <div className="agent-trace-groups">
+          {groupedSteps.map((group) => (
+            <section key={group.key} className="agent-trace-group">
+              <h4>{group.title}</h4>
+              <ol className="agent-trace-list">
+                {group.steps.map((step) => (
+                  <li
+                    key={`${step.step}-${step.ts}`}
+                    className="agent-trace-step"
+                  >
+                    <div className="agent-trace-step-icon" aria-hidden="true">
+                      {step.type === "error" || step.type === "turn_aborted" ? (
+                        <AlertTriangle size={13} />
+                      ) : step.type === "shadow_execute_skipped" ? (
+                        <CheckCircle2 size={13} />
+                      ) : (
+                        stepIcon(step.type)
+                      )}
+                    </div>
+                    <div className="agent-trace-step-body">
+                      <div className="agent-trace-step-top">
+                        <strong>{stepTitle(step)}</strong>
+                        <span>{new Date(step.ts).toLocaleTimeString()}</span>
+                      </div>
+                      <pre>{compactPayload(step.payload)}</pre>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </section>
           ))}
-        </ol>
+        </div>
       )}
     </div>
   );

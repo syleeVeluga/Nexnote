@@ -427,7 +427,7 @@ export const ingestionAgentPlanSchema = z.object({
   summary: z.string().trim().min(1).max(2_000),
   proposedPlan: z
     .array(agentPlanMutationSchema)
-    .max(AGENT_LIMITS.MAX_MUTATIONS),
+    .max(AGENT_LIMITS.MAX_TOTAL_MUTATIONS),
   openQuestions: z.array(z.string().trim().min(1).max(1_000)).default([]),
 });
 export type IngestionAgentPlan = z.infer<typeof ingestionAgentPlanSchema>;
@@ -440,10 +440,13 @@ export const agentRunTraceStepSchema = z.object({
     "context_compaction",
     "tool_result",
     "plan",
+    "replan",
     "mutation_result",
     "shadow_execute_skipped",
+    "turn_aborted",
     "error",
   ]),
+  turnIndex: z.number().int().min(0).optional(),
   payload: z.record(z.string(), z.unknown()),
   ts: z.string(),
 });

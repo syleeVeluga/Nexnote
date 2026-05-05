@@ -18,6 +18,7 @@ export const INGESTION_STATUSES = [
   "pending",
   "processing",
   "completed",
+  "partial",
   "failed",
 ] as const;
 export type IngestionStatus = (typeof INGESTION_STATUSES)[number];
@@ -38,6 +39,8 @@ export const AGENT_RUN_STATUSES = [
   "failed",
   "timeout",
   "shadow",
+  "partial",
+  "aborted",
   "paused",
 ] as const;
 export type AgentRunStatus = (typeof AGENT_RUN_STATUSES)[number];
@@ -45,6 +48,7 @@ export type AgentRunStatus = (typeof AGENT_RUN_STATUSES)[number];
 export const SCHEDULED_RUN_STATUSES = [
   "running",
   "completed",
+  "partial",
   "failed",
 ] as const;
 export type ScheduledRunStatus = (typeof SCHEDULED_RUN_STATUSES)[number];
@@ -63,7 +67,11 @@ export const AGENT_LIMITS = {
   MAX_STEPS: 15,
   MAX_CALLS_PER_TURN: 5,
   MAX_MUTATIONS: 20,
-  TIMEOUT_MS: 60_000,
+  MAX_MUTATIONS_PER_TURN: 20,
+  MAX_TURNS: 5,
+  MAX_TOTAL_MUTATIONS: 100,
+  TIMEOUT_MS: 180_000,
+  TURN_REMAINING_TIME_THRESHOLD_MS: 30_000,
   INPUT_TOKEN_BUDGET: 800_000,
   OUTPUT_TOKEN_BUDGET: 60_000,
   WORKSPACE_DAILY_TOKEN_CAP: 5_000_000,

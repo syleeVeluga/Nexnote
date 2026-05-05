@@ -36,14 +36,11 @@ export const agentRuns = pgTable(
   (t) => [
     check(
       "agent_runs_status_chk",
-      sql`${t.status} IN ('running','completed','failed','timeout','shadow','paused')`,
+      sql`${t.status} IN ('running','completed','failed','timeout','shadow','partial','aborted','paused')`,
     ),
     check("agent_runs_decisions_count_chk", sql`${t.decisionsCount} >= 0`),
     check("agent_runs_total_tokens_chk", sql`${t.totalTokens} >= 0`),
-    check(
-      "agent_runs_total_latency_ms_chk",
-      sql`${t.totalLatencyMs} >= 0`,
-    ),
+    check("agent_runs_total_latency_ms_chk", sql`${t.totalLatencyMs} >= 0`),
     index("agent_runs_ingestion_idx").on(t.ingestionId),
     index("agent_runs_workspace_started_idx").on(t.workspaceId, t.startedAt),
   ],

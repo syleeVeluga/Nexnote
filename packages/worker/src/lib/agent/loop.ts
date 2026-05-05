@@ -28,11 +28,12 @@ import {
 import {
   compactAgentMessages,
   packAgentExploreContext,
-  packAgentPlanContext,
+  packPlanContextForTurn,
   readAgentRuntimeLimits,
   selectAgentModel,
   type AgentContextBlock,
   type AgentModelSelection,
+  type TurnRecord,
 } from "./budgeter.js";
 import type {
   AgentDb,
@@ -117,6 +118,25 @@ Return only JSON with this exact shape:
       "evidence": [{ "pageId": "uuid", "note": "short evidence" }]
     }
   ],
+  "openQuestions": []
+}`;
+
+const REPLAN_SYSTEM_PROMPT = `You are continuing a multi-turn wiki maintenance plan for WekiFlow.
+You previously planned and executed mutations on this run. Below is the original ingestion, prior plan summaries, per-mutation outcomes, and pages you mutated.
+
+Propose only the remaining plan items if more work is needed, or return an empty proposedPlan to finish the run.
+
+Rules:
+- Do not re-propose mutations that already succeeded.
+- If a previous mutation failed, propose a corrected version or skip it if it is no longer safe.
+- Use the same tool-call contract as the initial plan turn.
+- Re-read mutated pages via read_page if you need to verify your own changes; caches are invalidated for those pages between turns.
+- Empty proposedPlan means the run is done. Do not pad.
+
+Return only JSON with this exact shape:
+{
+  "summary": "short explanation of what remains",
+  "proposedPlan": [],
   "openQuestions": []
 }`;
 
@@ -215,12 +235,13 @@ export interface RunIngestionAgentShadowInput {
 }
 
 export interface IngestionAgentShadowResult {
-  status: "shadow" | "completed";
+  status: "shadow" | "completed" | "partial" | "aborted";
   planJson: IngestionAgentPlan & {
     shadow: boolean;
     model: AgentModelSelection;
     budget: AIBudgetMeta;
     parseFailed?: boolean;
+    turns?: TurnRecord[];
     execution?: {
       mode: "agent";
       succeeded: number;
@@ -783,6 +804,7 @@ async function executeMutations(input: {
   mutateTools?: Record<string, AgentToolDefinition>;
   mutationQueues?: RunIngestionAgentShadowInput["mutationQueues"];
   steps: AgentRunTraceStep[];
+  turnIndex?: number;
   onStep?: RunIngestionAgentShadowInput["onStep"];
   repairMutation?: (failure: {
     index: number;
@@ -821,6 +843,7 @@ async function executeMutations(input: {
     const toolCall = mutationToToolCall(mutation, index, input.ingestionText);
     const [execution] = await dispatcher.dispatchToolCalls([toolCall]);
     traceStep(input, input.steps, "mutation_result", {
+      turnIndex: input.turnIndex ?? 0,
       name: execution.name,
       toolCallId: execution.toolCallId,
       ok: execution.ok,
@@ -851,6 +874,7 @@ async function executeMutations(input: {
           repairedToolCall,
         ]);
         traceStep(input, input.steps, "mutation_result", {
+          turnIndex: input.turnIndex ?? 0,
           name: repairedExecution.name,
           toolCallId: repairedExecution.toolCallId,
           ok: repairedExecution.ok,
@@ -887,6 +911,7 @@ async function executeMutations(input: {
         },
       );
       traceStep(input, input.steps, "mutation_result", {
+        turnIndex: input.turnIndex ?? 0,
         name: "request_human_review",
         ok: true,
         result: { decisionId: failureDecisionId, status: "failed" },
@@ -1335,121 +1360,150 @@ export async function runIngestionAgentShadow(
     ...planModel,
   });
 
-  const packed = packAgentPlanContext({
-    provider: planModel.provider,
-    model: planModel.model,
-    systemPrompt: planSystemPrompt,
-    ingestionText,
-    sourceName: input.ingestion.sourceName,
-    contentType: input.ingestion.contentType,
-    titleHint: input.ingestion.titleHint,
-    blocks: toolContextBlocks,
-    env: input.env,
-  });
-  if (packed.compactionNotices?.length) {
-    traceStep(input, steps, "context_compaction", {
-      phase: "plan",
-      notices: packed.compactionNotices,
-    });
-  }
   const planAdapter =
     input.adapter ??
     (planModel.provider === exploreModel.provider
       ? adapter
       : getAIAdapter(planModel.provider));
-  const planRequest: AIRequest = {
-    provider: planModel.provider,
-    model: planModel.model,
-    mode: "agent_plan",
-    promptVersion: PROMPT_VERSION,
-    messages: [
-      { role: "system", content: planSystemPrompt },
-      { role: "user", content: packed.text },
-    ],
-    temperature: 0.1,
-    maxTokens: MODE_OUTPUT_RESERVE.agent_plan,
-    responseFormat: "json",
-    budgetMeta: packed.budgetMeta,
-  };
+  const replanSystemPrompt = withWorkspaceInstructions(
+    REPLAN_SYSTEM_PROMPT,
+    mergedInstructions,
+  );
+  const allTurns: TurnRecord[] = [];
+  let partialReviewQueued = false;
 
-  let planResponse: AIResponse;
-  let planReservation: AgentWorkspaceTokenReservation | null = null;
-  try {
-    planReservation = await reserveWorkspaceTokensForRequest(
-      input,
-      planRequest,
-      {
+  async function runPlanTurn(turnIndex: number): Promise<{
+    parsed: ReturnType<typeof parsePlan>;
+    modelRun: { id?: string } | void;
+    budget: AIBudgetMeta;
+  }> {
+    const phase = turnIndex === 0 ? "plan" : "replan";
+    const systemPrompt =
+      turnIndex === 0 ? planSystemPrompt : replanSystemPrompt;
+    const packed = packPlanContextForTurn({
+      provider: planModel.provider,
+      model: planModel.model,
+      systemPrompt,
+      ingestionText,
+      sourceName: input.ingestion.sourceName,
+      contentType: input.ingestion.contentType,
+      titleHint: input.ingestion.titleHint,
+      blocks: toolContextBlocks,
+      priorTurns: allTurns,
+      turnIndex,
+      env: input.env,
+    });
+    if (packed.compactionNotices?.length) {
+      traceStep(input, steps, "context_compaction", {
+        phase,
+        turnIndex,
+        notices: packed.compactionNotices,
+      });
+    }
+
+    const planRequest: AIRequest = {
+      provider: planModel.provider,
+      model: planModel.model,
+      mode: "agent_plan",
+      promptVersion: PROMPT_VERSION,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: packed.text },
+      ],
+      temperature: 0.1,
+      maxTokens: MODE_OUTPUT_RESERVE.agent_plan,
+      responseFormat: "json",
+      budgetMeta: packed.budgetMeta,
+    };
+
+    let planResponse: AIResponse;
+    let planReservation: AgentWorkspaceTokenReservation | null = null;
+    try {
+      planReservation = await reserveWorkspaceTokensForRequest(
+        input,
+        planRequest,
+        {
+          steps,
+          totals,
+          cap: workspaceTokenCap,
+          usedToday: workspaceTokensUsedToday,
+          phase: `${phase} model call`,
+        },
+      );
+      planResponse = await chatBeforeDeadline(
+        planAdapter,
+        planRequest,
+        deadlineMs,
+        steps,
+        totals,
+      );
+    } catch (err) {
+      await releaseWorkspaceTokenReservation(planReservation, 0);
+      await recordModelRun(input, {
+        request: planRequest,
+        status: "failed",
+        requestMetaJson: {
+          ingestionId: input.ingestion.id,
+          agentRunId: input.agentRunId,
+          phase,
+          turnIndex,
+          budget: packed.budgetMeta,
+        },
+        responseMetaJson: {
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
+      throw err;
+    }
+
+    addUsage(totals, planResponse);
+    await releaseWorkspaceTokenReservation(
+      planReservation,
+      planResponse.tokenInput + planResponse.tokenOutput,
+    );
+    const parsed = parsePlan(planResponse.content);
+    const modelRun = await recordModelRun(input, {
+      request: planRequest,
+      response: planResponse,
+      status: parsed.parseFailed ? "failed" : "success",
+      requestMetaJson: {
+        ingestionId: input.ingestion.id,
+        agentRunId: input.agentRunId,
+        phase,
+        turnIndex,
+        budget: packed.budgetMeta,
+      },
+      responseMetaJson: {
+        finishReason: planResponse.finishReason ?? null,
+        mutationCount: parsed.plan.proposedPlan.length,
+        parseFailed: parsed.parseFailed,
+        error: parsed.error,
+      },
+    });
+
+    traceStep(input, steps, turnIndex === 0 ? "plan" : "replan", {
+      phase,
+      turnIndex,
+      parseFailed: parsed.parseFailed,
+      mutationCount: parsed.plan.proposedPlan.length,
+      contentExcerpt: planResponse.content.slice(0, 4_000),
+      budget: packed.budgetMeta,
+    });
+    if (!input.reserveWorkspaceTokens) {
+      enforceWorkspaceTokenCapAfterUsage({
         steps,
         totals,
         cap: workspaceTokenCap,
         usedToday: workspaceTokensUsedToday,
-        phase: "plan model call",
-      },
-    );
-    planResponse = await chatBeforeDeadline(
-      planAdapter,
-      planRequest,
-      deadlineMs,
-      steps,
-      totals,
-    );
-  } catch (err) {
-    await releaseWorkspaceTokenReservation(planReservation, 0);
-    await recordModelRun(input, {
-      request: planRequest,
-      status: "failed",
-      requestMetaJson: {
-        ingestionId: input.ingestion.id,
-        agentRunId: input.agentRunId,
-        phase: "plan",
-        budget: packed.budgetMeta,
-      },
-      responseMetaJson: {
-        error: err instanceof Error ? err.message : String(err),
-      },
-    });
-    throw err;
+        phase: `${phase} model call`,
+      });
+    }
+
+    return { parsed, modelRun, budget: packed.budgetMeta };
   }
 
-  addUsage(totals, planResponse);
-  await releaseWorkspaceTokenReservation(
-    planReservation,
-    planResponse.tokenInput + planResponse.tokenOutput,
-  );
-  const parsed = parsePlan(planResponse.content);
-  const planModelRun = await recordModelRun(input, {
-    request: planRequest,
-    response: planResponse,
-    status: parsed.parseFailed ? "failed" : "success",
-    requestMetaJson: {
-      ingestionId: input.ingestion.id,
-      agentRunId: input.agentRunId,
-      phase: "plan",
-      budget: packed.budgetMeta,
-    },
-    responseMetaJson: {
-      finishReason: planResponse.finishReason ?? null,
-      mutationCount: parsed.plan.proposedPlan.length,
-      parseFailed: parsed.parseFailed,
-      error: parsed.error,
-    },
-  });
-
-  traceStep(input, steps, "plan", {
-    parseFailed: parsed.parseFailed,
-    mutationCount: parsed.plan.proposedPlan.length,
-    contentExcerpt: planResponse.content.slice(0, 4_000),
-    budget: packed.budgetMeta,
-  });
-  if (!input.reserveWorkspaceTokens) {
-    enforceWorkspaceTokenCapAfterUsage({
-      steps,
-      totals,
-      cap: workspaceTokenCap,
-      usedToday: workspaceTokensUsedToday,
-      phase: "plan model call",
-    });
-  }
+  const firstTurn = await runPlanTurn(0);
+  const parsed = firstTurn.parsed;
 
   if (mode === "shadow") {
     traceStep(input, steps, "shadow_execute_skipped", {
@@ -1463,7 +1517,7 @@ export async function runIngestionAgentShadow(
         ...parsed.plan,
         shadow: true,
         model: planModel,
-        budget: packed.budgetMeta,
+        budget: firstTurn.budget,
         ...(parsed.parseFailed ? { parseFailed: true } : {}),
       },
       steps,
@@ -1476,160 +1530,367 @@ export async function runIngestionAgentShadow(
   if (!input.agentRunId) {
     throw new Error("agentRunId is required for ingestion agent execute mode");
   }
-  if (!planModelRun?.id) {
-    throw new Error(
-      "plan modelRunId is required for ingestion agent execute mode",
-    );
-  }
+  const agentRunId = input.agentRunId;
 
-  const execution = await executeMutations({
-    db: input.db,
-    workspaceId: input.workspaceId,
-    ingestion: input.ingestion,
-    agentRunId: input.agentRunId,
-    modelRunId: planModelRun.id,
-    origin: input.origin,
-    scheduledRunId: input.scheduledRunId,
-    scheduledAutoApply: input.scheduledAutoApply,
-    allowDestructiveScheduledAgent: input.allowDestructiveScheduledAgent,
-    autonomyMode: input.autonomyMode,
-    autonomyMaxDestructivePerRun: input.autonomyMaxDestructivePerRun,
-    consumeDestructiveDailyOperation: input.consumeDestructiveDailyOperation,
-    ingestionText,
-    plan: parsed.plan,
-    state: dispatcher.state,
-    mutateTools: input.mutateTools,
-    mutationQueues: input.mutationQueues,
-    steps,
-    onStep: input.onStep,
-    repairMutation: async (failure) => {
-      if (!failure.error.selfCorrection) return null;
-      const repairRequest: AIRequest = {
-        provider: planModel.provider,
-        model: planModel.model,
-        mode: "agent_plan",
-        promptVersion: PROMPT_VERSION,
-        messages: [
-          { role: "system", content: MUTATION_REPAIR_SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: JSON.stringify(
-              {
-                failedMutation: failure.mutation,
-                failedToolCall: failure.toolCall,
-                error: failure.error,
-                instruction:
-                  "Return exactly one corrected proposedPlan item, or request_human_review if the hint is insufficient.",
-              },
-              null,
-              2,
-            ),
-          },
-        ],
-        temperature: 0.1,
-        maxTokens: Math.min(4_096, MODE_OUTPUT_RESERVE.agent_plan),
-        responseFormat: "json",
-        budgetMeta: packed.budgetMeta,
-      };
+  let finalStatus: IngestionAgentShadowResult["status"] | null = null;
+  let lastParsed = parsed;
+  let lastBudget = firstTurn.budget;
+  let lastModelRun = firstTurn.modelRun;
+  let totalSucceeded = 0;
+  let totalFailed = 0;
 
-      let repairResponse: AIResponse;
-      let repairReservation: AgentWorkspaceTokenReservation | null = null;
-      try {
-        repairReservation = await reserveWorkspaceTokensForRequest(
-          input,
-          repairRequest,
-          {
-            steps,
-            totals,
-            cap: workspaceTokenCap,
-            usedToday: workspaceTokensUsedToday,
-            phase: "mutation repair model call",
-          },
-        );
-        repairResponse = await chatBeforeDeadline(
-          planAdapter,
-          repairRequest,
-          deadlineMs,
-          steps,
-          totals,
-        );
-      } catch (err) {
-        await releaseWorkspaceTokenReservation(repairReservation, 0);
-        await recordModelRun(input, {
-          request: repairRequest,
-          status: "failed",
-          requestMetaJson: {
-            ingestionId: input.ingestion.id,
-            agentRunId: input.agentRunId,
-            phase: "mutation_repair",
-            failedTool: failure.toolCall.name,
-          },
-          responseMetaJson: {
-            error: err instanceof Error ? err.message : String(err),
-          },
-        });
-        return null;
-      }
-
-      addUsage(totals, repairResponse);
-      await releaseWorkspaceTokenReservation(
-        repairReservation,
-        repairResponse.tokenInput + repairResponse.tokenOutput,
-      );
-      const repaired = parsePlan(repairResponse.content);
-      await recordModelRun(input, {
-        request: repairRequest,
-        response: repairResponse,
-        status: repaired.parseFailed ? "failed" : "success",
-        requestMetaJson: {
-          ingestionId: input.ingestion.id,
-          agentRunId: input.agentRunId,
-          phase: "mutation_repair",
-          failedTool: failure.toolCall.name,
+  async function repairMutationForTurn(
+    failure: {
+      index: number;
+      mutation: AgentPlanMutation;
+      toolCall: NormalizedToolCall;
+      error: AgentToolErrorPayload;
+    },
+    turnIndex: number,
+    budget: AIBudgetMeta,
+  ): Promise<AgentPlanMutation | null> {
+    if (!failure.error.selfCorrection) return null;
+    const repairRequest: AIRequest = {
+      provider: planModel.provider,
+      model: planModel.model,
+      mode: "agent_plan",
+      promptVersion: PROMPT_VERSION,
+      messages: [
+        { role: "system", content: MUTATION_REPAIR_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: JSON.stringify(
+            {
+              failedMutation: failure.mutation,
+              failedToolCall: failure.toolCall,
+              error: failure.error,
+              instruction:
+                "Return exactly one corrected proposedPlan item, or request_human_review if the hint is insufficient.",
+            },
+            null,
+            2,
+          ),
         },
-        responseMetaJson: {
-          finishReason: repairResponse.finishReason ?? null,
-          parseFailed: repaired.parseFailed,
-          error: repaired.error,
-        },
-      });
-      traceStep(input, steps, "plan", {
-        phase: "mutation_repair",
-        parseFailed: repaired.parseFailed,
-        contentExcerpt: repairResponse.content.slice(0, 2_000),
-      });
-      if (!input.reserveWorkspaceTokens) {
-        enforceWorkspaceTokenCapAfterUsage({
+      ],
+      temperature: 0.1,
+      maxTokens: Math.min(4_096, MODE_OUTPUT_RESERVE.agent_plan),
+      responseFormat: "json",
+      budgetMeta: budget,
+    };
+
+    let repairResponse: AIResponse;
+    let repairReservation: AgentWorkspaceTokenReservation | null = null;
+    try {
+      repairReservation = await reserveWorkspaceTokensForRequest(
+        input,
+        repairRequest,
+        {
           steps,
           totals,
           cap: workspaceTokenCap,
           usedToday: workspaceTokensUsedToday,
           phase: "mutation repair model call",
+        },
+      );
+      repairResponse = await chatBeforeDeadline(
+        planAdapter,
+        repairRequest,
+        deadlineMs,
+        steps,
+        totals,
+      );
+    } catch (err) {
+      await releaseWorkspaceTokenReservation(repairReservation, 0);
+      await recordModelRun(input, {
+        request: repairRequest,
+        status: "failed",
+        requestMetaJson: {
+          ingestionId: input.ingestion.id,
+          agentRunId: input.agentRunId,
+          phase: "mutation_repair",
+          turnIndex,
+          failedTool: failure.toolCall.name,
+        },
+        responseMetaJson: {
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
+      return null;
+    }
+
+    addUsage(totals, repairResponse);
+    await releaseWorkspaceTokenReservation(
+      repairReservation,
+      repairResponse.tokenInput + repairResponse.tokenOutput,
+    );
+    const repaired = parsePlan(repairResponse.content);
+    await recordModelRun(input, {
+      request: repairRequest,
+      response: repairResponse,
+      status: repaired.parseFailed ? "failed" : "success",
+      requestMetaJson: {
+        ingestionId: input.ingestion.id,
+        agentRunId: input.agentRunId,
+        phase: "mutation_repair",
+        turnIndex,
+        failedTool: failure.toolCall.name,
+      },
+      responseMetaJson: {
+        finishReason: repairResponse.finishReason ?? null,
+        parseFailed: repaired.parseFailed,
+        error: repaired.error,
+      },
+    });
+    traceStep(input, steps, "plan", {
+      phase: "mutation_repair",
+      turnIndex,
+      parseFailed: repaired.parseFailed,
+      contentExcerpt: repairResponse.content.slice(0, 2_000),
+    });
+    if (!input.reserveWorkspaceTokens) {
+      enforceWorkspaceTokenCapAfterUsage({
+        steps,
+        totals,
+        cap: workspaceTokenCap,
+        usedToday: workspaceTokensUsedToday,
+        phase: "mutation repair model call",
+      });
+    }
+
+    return repaired.parseFailed
+      ? null
+      : (repaired.plan.proposedPlan[0] ?? null);
+  }
+
+  async function queuePartialRunForReview(partial: {
+    turnIndex: number;
+    reason: string;
+    remainingPlan: IngestionAgentPlan["proposedPlan"];
+    modelRunId: string;
+  }): Promise<number> {
+    if (partialReviewQueued || partial.remainingPlan.length === 0) return 0;
+    if (input.mutateTools || input.origin === "scheduled") return 0;
+    partialReviewQueued = true;
+
+    const suggestedPageIds = [
+      ...new Set(
+        partial.remainingPlan
+          .map((mutation) => mutation.targetPageId)
+          .filter((pageId): pageId is string => typeof pageId === "string"),
+      ),
+    ].slice(0, 20);
+    const reviewPlan: IngestionAgentPlan = {
+      summary: "Agent run stopped before all proposed mutations were executed.",
+      proposedPlan: [
+        {
+          action: "needs_review",
+          targetPageId: null,
+          confidence: 0,
+          reason:
+            `${partial.reason}; ${partial.remainingPlan.length} proposed mutation(s) were not executed and require human review.`,
+          tool: "request_human_review",
+          args: {
+            reason:
+              `${partial.reason}; ${partial.remainingPlan.length} proposed mutation(s) were not executed and require human review.`,
+            confidence: 0,
+            suggestedAction: "needs_review",
+            suggestedPageIds,
+          },
+          evidence: partial.remainingPlan
+            .slice(0, 10)
+            .map((mutation, index) => ({
+              pageId: mutation.targetPageId ?? undefined,
+              note: `Unexecuted mutation ${index + 1}: ${mutation.action} via ${mutation.tool ?? "default tool"} - ${mutation.reason}`,
+            })),
+        },
+      ],
+      openQuestions: [],
+    };
+    const execution = await executeMutations({
+      db: input.db,
+      workspaceId: input.workspaceId,
+      ingestion: input.ingestion,
+      agentRunId,
+      modelRunId: partial.modelRunId,
+      origin: input.origin,
+      scheduledRunId: input.scheduledRunId,
+      scheduledAutoApply: input.scheduledAutoApply,
+      allowDestructiveScheduledAgent: input.allowDestructiveScheduledAgent,
+      autonomyMode: input.autonomyMode,
+      autonomyMaxDestructivePerRun: input.autonomyMaxDestructivePerRun,
+      consumeDestructiveDailyOperation: input.consumeDestructiveDailyOperation,
+      ingestionText,
+      plan: reviewPlan,
+      state: dispatcher.state,
+      mutationQueues: input.mutationQueues,
+      steps,
+      turnIndex: partial.turnIndex,
+      onStep: input.onStep,
+    });
+    return execution.succeeded;
+  }
+
+  function pendingUnattemptedPlan(): IngestionAgentPlan["proposedPlan"] {
+    return allTurns.flatMap((turn) => turn.skippedPlan ?? []);
+  }
+
+  for (let turnIndex = 0; turnIndex < limits.maxTurns; turnIndex += 1) {
+    if (turnIndex > 0) {
+      if (remainingMs(deadlineMs) < limits.turnRemainingTimeThresholdMs) {
+        finalStatus = totalSucceeded > 0 ? "partial" : "aborted";
+        if (finalStatus === "partial" && lastModelRun?.id) {
+          totalSucceeded += await queuePartialRunForReview({
+            turnIndex,
+            reason: "insufficient_time_for_next_turn",
+            remainingPlan: pendingUnattemptedPlan(),
+            modelRunId: lastModelRun.id,
+          });
+        }
+        traceStep(input, steps, "turn_aborted", {
+          turnIndex,
+          reason: "insufficient_time_for_next_turn",
+          remainingMs: Math.max(0, remainingMs(deadlineMs)),
+          thresholdMs: limits.turnRemainingTimeThresholdMs,
         });
+        break;
       }
+      const nextTurn = await runPlanTurn(turnIndex);
+      lastParsed = nextTurn.parsed;
+      lastBudget = nextTurn.budget;
+      lastModelRun = nextTurn.modelRun;
+    }
 
-      return repaired.parseFailed
-        ? null
-        : (repaired.plan.proposedPlan[0] ?? null);
-    },
-  });
+    if (lastParsed.plan.proposedPlan.length === 0) {
+      finalStatus = "completed";
+      break;
+    }
+    if (!lastModelRun?.id) {
+      throw new Error(
+        "plan modelRunId is required for ingestion agent execute mode",
+      );
+    }
 
-  return {
-    status: "completed",
-    planJson: {
-      ...parsed.plan,
-      shadow: false,
-      model: planModel,
-      budget: packed.budgetMeta,
+    const remainingTotal = limits.maxTotalMutations - totalSucceeded;
+    if (remainingTotal <= 0) {
+      finalStatus = "partial";
+      totalSucceeded += await queuePartialRunForReview({
+        turnIndex,
+        reason: "max_total_mutations_reached",
+        remainingPlan: lastParsed.plan.proposedPlan,
+        modelRunId: lastModelRun.id,
+      });
+      traceStep(input, steps, "turn_aborted", {
+        turnIndex,
+        reason: "max_total_mutations_reached",
+        maxTotalMutations: limits.maxTotalMutations,
+      });
+      break;
+    }
+
+    const turnCap = Math.min(limits.maxMutationsPerTurn, remainingTotal);
+    const skippedPlan = lastParsed.plan.proposedPlan.slice(turnCap);
+    const planForExecution: IngestionAgentPlan = {
+      ...lastParsed.plan,
+      proposedPlan: lastParsed.plan.proposedPlan.slice(0, turnCap),
+    };
+    const execution = await executeMutations({
+      db: input.db,
+      workspaceId: input.workspaceId,
+      ingestion: input.ingestion,
+      agentRunId,
+      modelRunId: lastModelRun.id,
+      origin: input.origin,
+      scheduledRunId: input.scheduledRunId,
+      scheduledAutoApply: input.scheduledAutoApply,
+      allowDestructiveScheduledAgent: input.allowDestructiveScheduledAgent,
+      autonomyMode: input.autonomyMode,
+      autonomyMaxDestructivePerRun: input.autonomyMaxDestructivePerRun,
+      consumeDestructiveDailyOperation: input.consumeDestructiveDailyOperation,
+      ingestionText,
+      plan: planForExecution,
+      state: dispatcher.state,
+      mutateTools: input.mutateTools,
+      mutationQueues: input.mutationQueues,
+      steps,
+      turnIndex,
+      onStep: input.onStep,
+      repairMutation: (failure) =>
+        repairMutationForTurn(failure, turnIndex, lastBudget),
+    });
+
+    totalSucceeded += execution.succeeded;
+    totalFailed += execution.failed;
+    const mutatedPageIds = [...dispatcher.state.mutatedPageIds];
+    for (const pageId of mutatedPageIds) {
+      dispatcher.invalidateReadCacheForPage(pageId);
+    }
+    allTurns.push({
+      turnIndex,
+      plan: planForExecution,
+      ...(skippedPlan.length ? { skippedPlan } : {}),
       execution: {
-        mode: "agent",
+        attempted: planForExecution.proposedPlan.length,
         succeeded: execution.succeeded,
         failed: execution.failed,
       },
-      ...(parsed.parseFailed ? { parseFailed: true } : {}),
+      mutatedPageIds,
+    });
+
+    if (
+      lastParsed.plan.proposedPlan.length <= turnCap &&
+      execution.failed === 0
+    ) {
+      finalStatus = "completed";
+      break;
+    }
+    if (totalSucceeded >= limits.maxTotalMutations) {
+      finalStatus = "partial";
+      totalSucceeded += await queuePartialRunForReview({
+        turnIndex,
+        reason: "max_total_mutations_reached",
+        remainingPlan: skippedPlan,
+        modelRunId: lastModelRun.id,
+      });
+      traceStep(input, steps, "turn_aborted", {
+        turnIndex,
+        reason: "max_total_mutations_reached",
+        maxTotalMutations: limits.maxTotalMutations,
+      });
+      break;
+    }
+    if (turnIndex === limits.maxTurns - 1) {
+      finalStatus = "partial";
+      totalSucceeded += await queuePartialRunForReview({
+        turnIndex,
+        reason: "max_turns_reached",
+        remainingPlan: skippedPlan,
+        modelRunId: lastModelRun.id,
+      });
+      traceStep(input, steps, "turn_aborted", {
+        turnIndex,
+        reason: "max_turns_reached",
+        maxTurns: limits.maxTurns,
+      });
+    }
+  }
+
+  return {
+    status: finalStatus ?? "partial",
+    planJson: {
+      ...lastParsed.plan,
+      shadow: false,
+      model: planModel,
+      budget: lastBudget,
+      turns: allTurns,
+      execution: {
+        mode: "agent",
+        succeeded: totalSucceeded,
+        failed: totalFailed,
+      },
+      ...(lastParsed.parseFailed ? { parseFailed: true } : {}),
     },
     steps,
-    decisionsCount: execution.succeeded,
+    decisionsCount: totalSucceeded,
     totalTokens: totals.tokens,
     totalLatencyMs: totals.latencyMs,
   };

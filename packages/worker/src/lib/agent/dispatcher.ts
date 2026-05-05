@@ -166,6 +166,13 @@ export function createAgentDispatcher(
       if (!parsed.success) return;
       cache.delete(`${toolCall.name}:${stableJson(parsed.data)}`);
     },
+    invalidateReadCacheForPage(pageId: string): void {
+      for (const key of cache.keys()) {
+        if (key.includes(`"pageId":${JSON.stringify(pageId)}`)) {
+          cache.delete(key);
+        }
+      }
+    },
     async dispatchToolCalls(
       toolCalls: NormalizedToolCall[],
     ): Promise<AgentToolExecution[]> {

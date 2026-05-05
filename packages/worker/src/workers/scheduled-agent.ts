@@ -527,15 +527,20 @@ export function createScheduledAgentWorker(): Worker {
         }
 
         const tokenTotals = await loadTokenTotals(db, activeAgentRun.id);
+        const scheduledStatus =
+          result.status === "partial" ? "partial" : "completed";
         await Promise.all([
           db
             .update(ingestions)
-            .set({ status: "completed", processedAt: new Date() })
+            .set({
+              status: result.status === "aborted" ? "failed" : scheduledStatus,
+              processedAt: new Date(),
+            })
             .where(eq(ingestions.id, ingestion.id)),
           db
             .update(scheduledRuns)
             .set({
-              status: "completed",
+              status: result.status === "aborted" ? "failed" : scheduledStatus,
               decisionCount: result.decisionsCount,
               tokensIn: tokenTotals.tokensIn,
               tokensOut: tokenTotals.tokensOut,
@@ -562,7 +567,7 @@ export function createScheduledAgentWorker(): Worker {
           scheduledRunId: scheduledRun.id,
           taskId: task?.id ?? null,
           agentRunId: activeAgentRun.id,
-          status: "completed",
+          status: result.status === "aborted" ? "failed" : scheduledStatus,
           decisionCount: result.decisionsCount,
           totalTokens: result.totalTokens,
           completedAt: new Date(),
@@ -577,7 +582,7 @@ export function createScheduledAgentWorker(): Worker {
         return {
           scheduledRunId: scheduledRun.id,
           agentRunId: activeAgentRun.id,
-          status: "completed",
+          status: result.status === "aborted" ? "failed" : scheduledStatus,
           decisionCount: result.decisionsCount,
           totalTokens: result.totalTokens,
         };
@@ -603,7 +608,12 @@ export function createScheduledAgentWorker(): Worker {
           const [failedRun] = await db
             .update(agentRuns)
             .set({
-              status: err instanceof AgentLoopTimeout ? "timeout" : "failed",
+              status:
+                err instanceof AgentLoopTimeout
+                  ? "timeout"
+                  : err instanceof AgentWorkspaceTokenCapExceeded
+                    ? "aborted"
+                    : "failed",
               stepsJson: steps,
               totalTokens,
               totalLatencyMs,

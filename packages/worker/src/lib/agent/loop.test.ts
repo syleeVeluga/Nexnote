@@ -21,6 +21,23 @@ import {
 const fakeDb = {} as AgentDb;
 const pageId = "11111111-1111-4111-8111-111111111111";
 
+function appendMutation(index: number) {
+  return {
+    action: "append",
+    targetPageId: pageId,
+    confidence: 0.9,
+    reason: `Append note ${index}.`,
+    tool: "append_to_page",
+    args: {
+      pageId,
+      contentMd: `Note ${index}.`,
+      confidence: 0.9,
+      reason: `Append note ${index}.`,
+    },
+    evidence: [],
+  };
+}
+
 class SequenceAdapter implements AIAdapter {
   readonly provider = "openai" as const;
   readonly requests: AIRequest[] = [];
@@ -253,6 +270,156 @@ describe("runIngestionAgentShadow", () => {
       },
     ]);
     assert.ok(result.steps.some((step) => step.type === "mutation_result"));
+  });
+
+  it("continues with replan turns when a plan exceeds the per-turn mutation cap", async () => {
+    const calls: unknown[] = [];
+    const mutateTools: Record<string, AgentToolDefinition> = {
+      append_to_page: {
+        name: "append_to_page",
+        description: "test append",
+        schema: agentMutateToolInputSchemas.append_to_page,
+        async execute(_ctx, input) {
+          calls.push(input);
+          return {
+            data: {
+              decisionId: `decision-${calls.length}`,
+              status: "auto_applied",
+            },
+            mutatedPageIds: [pageId],
+          };
+        },
+      },
+    };
+    const adapter = new SequenceAdapter([
+      response({ content: "No tools needed." }),
+      response({
+        content: JSON.stringify({
+          summary: "Append many notes.",
+          proposedPlan: Array.from({ length: 30 }, (_, index) =>
+            appendMutation(index),
+          ),
+          openQuestions: [],
+        }),
+      }),
+      response({
+        content: JSON.stringify({
+          summary: "Append remaining notes.",
+          proposedPlan: Array.from({ length: 10 }, (_, index) =>
+            appendMutation(index + 20),
+          ),
+          openQuestions: [],
+        }),
+      }),
+    ]);
+    let modelRun = 0;
+
+    const result = await runIngestionAgentShadow({
+      db: fakeDb,
+      workspaceId: "workspace-1",
+      ingestion: {
+        id: "ingestion-1",
+        sourceName: "test",
+        contentType: "text/markdown",
+        titleHint: "Bulk",
+        normalizedText: "Bulk notes.",
+        rawPayload: {},
+      },
+      mode: "agent",
+      agentRunId: "33333333-3333-4333-8333-333333333333",
+      adapter,
+      baseProvider: "openai",
+      baseModel: "gpt-5.4",
+      tools: {},
+      mutateTools,
+      recordModelRun: async () => {
+        modelRun += 1;
+        return { id: `44444444-4444-4444-8444-44444444444${modelRun}` };
+      },
+    });
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.decisionsCount, 30);
+    assert.equal(calls.length, 30);
+    assert.equal(result.planJson.turns?.length, 2);
+    assert.equal(result.planJson.turns?.[0]?.plan.proposedPlan.length, 20);
+    assert.equal(result.planJson.turns?.[0]?.skippedPlan?.length, 10);
+    assert.ok(result.steps.some((step) => step.type === "replan"));
+    const replanPrompt = adapter.requests[2]?.messages[1]?.content ?? "";
+    assert.match(replanPrompt, /"attempted": 20/);
+    assert.match(replanPrompt, /"attemptedActions"/);
+    assert.match(replanPrompt, /"unattemptedActions"/);
+    assert.match(replanPrompt, /"index": 20/);
+  });
+
+  it("returns partial when max turns are reached with remaining mutations", async () => {
+    const calls: unknown[] = [];
+    const mutateTools: Record<string, AgentToolDefinition> = {
+      append_to_page: {
+        name: "append_to_page",
+        description: "test append",
+        schema: agentMutateToolInputSchemas.append_to_page,
+        async execute(_ctx, input) {
+          calls.push(input);
+          return {
+            data: {
+              decisionId: `decision-${calls.length}`,
+              status: "auto_applied",
+            },
+            mutatedPageIds: [pageId],
+          };
+        },
+      },
+    };
+    const adapter = new SequenceAdapter([
+      response({ content: "No tools needed." }),
+      response({
+        content: JSON.stringify({
+          summary: "Append more than one turn allows.",
+          proposedPlan: Array.from({ length: 25 }, (_, index) =>
+            appendMutation(index),
+          ),
+          openQuestions: [],
+        }),
+      }),
+    ]);
+    let modelRun = 0;
+
+    const result = await runIngestionAgentShadow({
+      db: fakeDb,
+      workspaceId: "workspace-1",
+      ingestion: {
+        id: "ingestion-1",
+        sourceName: "test",
+        contentType: "text/markdown",
+        titleHint: "Bulk",
+        normalizedText: "Bulk notes.",
+        rawPayload: {},
+      },
+      mode: "agent",
+      agentRunId: "33333333-3333-4333-8333-333333333333",
+      adapter,
+      baseProvider: "openai",
+      baseModel: "gpt-5.4",
+      tools: {},
+      mutateTools,
+      env: { ...process.env, AGENT_MAX_TURNS: "1" },
+      recordModelRun: async () => {
+        modelRun += 1;
+        return { id: `44444444-4444-4444-8444-44444444444${modelRun}` };
+      },
+    });
+
+    assert.equal(result.status, "partial");
+    assert.equal(result.decisionsCount, 20);
+    assert.equal(calls.length, 20);
+    assert.ok(
+      result.steps.some(
+        (step) =>
+          step.type === "turn_aborted" &&
+          step.payload["reason"] === "max_turns_reached",
+      ),
+    );
   });
 
   it("keeps free-form human review guidance out of suggestedAction", async () => {
