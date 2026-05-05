@@ -502,6 +502,7 @@ export function createScheduledAgentWorker(): Worker {
             patchQueue: getQueue(QUEUE_NAMES.PATCH),
             extractionQueue: getQueue(QUEUE_NAMES.EXTRACTION),
             searchQueue: getQueue(QUEUE_NAMES.SEARCH),
+            linkQueue: getQueue(QUEUE_NAMES.LINKS),
           },
         });
 

@@ -35,6 +35,7 @@ import type {
   RouteClassifierJobData,
   RouteClassifierJobResult,
   PatchGeneratorJobData,
+  PageLinkExtractorJobData,
   TripleExtractorJobData,
   AIRequest,
   AIBudgetMeta,
@@ -650,6 +651,17 @@ export function createRouteClassifierWorker(): Worker {
             pageId: page.id,
             revisionId: revision.id,
           },
+          DEFAULT_JOB_OPTIONS,
+        );
+        const linkData: PageLinkExtractorJobData = {
+          workspaceId,
+          pageId: page.id,
+          revisionId: revision.id,
+        };
+        const linkQueue = getQueue(QUEUE_NAMES.LINKS);
+        await linkQueue.add(
+          JOB_NAMES.PAGE_LINK_EXTRACTOR,
+          linkData,
           DEFAULT_JOB_OPTIONS,
         );
       } else {

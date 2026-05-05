@@ -232,7 +232,7 @@ export interface RunIngestionAgentShadowInput {
   mutateTools?: Record<string, AgentToolDefinition>;
   mutationQueues?: Pick<
     CreateMutateToolsInput,
-    "patchQueue" | "extractionQueue" | "searchQueue"
+    "patchQueue" | "extractionQueue" | "searchQueue" | "linkQueue"
   >;
   workspaceAgentInstructions?: string | null;
   workspaceTokenUsage?: {
@@ -447,7 +447,7 @@ function readToolDefinitions(): AIToolDefinition[] {
     {
       name: "find_backlinks",
       description:
-        "ILIKE-scan the workspace for pages whose latest revision references the target page by wikilink or markdown link. Use before delete_page or merge_pages to evaluate dependencies.",
+        "Read indexed backlinks, with a markdown scan fallback, from current workspace revisions. Use before delete_page or merge_pages to evaluate dependencies.",
       parameters: {
         type: "object",
         properties: {

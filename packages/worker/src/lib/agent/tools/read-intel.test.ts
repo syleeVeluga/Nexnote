@@ -154,10 +154,15 @@ describe("find_backlinks", () => {
             currentRevisionId: linkerRevisionId,
             contentMd:
               "Refer to [[Pricing Plan]] and our [archive](/notes/pricing-plan) page.",
+            positionInMd: 9,
+            linkType: "wikilink",
+            targetSlug: "Pricing Plan",
             lastAiUpdatedAt: new Date("2026-04-02T00:00:00Z"),
           },
         ],
       },
+      // fallback markdown scan
+      { rows: [] },
     ]);
 
     const result = await tools.find_backlinks.execute(
@@ -195,10 +200,15 @@ describe("find_backlinks", () => {
             slug: "case-variant",
             currentRevisionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
             contentMd: "See [[pricing plan]] before launch.",
+            positionInMd: 4,
+            linkType: "wikilink",
+            targetSlug: "pricing plan",
             lastAiUpdatedAt: new Date("2026-04-02T00:00:00Z"),
           },
         ],
       },
+      // fallback markdown scan
+      { rows: [] },
     ]);
 
     const result = await tools.find_backlinks.execute(
@@ -222,6 +232,7 @@ describe("find_backlinks", () => {
     const db = fakeDb([
       { rows: [{ id: targetId, title: "AI", slug: "ai" }] },
       { rows: [] },
+      { rows: [] },
     ]);
 
     const result = await tools.find_backlinks.execute(
@@ -234,6 +245,45 @@ describe("find_backlinks", () => {
     assert.equal(data.total, 0);
   });
 
+  it("falls back to scanning current markdown when page_links is empty", async () => {
+    const tools = createReadOnlyTools();
+    const targetId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const linkerId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+    const db = fakeDb([
+      {
+        rows: [{ id: targetId, title: "Pricing Plan", slug: "pricing-plan" }],
+      },
+      { rows: [] },
+      {
+        rows: [
+          {
+            id: linkerId,
+            title: "Legacy Linker",
+            slug: "legacy-linker",
+            currentRevisionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            contentMd: "See [[pricing plan]] and [docs](/docs/pricing-plan).",
+          },
+        ],
+      },
+    ]);
+
+    const result = await tools.find_backlinks.execute(
+      { db, ...ctxBase, state: createAgentRunState() },
+      { pageId: targetId, limit: 30 },
+    );
+
+    const data = result.data as {
+      backlinks: Array<{ matchType: string; pageId: string }>;
+      total: number;
+      confidenceHint: string;
+    };
+    assert.equal(data.total, 1);
+    assert.equal(data.backlinks[0].matchType, "wikilink_title");
+    assert.equal(data.backlinks[0].pageId, linkerId);
+    assert.match(data.confidenceHint, /fallback/);
+  });
+
   it("flags limited=true when probe returns more than limit", async () => {
     const tools = createReadOnlyTools();
     const targetId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -244,6 +294,9 @@ describe("find_backlinks", () => {
       slug: `linker-${i}`,
       currentRevisionId: `cccccccc-cccc-4ccc-8ccc-${String(i).padStart(12, "0")}`,
       contentMd: "[[Pricing Plan]]",
+      positionInMd: 0,
+      linkType: "wikilink",
+      targetSlug: "Pricing Plan",
       lastAiUpdatedAt: new Date("2026-04-02T00:00:00Z"),
     }));
 

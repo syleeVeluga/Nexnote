@@ -5,6 +5,7 @@ import {
   entityAliases,
   folders,
   ingestionDecisions,
+  pageLinks,
   pagePaths,
   pageRevisions,
   pages,
@@ -1088,6 +1089,16 @@ type BacklinkMatchType =
   | "wikilink_slug"
   | "markdown_link";
 
+interface BacklinkCandidate {
+  pageId: string;
+  title: string;
+  slug: string;
+  currentRevisionId: string | null;
+  contentMd: string | null;
+  matchType: BacklinkMatchType;
+  positionInMd: number;
+}
+
 function classifyBacklink(
   contentMd: string,
   title: string,
@@ -1164,66 +1175,118 @@ async function findBacklinks(
     COALESCE(${pages.lastHumanEditedAt}, 'epoch'::timestamptz),
     ${pages.updatedAt}
   )`;
-
-  const orClauses = [
+  const scanClauses = [
     sql`${pageRevisions.contentMd} ILIKE ${slugLike}`,
     sql`${pageRevisions.contentMd} ~* ${slugRegex}`,
   ];
   if (allowTitleWikilink) {
-    orClauses.unshift(
-      sql`${pageRevisions.contentMd} ILIKE ${titleLike}`,
-    );
+    scanClauses.unshift(sql`${pageRevisions.contentMd} ILIKE ${titleLike}`);
   }
 
   const probeLimit = input.limit + 1;
-  const rows = await ctx.db
+  const indexedRows = await ctx.db
     .select({
       id: pages.id,
       title: pages.title,
       slug: pages.slug,
       currentRevisionId: pages.currentRevisionId,
       contentMd: pageRevisions.contentMd,
+      positionInMd: pageLinks.positionInMd,
+      linkType: pageLinks.linkType,
+      targetSlug: pageLinks.targetSlug,
     })
-    .from(pages)
+    .from(pageLinks)
+    .innerJoin(pages, eq(pages.id, pageLinks.sourcePageId))
     .innerJoin(pageRevisions, eq(pageRevisions.id, pages.currentRevisionId))
     .where(
       and(
-        eq(pages.workspaceId, ctx.workspaceId),
+        eq(pageLinks.workspaceId, ctx.workspaceId),
+        eq(pageLinks.targetPageId, target.id),
+        eq(pageLinks.sourceRevisionId, pages.currentRevisionId),
         isNull(pages.deletedAt),
         ne(pages.id, target.id),
-        or(...orClauses)!,
       ),
     )
     .orderBy(desc(lastTouched))
     .limit(probeLimit);
 
-  const limited = rows.length > input.limit;
-  const taken = limited ? rows.slice(0, input.limit) : rows;
-  const backlinks = taken
-    .map((row) => {
+  const candidates: BacklinkCandidate[] = indexedRows.map((row) => ({
+    pageId: row.id,
+    title: row.title,
+    slug: row.slug,
+    currentRevisionId: row.currentRevisionId,
+    contentMd: row.contentMd,
+    positionInMd: row.positionInMd ?? 0,
+    matchType:
+      row.linkType === "markdown"
+        ? "markdown_link"
+        : row.targetSlug.toLowerCase() === target.title.toLowerCase()
+          ? "wikilink_title"
+          : "wikilink_slug",
+  }));
+
+  const seenPageIds = new Set(candidates.map((row) => row.pageId));
+  if (candidates.length < probeLimit) {
+    const scannedRows = await ctx.db
+      .select({
+        id: pages.id,
+        title: pages.title,
+        slug: pages.slug,
+        currentRevisionId: pages.currentRevisionId,
+        contentMd: pageRevisions.contentMd,
+      })
+      .from(pages)
+      .innerJoin(pageRevisions, eq(pageRevisions.id, pages.currentRevisionId))
+      .where(
+        and(
+          eq(pages.workspaceId, ctx.workspaceId),
+          isNull(pages.deletedAt),
+          ne(pages.id, target.id),
+          or(...scanClauses)!,
+        ),
+      )
+      .orderBy(desc(lastTouched))
+      .limit(probeLimit + seenPageIds.size);
+
+    for (const row of scannedRows) {
+      if (seenPageIds.has(row.id)) continue;
       const classified = classifyBacklink(
         row.contentMd ?? "",
         target.title,
         target.slug,
         { allowTitleWikilink },
       );
-      if (!classified) return null;
-      return {
+      if (!classified) continue;
+      seenPageIds.add(row.id);
+      candidates.push({
         pageId: row.id,
         title: row.title,
         slug: row.slug,
-        snippet: buildSnippet(row.contentMd ?? "", classified.index),
+        currentRevisionId: row.currentRevisionId,
+        contentMd: row.contentMd,
+        positionInMd: classified.index,
         matchType: classified.matchType,
-      };
-    })
-    .filter((value): value is NonNullable<typeof value> => value !== null);
+      });
+      if (candidates.length >= probeLimit) break;
+    }
+  }
+
+  const limited = candidates.length > input.limit;
+  const taken = limited ? candidates.slice(0, input.limit) : candidates;
+  const backlinks = taken.map((row) => ({
+    pageId: row.pageId,
+    title: row.title,
+    slug: row.slug,
+    snippet: buildSnippet(row.contentMd ?? "", row.positionInMd),
+    matchType: row.matchType,
+  }));
 
   const observedRevisions = taken
     .filter((row): row is typeof row & { currentRevisionId: string } =>
       Boolean(row.currentRevisionId),
     )
     .map((row) => ({
-      pageId: row.id,
+      pageId: row.pageId,
       revisionId: row.currentRevisionId,
     }));
 
@@ -1234,9 +1297,11 @@ async function findBacklinks(
       limited,
       shortTitleSkipped: !allowTitleWikilink,
       confidenceHint:
-        "ILIKE-based backlink scan — verify before destructive operations.",
+        indexedRows.length === candidates.length
+          ? "page_links index; current revisions only."
+          : "page_links index plus markdown scan fallback; current revisions only.",
     },
-    observedPageIds: taken.map((row) => row.id),
+    observedPageIds: taken.map((row) => row.pageId),
     observedPageRevisions: observedRevisions,
   };
 }
@@ -1466,7 +1531,7 @@ export function createReadOnlyTools(): Record<
     find_backlinks: {
       name: "find_backlinks",
       description:
-        "ILIKE-scan the workspace for pages whose latest revision references the target page by wikilink or markdown link slug. Use before delete_page or merge_pages to evaluate dependencies.",
+        "Read indexed backlinks, with a markdown scan fallback, from current workspace revisions. Use before delete_page or merge_pages to evaluate dependencies.",
       schema: agentReadToolInputSchemas.find_backlinks,
       execute: findBacklinks,
     },

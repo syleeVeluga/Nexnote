@@ -559,6 +559,7 @@ const ingestionRoutes: FastifyPluginAsync = async (fastify) => {
         db: fastify.db,
         extractionQueue: fastify.queues.extraction,
         searchQueue: fastify.queues.search,
+        linkQueue: fastify.queues.links,
         workspaceId,
         decision,
         userId,
