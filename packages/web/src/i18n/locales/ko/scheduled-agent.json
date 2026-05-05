@@ -1,8 +1,8 @@
 {
-  "title": "Scheduled Agent",
+  "title": "예약 에이전트",
   "eyebrow": "워크스페이스 자동화",
   "description": "위키 정리 작업을 수동 또는 cron 일정으로 실행합니다. 자동 반영을 켜지 않으면 결정은 검토 큐로 이동합니다.",
-  "restrictedDescription": "워크스페이스 소유자와 관리자만 Scheduled Agent를 관리할 수 있습니다.",
+  "restrictedDescription": "워크스페이스 소유자와 관리자만 예약 에이전트를 관리할 수 있습니다.",
   "restrictedRole": "워크스페이스 권한이 부족합니다.",
   "actions": {
     "refresh": "새로고침",
@@ -18,12 +18,12 @@
     "off": "꺼짐"
   },
   "disabled": {
-    "title": "Scheduled Agent가 꺼져 있습니다",
+    "title": "예약 에이전트가 꺼져 있습니다",
     "description": "cron 스케줄이나 수동 정리 실행을 만들기 전에 AI 설정에서 활성화하세요.",
     "settingsLink": "AI 설정 열기"
   },
   "tasks": {
-    "title": "Cron Tasks",
+    "title": "Cron 작업",
     "description": "선택한 페이지와 하위 페이지를 대상으로 실행되는 워크스페이스 스케줄입니다.",
     "enabled": "활성",
     "name": "이름",
@@ -35,7 +35,7 @@
   },
   "runs": {
     "title": "즉시 실행 및 최근 기록",
-    "description": "수동 또는 cron으로 트리거된 Scheduled Agent 실행입니다.",
+    "description": "수동 또는 cron으로 트리거된 예약 에이전트 실행입니다.",
     "triggeredBy": "트리거",
     "task": "작업",
     "status": "상태",
@@ -52,12 +52,12 @@
     "cron": "Cron"
   },
   "manualRun": {
-    "title": "Scheduled Agent 한 번 실행",
+    "title": "예약 에이전트 한 번 실행",
     "description": "대상 페이지를 선택해 정리 실행을 큐에 넣습니다."
   },
   "folderRun": {
     "title": "{{folderName}} 정리",
-    "description": "현재 폴더의 직속 페이지와 하위 폴더 페이지를 Scheduled Agent 입력으로 사용합니다.",
+    "description": "현재 폴더의 직속 페이지와 하위 폴더 페이지를 예약 에이전트 입력으로 사용합니다.",
     "submit": "폴더 실행 큐잉",
     "tooManyPages": "{{count}}개 페이지가 발견되어 실행당 한도 {{max}}개를 넘었습니다. 더 작은 하위 폴더에서 다시 시도하세요."
   },
@@ -98,14 +98,14 @@
     "message": "'{{name}}' 스케줄을 삭제할까요? 반복 큐 등록도 제거됩니다."
   },
   "trace": {
-    "title": "Scheduled Run 트레이스",
+    "title": "예약 실행 트레이스",
     "close": "트레이스 닫기",
     "missingRun": "최근 실행 기록에서 해당 실행을 찾을 수 없습니다.",
     "waitingForAgentRun": "워커가 아직 agent trace를 연결하지 않았습니다.",
     "loadFailed": "agent trace를 불러오지 못했습니다."
   },
   "notices": {
-    "runQueued": "Scheduled Agent 실행을 큐에 넣었습니다."
+    "runQueued": "예약 에이전트 실행을 큐에 넣었습니다."
   },
   "errors": {
     "loadTasks": "스케줄 목록을 불러오지 못했습니다.",

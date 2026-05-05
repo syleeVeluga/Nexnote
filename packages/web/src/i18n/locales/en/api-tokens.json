@@ -1,0 +1,44 @@
+{
+  "title": "API Tokens",
+  "manageDescription": "Manage external ingestion credentials",
+  "createDescription": "Create scoped credentials for external ingestion sources",
+  "insufficientRole": "Only workspace owners and admins can manage tokens.",
+  "activeBadge": "{{count}} active",
+  "create": {
+    "heading": "Create token",
+    "subheading": "The token value is shown once after creation.",
+    "nameLabel": "Name",
+    "namePlaceholder": "CRM webhook",
+    "sourceHintLabel": "Source name hint",
+    "sourceHintPlaceholder": "crm-webhook",
+    "submit": "Create",
+    "submitting": "Creating..."
+  },
+  "reveal": {
+    "title": "Copy this token now",
+    "subtitle": "It will not be shown again.",
+    "copy": "Copy",
+    "copied": "Copied"
+  },
+  "list": {
+    "heading": "Tokens",
+    "subheading": "Use active tokens as Authorization: Bearer credentials.",
+    "loading": "Loading",
+    "empty": "No API tokens yet."
+  },
+  "row": {
+    "noSourceHint": "no source hint",
+    "meta": "{{hint}} - created by {{creator}}",
+    "createdOn": "Created {{date}}",
+    "lastUsed": "Last used {{value}}",
+    "lastUsedNever": "never",
+    "revoked": "revoked",
+    "revoke": "Revoke"
+  },
+  "confirmRevoke": "Revoke \"{{name}}\"?",
+  "errors": {
+    "loadFailed": "Failed to load tokens",
+    "createFailed": "Failed to create token",
+    "revokeFailed": "Failed to revoke token"
+  }
+}

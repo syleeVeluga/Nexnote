@@ -47,6 +47,8 @@
   "queueHealth": "Queue Health",
   "systemStatus": "System Status",
   "aiSettings": "AI Settings",
+  "scheduledAgent": "Scheduled Agent",
+  "apiTokens": "API Tokens",
   "trash": "Trash",
   "pagesSectionTitle": "Explorer",
   "newFolder": "New folder",

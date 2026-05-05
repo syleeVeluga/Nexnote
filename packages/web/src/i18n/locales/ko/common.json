@@ -47,6 +47,8 @@
   "queueHealth": "큐 상태",
   "systemStatus": "시스템 상태",
   "aiSettings": "AI 설정",
+  "scheduledAgent": "예약 에이전트",
+  "apiTokens": "API 토큰",
   "trash": "휴지통",
   "pagesSectionTitle": "탐색기",
   "newFolder": "새 폴더",
