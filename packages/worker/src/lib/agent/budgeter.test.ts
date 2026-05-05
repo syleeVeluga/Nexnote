@@ -96,7 +96,7 @@ describe("selectAgentModel", () => {
 });
 
 describe("agent context packing", () => {
-  it("flags oversized read_page markdown against the smaller of model budget and token cap", () => {
+  it("honors explicit read_page markdown caps while using the model max budget", () => {
     const decision = readPageMarkdownFallbackBudget({
       provider: "openai",
       model: "gpt-5.4",
@@ -110,8 +110,9 @@ describe("agent context packing", () => {
     });
 
     assert.equal(decision.shouldFallback, true);
-    assert.equal(decision.thresholdTokens, 810);
+    assert.equal(decision.thresholdTokens, 1000);
     assert.equal(decision.tokenLimit, 1000);
+    assert.ok(decision.capacityTokens > 100_000);
   });
 
   it("truncates the exploration prompt before the first model call", () => {
@@ -119,7 +120,7 @@ describe("agent context packing", () => {
       provider: "openai",
       model: "gpt-5.4",
       systemPrompt: "Explore carefully.",
-      ingestionText: `${"incoming ".repeat(20_000)}TAIL_MARKER`,
+      ingestionText: `${"incoming ".repeat(200_000)}TAIL_MARKER`,
       sourceName: "test",
       contentType: "text/markdown",
       titleHint: "Incoming",
@@ -148,9 +149,10 @@ describe("agent context packing", () => {
         {
           key: "read_1",
           label: "read_page#1",
-          text: "page ".repeat(100_000),
+          text: "page ".repeat(300_000),
           minTokens: 200,
           weight: 1,
+          compacted: true,
         },
       ],
       env: {
@@ -178,7 +180,7 @@ describe("agent context packing", () => {
           result: {
             format: "markdown",
             page: { id: "page-1", title: "Large Page" },
-            contentMd: "page ".repeat(20_000),
+            contentMd: "page ".repeat(200_000),
           },
         }),
       },
@@ -221,7 +223,7 @@ describe("agent context packing", () => {
             result: {
               format: "markdown",
               page: { id: "page-1", title: "Large Page" },
-              contentMd: "page ".repeat(20_000),
+              contentMd: "page ".repeat(200_000),
             },
           }),
           minTokens: 200,

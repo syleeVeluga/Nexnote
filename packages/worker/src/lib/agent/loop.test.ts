@@ -1021,10 +1021,97 @@ describe("runIngestionAgentShadow", () => {
     const planPrompt = adapter.requests[1]?.messages[1]?.content ?? "";
     assert.match(planPrompt, /Full body 11111111-1111-4111-8111-111111111111/);
     assert.match(planPrompt, /Full body 22222222-2222-4222-8222-222222222222/);
-    assert.match(adapter.requests[1]?.messages[0].content ?? "", /drafting new docs/);
+    assert.match(
+      adapter.requests[1]?.messages[0].content ?? "",
+      /drafting new docs/,
+    );
     assert.match(
       adapter.requests[1]?.messages[0].content ?? "",
       /Preserve selected source pages/,
+    );
+  });
+
+  it("uses the large-context plan model for explicit scheduled source-copy page creation", async () => {
+    const seedPageIds = [
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222",
+      "33333333-3333-4333-8333-333333333333",
+      "44444444-4444-4444-8444-444444444444",
+    ];
+    const readModels: Array<string | undefined> = [];
+    const tools: Record<string, AgentToolDefinition> = {
+      read_page: {
+        name: "read_page",
+        description: "test read page",
+        schema: agentReadToolInputSchemas.read_page,
+        async execute(ctx, input) {
+          readModels.push(ctx.model?.model);
+          const parsed = input as { pageId: string; format?: string };
+          return {
+            data: {
+              page: { id: parsed.pageId, title: `Page ${parsed.pageId}` },
+              format: parsed.format ?? "markdown",
+              contentMd: `# Page ${parsed.pageId}\n\nFull body.`,
+            },
+          };
+        },
+      },
+    };
+    const adapter = new SequenceAdapter([
+      response({ content: "I have enough scheduled context." }),
+      response({
+        content: JSON.stringify({
+          summary: "Create a copied source page.",
+          proposedPlan: [
+            {
+              action: "noop",
+              targetPageId: null,
+              confidence: 1,
+              reason: "Test stops after planning.",
+              evidence: [],
+            },
+          ],
+          openQuestions: [],
+        }),
+      }),
+    ]);
+
+    await runIngestionAgentShadow({
+      db: fakeDb,
+      workspaceId: "workspace-1",
+      origin: "scheduled",
+      seedPageIds,
+      instruction:
+        "Create a new page named Veluga Info and copy all selected page contents into it.",
+      ingestion: {
+        id: "ingestion-1",
+        sourceName: "scheduled-agent",
+        contentType: "text/markdown",
+        titleHint: "Scheduled source copy",
+        normalizedText: `Selected page IDs: ${seedPageIds.join(", ")}`,
+        rawPayload: {},
+      },
+      adapter,
+      baseProvider: "openai",
+      baseModel: "gpt-5.4",
+      env: {
+        ...process.env,
+        AGENT_MODEL_FAST: "gpt-5.4-mini",
+        AGENT_MODEL_LARGE_CONTEXT: "gpt-5.4",
+        AGENT_FAST_THRESHOLD_TOKENS: "500000",
+      },
+      tools,
+    });
+
+    assert.equal(adapter.requests[0]?.model, "gpt-5.4-mini");
+    assert.equal(adapter.requests[1]?.model, "gpt-5.4");
+    assert.deepEqual(
+      readModels,
+      seedPageIds.map(() => "gpt-5.4"),
+    );
+    assert.match(
+      adapter.requests[1]?.messages[0].content ?? "",
+      /explicit create_page \+ source-copy request/,
     );
   });
 

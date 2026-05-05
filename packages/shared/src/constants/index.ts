@@ -205,34 +205,52 @@ export const CONFIDENCE = {
   SCHEDULED_AUTO_APPLY: 0.5,
 } as const;
 
-// Per-model input budget (in tokens) for large-context-first prompt assembly.
-// `inputTokenBudget` is the *total* input window we're willing to consume
-// (leaves headroom for provider overhead + streaming). Callers further subtract
-// `MODE_OUTPUT_RESERVE[mode]` and any fixed system-prompt cost before
-// distributing the remainder across dynamic slots (existing/incoming/etc.).
-// `safetyMarginRatio` is applied multiplicatively after slot allocation to
-// absorb tokenizer drift from our character-based estimator.
+// Per-model token budgets for large-context-first prompt assembly.
+// `inputTokenBudget` and `outputTokenBudget` are the model-specific maximums
+// WekiFlow should attempt to use. Callers subtract the selected output reserve
+// and fixed prompt cost before distributing the remainder across dynamic slots.
+// `safetyMarginRatio` is left as a final multiplier for unknown model pairs.
 export interface ModelContextBudget {
   inputTokenBudget: number;
+  outputTokenBudget: number;
   safetyMarginRatio: number;
 }
 
 export const MODEL_CONTEXT_BUDGETS: Record<string, ModelContextBudget> = {
-  "openai:gpt-5.4": { inputTokenBudget: 180_000, safetyMarginRatio: 0.9 },
-  "openai:gpt-5.4-pro": { inputTokenBudget: 400_000, safetyMarginRatio: 0.9 },
-  "openai:gpt-5.4-mini": { inputTokenBudget: 120_000, safetyMarginRatio: 0.9 },
-  "openai:gpt-5.5": { inputTokenBudget: 400_000, safetyMarginRatio: 0.9 },
+  "openai:gpt-5.4": {
+    inputTokenBudget: 180_000,
+    outputTokenBudget: 60_000,
+    safetyMarginRatio: 1,
+  },
+  "openai:gpt-5.4-pro": {
+    inputTokenBudget: 400_000,
+    outputTokenBudget: 60_000,
+    safetyMarginRatio: 1,
+  },
+  "openai:gpt-5.4-mini": {
+    inputTokenBudget: 120_000,
+    outputTokenBudget: 60_000,
+    safetyMarginRatio: 1,
+  },
+  "openai:gpt-5.5": {
+    inputTokenBudget: 400_000,
+    outputTokenBudget: 60_000,
+    safetyMarginRatio: 1,
+  },
   "gemini:gemini-3.1-pro": {
     inputTokenBudget: 800_000,
-    safetyMarginRatio: 0.9,
+    outputTokenBudget: 60_000,
+    safetyMarginRatio: 1,
   },
   "gemini:gemini-3.1-flash-lite-preview": {
     inputTokenBudget: 500_000,
-    safetyMarginRatio: 0.9,
+    outputTokenBudget: 60_000,
+    safetyMarginRatio: 1,
   },
   "anthropic:claude-sonnet-4-6": {
     inputTokenBudget: 200_000,
-    safetyMarginRatio: 0.9,
+    outputTokenBudget: 60_000,
+    safetyMarginRatio: 1,
   },
 };
 
@@ -240,7 +258,8 @@ export const MODEL_CONTEXT_BUDGETS: Record<string, ModelContextBudget> = {
 // enough that any modern frontier model will accept it without 413s.
 export const DEFAULT_MODEL_CONTEXT_BUDGET: ModelContextBudget = {
   inputTokenBudget: 32_000,
-  safetyMarginRatio: 0.85,
+  outputTokenBudget: 16_384,
+  safetyMarginRatio: 1,
 };
 
 // Output token reserve per mode. This mirrors the `maxTokens` passed on each
@@ -249,7 +268,7 @@ export const DEFAULT_MODEL_CONTEXT_BUDGET: ModelContextBudget = {
 // keep a large reserve so structured JSON is less likely to be cut mid-object.
 export const MODE_OUTPUT_RESERVE: Record<ModelRunMode, number> = {
   route_decision: 2_048,
-  agent_plan: 16_384,
+  agent_plan: 60_000,
   patch_generation: 8_192,
   triple_extraction: 16_384,
   entity_match_judge: 2_048,

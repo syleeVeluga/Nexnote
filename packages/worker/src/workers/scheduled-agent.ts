@@ -365,6 +365,8 @@ export function createScheduledAgentWorker(): Worker {
         if (adapted.seedPageIds.length === 0) {
           throw new Error("Scheduled agent target pages were not found");
         }
+        const effectiveTargetFolderId =
+          runInput.targetFolderId ?? adapted.targetFolderId ?? null;
 
         const userId = job.data.requestedByUserId ?? task?.createdBy ?? null;
         if (!userId) {
@@ -385,7 +387,7 @@ export function createScheduledAgentWorker(): Worker {
           normalizedText: adapted.normalizedText,
           instruction: runInput.instruction ?? null,
           pageIds: adapted.seedPageIds,
-          targetFolderId: runInput.targetFolderId ?? null,
+          targetFolderId: effectiveTargetFolderId,
           includeDescendants: runInput.includeDescendants,
         });
 

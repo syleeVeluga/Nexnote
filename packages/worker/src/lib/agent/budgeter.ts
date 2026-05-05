@@ -1,7 +1,6 @@
 import {
   AGENT_LIMITS,
   AI_MODELS,
-  MODE_OUTPUT_RESERVE,
   allocateBudgets,
   estimateTokens,
   getModelContextBudget,
@@ -17,7 +16,7 @@ import {
 
 export type { TurnMutationOutcome, TurnRecord };
 
-const COMPACTION_THRESHOLD_RATIO = 0.8;
+const COMPACTION_THRESHOLD_RATIO = 1;
 const COMPACTED_TOOL_PREFIX = "[COMPACTED_TOOL_RESULT]";
 
 export interface AgentRuntimeLimits {
@@ -237,20 +236,26 @@ export function selectAgentModel(
   };
 }
 
+export function agentModelOutputTokenBudget(input: {
+  provider: AIProvider;
+  model: string;
+}): number {
+  return getModelContextBudget(input.provider, input.model).outputTokenBudget;
+}
+
 function agentInputCapacity(input: {
   provider: AIProvider;
   model: string;
   env?: NodeJS.ProcessEnv;
   reserve?: number;
 }): number {
-  const limits = readAgentRuntimeLimits(input.env);
   const modelBudget = getModelContextBudget(input.provider, input.model);
-  const reserve = input.reserve ?? MODE_OUTPUT_RESERVE.agent_plan;
+  const reserve = input.reserve ?? modelBudget.outputTokenBudget;
   return Math.max(
     1_000,
     Math.floor(
-      (Math.min(limits.inputTokenBudget, modelBudget.inputTokenBudget) -
-        Math.min(limits.outputTokenBudget, reserve)) *
+      (modelBudget.inputTokenBudget -
+        Math.min(modelBudget.outputTokenBudget, reserve)) *
         modelBudget.safetyMarginRatio,
     ),
   );
@@ -284,13 +289,17 @@ export function readPageMarkdownFallbackBudget(input: {
     Math.min(
       1,
       input.thresholdRatio ??
-        positiveFloatEnv(env, "AGENT_READ_PAGE_MARKDOWN_FALLBACK_RATIO", 0.2),
+        positiveFloatEnv(env, "AGENT_READ_PAGE_MARKDOWN_FALLBACK_RATIO", 1),
     ),
   );
+  const capacityTokens = agentInputCapacity({ provider, model, env });
   const tokenLimit =
     input.tokenLimit ??
-    positiveIntEnv(env, "AGENT_READ_PAGE_MARKDOWN_TOKEN_LIMIT", 30_000);
-  const capacityTokens = agentInputCapacity({ provider, model, env });
+    positiveIntEnv(
+      env,
+      "AGENT_READ_PAGE_MARKDOWN_TOKEN_LIMIT",
+      capacityTokens,
+    );
   const thresholdTokens = Math.max(
     1,
     Math.min(tokenLimit, Math.floor(capacityTokens * thresholdRatio)),
@@ -564,13 +573,13 @@ export function packAgentExploreContext(input: {
   contentType: string;
   titleHint: string | null;
   env?: NodeJS.ProcessEnv;
+  outputReserveTokens?: number;
 }): PackedAgentContext {
-  const limits = readAgentRuntimeLimits(input.env);
   const modelBudget = getModelContextBudget(input.provider, input.model);
   const systemTokens = estimateTokens(input.systemPrompt);
   const reserve = Math.min(
-    limits.outputTokenBudget,
-    MODE_OUTPUT_RESERVE.agent_plan,
+    modelBudget.outputTokenBudget,
+    input.outputReserveTokens ?? Math.min(4_096, modelBudget.outputTokenBudget),
   );
   const scaffold = `Source: ${input.sourceName}
 Content type: ${input.contentType}
@@ -580,7 +589,7 @@ Incoming content:
 `;
   const scaffoldTokens = estimateTokens(scaffold) + estimateTokens("\n---");
   const rawAvailable =
-    Math.min(limits.inputTokenBudget, modelBudget.inputTokenBudget) -
+    modelBudget.inputTokenBudget -
     reserve -
     systemTokens -
     scaffoldTokens;
@@ -623,17 +632,17 @@ export function packAgentPlanContext(input: {
   titleHint: string | null;
   blocks: AgentContextBlock[];
   env?: NodeJS.ProcessEnv;
+  outputReserveTokens?: number;
 }): PackedAgentContext {
-  const limits = readAgentRuntimeLimits(input.env);
   const modelBudget = getModelContextBudget(input.provider, input.model);
   const systemTokens = estimateTokens(input.systemPrompt);
   const reserve = Math.min(
-    limits.outputTokenBudget,
-    MODE_OUTPUT_RESERVE.agent_plan,
+    modelBudget.outputTokenBudget,
+    input.outputReserveTokens ?? modelBudget.outputTokenBudget,
   );
   const scaffoldTokens = 500;
   const rawAvailable =
-    Math.min(limits.inputTokenBudget, modelBudget.inputTokenBudget) -
+    modelBudget.inputTokenBudget -
     reserve -
     systemTokens -
     scaffoldTokens;
@@ -680,7 +689,7 @@ ${allocations.ingestion.text}
   if (compaction.notices.length > 0) {
     chunks.push(
       `[SYSTEM_NOTICE:context_compaction]
-Prior read context was compacted using oldest-first summary form because the plan prompt approached 80% of the model context. Re-run read_page for exact original content if needed.
+Prior read context was compacted using oldest-first summary form because the plan prompt approached the model context budget. Re-run read_page for exact original content if needed.
 ${JSON.stringify(compaction.notices, null, 2)}`,
     );
   }
@@ -732,6 +741,7 @@ export function packPlanContextForTurn(input: {
   priorTurns: TurnRecord[];
   turnIndex: number;
   env?: NodeJS.ProcessEnv;
+  outputReserveTokens?: number;
 }): PackedAgentContext {
   if (input.turnIndex === 0) {
     return packAgentPlanContext(input);

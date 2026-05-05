@@ -28,6 +28,7 @@ import {
 } from "./tools/mutate.js";
 import {
   compactAgentMessages,
+  agentModelOutputTokenBudget,
   packAgentExploreContext,
   packPlanContextForTurn,
   readAgentRuntimeLimits,
@@ -52,6 +53,7 @@ const PROMPT_VERSION = "ingestion-agent-v1";
 const EXPLORE_OUTPUT_RESERVE = Math.min(4_096, MODE_OUTPUT_RESERVE.agent_plan);
 const INGESTION_ACTION_SET = new Set<string>(INGESTION_ACTIONS);
 const DEFAULT_SCHEDULED_SEED_READ_LIMIT = 20;
+const DEFAULT_AGENT_FAST_THRESHOLD_TOKENS = 50_000;
 
 const EXPLORE_SYSTEM_PROMPT = `You are a read-only exploration agent for WekiFlow's Markdown knowledge wiki.
 Investigate the incoming ingestion with the available read-only tools, then stop calling tools when you have enough context to plan possible wiki updates.
@@ -104,6 +106,7 @@ Use update_page only when a narrower tool cannot represent the change. Never inv
 When restructuring is needed, prefer move_page/rename_page over recreating pages. Use create_folder before move_page when the target folder does not exist yet.
 When the user explicitly asks for a new page, use create_page after ruling out an existing duplicate target; do not downgrade the request merely because an existing page could also hold the content.
 When the user asks to write a document from selected source pages or provided data, synthesize the requested Markdown page from those sources instead of treating the task as cleanup.
+When the user says to copy/transcribe/move contents ("옮겨 적기", "그대로 두고 내용만 옮기기", "모두 옮기기", "복사") into a new page, preserve the selected source pages' markdown content and order by default. Do not request human review merely to ask whether to summarize versus copy.
 Preserve selected source pages unless the user explicitly asks to delete, archive, or destructively merge them. "Copy", "consolidate into a new page", "write a new document", and "move contents into a new page while keeping originals" should use create_page without deleting the sources.
 Use delete_page and merge_pages only for scheduled wiki reorganization or autonomous workspace mode. If neither mode applies, request human review instead.
 In autonomous workspace mode, delete_page and merge_pages may be used for high-confidence ingestion cleanup when the target pages were observed in this run. In autonomous_shadow mode, plan the same tool you would use autonomously, but it will be queued for human review.
@@ -326,6 +329,7 @@ Treat these workspace instructions as routing and editing policy. If they confli
 function scheduledPromptPrefix(input: RunIngestionAgentShadowInput): string {
   if (input.origin !== "scheduled") return "";
   const seedPageIds = [...new Set(input.seedPageIds ?? [])];
+  const explicitSourceCopyCreate = isScheduledExplicitSourceCopyCreate(input);
   const lines = [
     "Scheduled user-directed wiki edit mode:",
     "- This is not an external fact ingestion. It is a user-requested wiki editing run over selected pages and instructions.",
@@ -336,6 +340,7 @@ function scheduledPromptPrefix(input: RunIngestionAgentShadowInput): string {
     "- Use create_page when the user explicitly asks for a new page, after ruling out an existing duplicate target.",
     "- Otherwise, use create_page only as a last resort when the target knowledge cannot fit into existing selected pages.",
     "- If the user asks to write a new document from selected pages, synthesize a complete Markdown page from those source pages.",
+    "- If the user asks to copy/transcribe/move selected page contents into a new page, keep selected pages in their listed order, preserve headings/tables as Markdown, and do not ask whether to summarize unless the user instruction itself is contradictory.",
     "- Preserve selected source pages unless the user explicitly asks to delete, archive, or destructively merge them.",
     "- Selected pages are prefetched before planning when the scope is small; if any needed source content is still missing, call read_page before concluding the context is insufficient.",
     input.allowDestructiveScheduledAgent
@@ -351,6 +356,11 @@ function scheduledPromptPrefix(input: RunIngestionAgentShadowInput): string {
   if (seedPageIds.length > 0) {
     lines.push(
       `- Seed page IDs selected by the user: ${seedPageIds.join(", ")}`,
+    );
+  }
+  if (explicitSourceCopyCreate) {
+    lines.push(
+      "- This run is an explicit create_page + source-copy request. A request_human_review asking for summary/copy/section confirmation is not acceptable after selected pages have been read; create the requested page with the available source Markdown unless a real safety/tool constraint blocks execution.",
     );
   }
   const instruction = input.instruction?.trim();
@@ -643,6 +653,53 @@ function readPageIdFromToolCall(toolCall: NormalizedToolCall | undefined): {
   };
 }
 
+function userInstructionText(input: RunIngestionAgentShadowInput): string {
+  return [
+    input.instruction,
+    input.ingestion.titleHint,
+    input.ingestion.normalizedText,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join("\n");
+}
+
+function isExplicitNewPageRequest(text: string): boolean {
+  return /새(?:로운)?\s*페이지|신규\s*페이지|페이지\s*생성|create\s+(?:a\s+)?new\s+page|new\s+page/i.test(
+    text,
+  );
+}
+
+function isExplicitSourceCopyRequest(text: string): boolean {
+  return /옮겨\s*적|내용만[\s\S]{0,80}옮|모두[\s\S]{0,80}옮|전체[\s\S]{0,80}옮|그대로[\s\S]{0,80}(?:두고|유지|옮)|복사|copy|transcribe|verbatim/i.test(
+    text,
+  );
+}
+
+function isScheduledExplicitSourceCopyCreate(
+  input: RunIngestionAgentShadowInput,
+): boolean {
+  if (input.origin !== "scheduled") return false;
+  const text = userInstructionText(input);
+  return isExplicitNewPageRequest(text) && isExplicitSourceCopyRequest(text);
+}
+
+function forcedLargePlanRoutingEstimate(input: {
+  env?: NodeJS.ProcessEnv;
+  estimatedInputTokens: number;
+}): number {
+  return Math.max(
+    input.estimatedInputTokens,
+    Math.max(
+      1,
+      nonNegativeIntEnv(
+        input.env,
+        "AGENT_FAST_THRESHOLD_TOKENS",
+        DEFAULT_AGENT_FAST_THRESHOLD_TOKENS,
+      ),
+    ),
+  );
+}
+
 function normalizeRawPlan(raw: unknown): unknown {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return raw;
@@ -910,7 +967,9 @@ async function prefetchScheduledSeedPages(input: {
         error: execution.ok ? undefined : execution.error,
       });
       if (!execution.ok) continue;
-      const toolCall = toolCalls.find((call) => call.id === execution.toolCallId);
+      const toolCall = toolCalls.find(
+        (call) => call.id === execution.toolCallId,
+      );
       const read = readPageIdFromToolCall(toolCall);
       if (read.pageId && read.exactRead) input.readPageIds.add(read.pageId);
       const block = executionToContextBlock(
@@ -1377,6 +1436,7 @@ export async function runIngestionAgentShadow(
     contentType: input.ingestion.contentType,
     titleHint: input.ingestion.titleHint,
     env: input.env,
+    outputReserveTokens: EXPLORE_OUTPUT_RESERVE,
   });
 
   const initialState = createInitialAgentRunState(input.seedPageIds, [
@@ -1563,9 +1623,39 @@ export async function runIngestionAgentShadow(
     }
   }
 
+  const forceLargePlanModel = isScheduledExplicitSourceCopyCreate(input);
+  const prefetchModel = forceLargePlanModel
+    ? selectAgentModel({
+        estimatedInputTokens: forcedLargePlanRoutingEstimate({
+          env: input.env,
+          estimatedInputTokens: initialEstimate,
+        }),
+        baseProvider: base.provider,
+        baseModel: base.model,
+        env: input.env,
+      })
+    : exploreModel;
+  const prefetchDispatcher =
+    forceLargePlanModel &&
+    (prefetchModel.provider !== exploreModel.provider ||
+      prefetchModel.model !== exploreModel.model)
+      ? createAgentDispatcher({
+          db: input.db,
+          workspaceId: input.workspaceId,
+          state: initialState,
+          tools: input.tools,
+          env: input.env,
+          model: {
+            provider: prefetchModel.provider,
+            model: prefetchModel.model,
+          },
+          options: { maxCallsPerTurn: limits.maxCallsPerTurn },
+        })
+      : dispatcher;
+
   await prefetchScheduledSeedPages({
     runInput: input,
-    dispatcher,
+    dispatcher: prefetchDispatcher,
     seedPageIds: input.seedPageIds,
     readPageIds,
     toolContextBlocks,
@@ -1579,15 +1669,34 @@ export async function runIngestionAgentShadow(
       (sum, block) => sum + estimateTokens(block.text),
       0,
     );
+  const planRoutingEstimate = forceLargePlanModel
+    ? forcedLargePlanRoutingEstimate({
+        env: input.env,
+        estimatedInputTokens: planEstimate,
+      })
+    : planEstimate;
   const planModel = selectAgentModel({
-    estimatedInputTokens: planEstimate,
+    estimatedInputTokens: planRoutingEstimate,
     baseProvider: base.provider,
     baseModel: base.model,
     env: input.env,
   });
+  const planMaxTokens = agentModelOutputTokenBudget({
+    provider: planModel.provider,
+    model: planModel.model,
+  });
   traceStep(input, steps, "model_selection", {
     phase: "plan",
     ...planModel,
+    maxOutputTokens: planMaxTokens,
+    ...(forceLargePlanModel
+      ? {
+          forcedLargeContext: true,
+          unforcedEstimatedInputTokens: planEstimate,
+          reasonOverride:
+            "explicit scheduled source-copy create request needs full selected-page context and large output headroom",
+        }
+      : {}),
   });
 
   const planAdapter =
@@ -1622,6 +1731,7 @@ export async function runIngestionAgentShadow(
       priorTurns: allTurns,
       turnIndex,
       env: input.env,
+      outputReserveTokens: planMaxTokens,
     });
     if (packed.compactionNotices?.length) {
       traceStep(input, steps, "context_compaction", {
@@ -1641,7 +1751,7 @@ export async function runIngestionAgentShadow(
         { role: "user", content: packed.text },
       ],
       temperature: 0.1,
-      maxTokens: MODE_OUTPUT_RESERVE.agent_plan,
+      maxTokens: planMaxTokens,
       responseFormat: "json",
       budgetMeta: packed.budgetMeta,
     };
