@@ -113,6 +113,36 @@ async function withMaybeTransaction<T>(
   return fn(db);
 }
 
+function isUnsupportedAdvisoryLockError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const error = err as { code?: string; message?: string };
+  const message = error.message?.toLowerCase() ?? "";
+  return (
+    error.code === "42883" ||
+    error.code === "0A000" ||
+    (message.includes("pg_advisory_xact_lock") &&
+      (message.includes("does not exist") ||
+        message.includes("not supported") ||
+        message.includes("unsupported")))
+  );
+}
+
+async function acquireFolderSlugLock(
+  tx: AnyDb,
+  workspaceId: string,
+  parentFolderId: string | null,
+): Promise<void> {
+  if (typeof tx.execute !== "function") return;
+
+  try {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${workspaceId}::text), hashtext(${parentFolderId ?? ""}::text))`,
+    );
+  } catch (err) {
+    if (!isUnsupportedAdvisoryLockError(err)) throw err;
+  }
+}
+
 function sameParentCondition(parentFolderId: string | null) {
   return parentFolderId
     ? eq(folders.parentFolderId, parentFolderId)
@@ -703,11 +733,7 @@ export async function createFolderStructure(
     // Root folders (parent_folder_id IS NULL) are protected by a partial unique
     // index, but the application-side allocate-then-insert pattern still needs
     // an advisory lock to keep the read-before-write check from racing.
-    if (typeof tx.execute === "function") {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtext(${input.workspaceId}::text), hashtext(${parentFolderId ?? ""}::text))`,
-      );
-    }
+    await acquireFolderSlugLock(tx, input.workspaceId, parentFolderId);
 
     let slug: string;
     if (input.allocateUniqueSlug) {

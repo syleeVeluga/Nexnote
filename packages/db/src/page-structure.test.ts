@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { createFolderStructure, updatePageStructure } from "./page-structure.js";
+import {
+  createFolderStructure,
+  updatePageStructure,
+} from "./page-structure.js";
 import { folders, pages } from "./schema/index.js";
 
 const workspaceId = "11111111-1111-4111-8111-111111111111";
@@ -10,6 +13,7 @@ const folderId = "33333333-3333-4333-8333-333333333333";
 interface FakeOptions {
   selectQueue?: unknown[][];
   returningQueue?: unknown[][];
+  executeError?: unknown;
 }
 
 class FakeTx {
@@ -19,10 +23,12 @@ class FakeTx {
   executeCount = 0;
   private readonly selectQueue: unknown[][];
   private readonly returningQueue: unknown[][];
+  private readonly executeError: unknown;
 
   constructor(options: FakeOptions = {}) {
     this.selectQueue = options.selectQueue ?? [];
     this.returningQueue = options.returningQueue ?? [];
+    this.executeError = options.executeError;
   }
 
   select(_fields?: unknown) {
@@ -62,6 +68,7 @@ class FakeTx {
   async execute(_query: unknown) {
     this.executeQueries.push(_query);
     this.executeCount += 1;
+    if (this.executeError) throw this.executeError;
     return [] as unknown[];
   }
 
@@ -202,6 +209,50 @@ describe("createFolderStructure", () => {
     assert.ok(
       tx.inserts.some((i) => i.table === folders),
       "expected the folder insert to run inside the tx",
+    );
+  });
+
+  it("continues folder creation when advisory locks are unsupported", async () => {
+    const tx = new FakeTx({
+      executeError: {
+        code: "42883",
+        message:
+          "function pg_advisory_xact_lock(integer, integer) does not exist",
+      },
+      selectQueue: [
+        // ensureFolderSlugAvailable -> no conflict
+        [],
+        // nextFolderSortOrder -> no siblings
+        [],
+      ],
+      returningQueue: [
+        [
+          {
+            id: "folder-1",
+            workspaceId,
+            parentFolderId: null,
+            name: "Research",
+            slug: "research",
+            sortOrder: 0,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
+      ],
+    });
+
+    const folder = await createFolderStructure({
+      db: tx as never,
+      workspaceId,
+      name: "Research",
+      slug: "research",
+    });
+
+    assert.equal(folder.slug, "research");
+    assert.equal(tx.executeCount, 1);
+    assert.ok(
+      tx.inserts.some((i) => i.table === folders),
+      "expected unsupported advisory lock errors not to block folder insert",
     );
   });
 });
