@@ -8,7 +8,7 @@
 
 ## 1. 한눈에 보는 전체 동작 구조
 
-```
+```text
 ┌──────────────────────────┐                         ┌──────────────────────────┐
 │ API: scheduled-tasks.ts  │  cron 등록(BullMQ)      │ BullMQ Job Scheduler     │
 │ /reorganize-runs (수동)  │ ───────────────────────▶│ (scheduled-task:WS:TASK) │
